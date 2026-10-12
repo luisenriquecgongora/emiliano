@@ -1,0 +1,39 @@
+name: New Harness Adapter Request
+description: Propose adding support for a new agent harness or CLI tool
+labels: ["harness-adapter", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Use this template to request first-class support for an external agent harness in Emiliano.
+  - type: input
+    id: harness-name
+    attributes:
+      label: Harness / Tool Name
+      placeholder: e.g. Goose / Cline / Continue / Cursor Background Agent
+    validations:
+      required: true
+  - type: input
+    id: harness-url
+    attributes:
+      label: Repository / Website URL
+      placeholder: https://github.com/...
+    validations:
+      required: true
+  - type: dropdown
+    id: interface-type
+    attributes:
+      label: How does this tool interact?
+      options:
+        - Interactive CLI / Terminal (PTY / stdin-stdout)
+        - Headless API / REST / WebSocket
+        - Model Context Protocol (MCP) Server
+        - VS Code Extension / IDE hook
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Intended Use Case in Emiliano
+      description: How should Emiliano orchestrate this harness? When should tasks be delegated to it?
+    validations:
+      required: true

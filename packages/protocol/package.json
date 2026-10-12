@@ -1,0 +1,8 @@
+{
+  "name": "@emiliano/protocol",
+  "version": "0.1.0",
+  "description": "Shared protocol and types for Emiliano",
+  "main": "types.ts",
+  "types": "types.ts",
+  "private": true
+}

@@ -1,0 +1,31 @@
+# Emiliano Configuration File (emiliano.yaml)
+# Copy this file to emiliano.yaml or ~/.emiliano/config.yaml
+
+models:
+  # Default provider: "ollama" | "anthropic" | "openai" | "deepseek"
+  default_provider: "ollama"
+
+  # Local Ollama endpoint
+  ollama_base_url: "http://localhost:11434"
+
+  # Default model names
+  local_model: "qwen2.5-coder:32b"
+  remote_model: "claude-3-7-sonnet-20250219"
+
+  # Automated fallback chain: tried top to bottom
+  fallback_chain:
+    - "ollama/qwen2.5-coder:32b"
+    - "deepseek/deepseek-chat"
+    - "anthropic/claude-3-7-sonnet-20250219"
+
+harnesses:
+  # Binary or command names for external harnesses
+  claude_code_cmd: "claude"
+  antigravity_cmd: "agy"
+  opencode_cmd: "opencode"
+  codex_cmd: "codex"
+
+server:
+  host: "127.0.0.1"
+  port: 8765
+  mutex_port: 51838

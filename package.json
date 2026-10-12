@@ -1,0 +1,21 @@
+{
+  "name": "emiliano",
+  "version": "0.1.0",
+  "description": "Unified Meta-Harness & Autonomous Desktop Cowork Platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:desktop": "yarn workspace @emiliano/desktop dev",
+    "build:desktop": "yarn workspace @emiliano/desktop build",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,py}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.5.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "yarn@1.22.22"
+}

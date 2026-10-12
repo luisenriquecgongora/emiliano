@@ -1,0 +1,45 @@
+name: Bug Report
+description: Create a report to help us fix a bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting an issue with Emiliano!
+  - type: input
+    id: os
+    attributes:
+      label: Operating System & Version
+      placeholder: Windows 11 / macOS Sequoia / Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Emiliano Version / Commit SHA
+      placeholder: e.g. v0.1.0 or main@3a4b5c
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Provide clear, minimal steps to reproduce the issue.
+      placeholder: |
+        1. Run `python -m emiliano.cli run "..."`
+        2. Focus app...
+        3. Observe error...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Output
+      description: Paste any error stack traces or terminal output.
+      render: shell
