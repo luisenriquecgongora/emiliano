@@ -1,16 +1,19 @@
 """
 Command-line Interface for Emiliano.
 Allows launching the daemon server or running standalone tasks directly in terminal.
+Features fast startup (lazy imports), provider discovery, doctor diagnostics,
+and unified routing across direct models and agent harnesses.
 """
 
 from __future__ import annotations
 
 import asyncio
-import shutil
+import os
+import sys
+from typing import Optional
 import click
 from .core.config import load_config
 from .core.single_instance import SingleInstanceGuard
-from .direct.client import UnifiedLLMClient
 
 
 @click.group()
@@ -40,63 +43,154 @@ def server(host: str, port: int):
 
 @cli.command()
 def harnesses():
-    """Check availability of external agent harnesses on system PATH."""
+    """Check availability, version, and authentication of external agent harnesses."""
+    from .core.registry import CapabilityRegistry
+    from .core.capabilities import CapabilityStatus
+
     config = load_config()
-    items = [
-        ("Claude Code", config.harnesses.claude_code_cmd),
-        ("Antigravity (AGY)", config.harnesses.antigravity_cmd),
-        ("OpenCode", config.harnesses.opencode_cmd),
-        ("Codex", config.harnesses.codex_cmd),
-    ]
-    click.echo("External Harness Status:")
-    for name, cmd in items:
-        path = shutil.which(cmd)
-        status = click.style(f"Found ({path})", fg="green") if path else click.style("Not Found in PATH", fg="yellow")
-        click.echo(f"  • {name} [{cmd}]: {status}")
+    registry = CapabilityRegistry(config=config)
+
+    click.echo(click.style("External Agent Harness Status:", bold=True))
+
+    async def _check():
+        caps = await registry.discover_all(test_harness_usability=True)
+        harnesses_list = [c for c in caps.values() if c.execution_type.value == "agent_harness"]
+        for h in harnesses_list:
+            if h.status == CapabilityStatus.READY:
+                status_str = click.style(f"Ready ({h.version or 'ok'})", fg="green")
+            elif h.status == CapabilityStatus.UNAUTHENTICATED:
+                status_str = click.style(f"Unauthenticated ({h.status_message})", fg="yellow")
+            elif h.status == CapabilityStatus.UNAVAILABLE:
+                status_str = click.style(f"Unavailable ({h.status_message})", fg="yellow")
+            else:
+                status_str = click.style("Not Found in PATH", fg="red")
+
+            path_str = f" [{h.executable_path}]" if h.executable_path else ""
+            click.echo(f"  • {click.style(h.display_name, bold=True)}{path_str}: {status_str}")
+
+    asyncio.run(_check())
 
 
 @cli.command()
 def models():
-    """List detected local Ollama models and fallback chain."""
-    config = load_config()
-    client = UnifiedLLMClient(ollama_base_url=config.models.ollama_base_url)
+    """List detected local Ollama models, dynamic selection, and API providers."""
+    from .core.registry import CapabilityRegistry
+    from .core.capabilities import CapabilityStatus
 
-    click.echo("Configured Model Fallback Chain:")
+    config = load_config()
+    registry = CapabilityRegistry(config=config)
+
+    click.echo(click.style("Configured Fallback Chain (config):", bold=True))
     for idx, model in enumerate(config.models.fallback_chain, 1):
         click.echo(f"  {idx}. {model}")
 
-    click.echo("\nChecking Local Ollama Models...")
-    try:
-        local_models = asyncio.run(client.list_local_ollama_models())
-        if local_models:
-            for m in local_models:
-                click.echo(f"  ✓ {m}")
+    click.echo(click.style("\nLocal Ollama Service & Models:", bold=True))
+
+    async def _check_models():
+        caps = await registry.discover_all(test_harness_usability=False)
+        ollama_cap = caps.get("ollama")
+
+        if ollama_cap and ollama_cap.status == CapabilityStatus.READY:
+            click.echo(f"  Status: {click.style('Running & Responding', fg='green')} at {config.models.ollama_base_url}")
+            click.echo(f"  Auto-selected Model: {click.style(ollama_cap.selected_model or 'None', fg='cyan', bold=True)}")
+            click.echo("  Installed Models:")
+            for m in ollama_cap.available_models:
+                marker = "★" if m == ollama_cap.selected_model else "✓"
+                click.echo(f"    {marker} {m}")
         else:
-            click.echo(click.style("  No local models detected (or Ollama not running)", fg="yellow"))
-    except Exception as e:
-        click.echo(click.style(f"  Error checking Ollama: {e}", fg="red"))
+            msg = ollama_cap.status_message if ollama_cap else "Not available"
+            click.echo(f"  Status: {click.style(msg, fg='yellow')}")
+
+        click.echo(click.style("\nRemote API Providers:", bold=True))
+        api_caps = [c for c in caps.values() if c.execution_type.value == "direct_model" and c.name != "ollama"]
+        for a in api_caps:
+            if a.status == CapabilityStatus.READY:
+                status_str = click.style(a.status_message, fg="green")
+            else:
+                status_str = click.style(a.status_message, fg="yellow")
+            click.echo(f"  • {click.style(a.display_name, bold=True)}: {status_str}")
+
+    asyncio.run(_check_models())
+
+
+@cli.command()
+def doctor():
+    """Comprehensive system diagnosis for models, harnesses, and credentials."""
+    from .core.registry import CapabilityRegistry
+    from .core.capabilities import CapabilityStatus
+
+    config = load_config()
+    registry = CapabilityRegistry(config=config)
+
+    click.echo(click.style("=== Emiliano Diagnostic Doctor ===", bold=True, fg="cyan"))
+    click.echo(f"Platform: {sys.platform} | Python: {sys.version.split()[0]}")
+    click.echo(f"Default Execution Policy: {config.execution_policy}")
+
+    async def _diagnose():
+        click.echo("\nDiscovering capabilities...")
+        caps = await registry.discover_all(test_harness_usability=True)
+
+        click.echo("\n" + click.style("[Direct Model Providers]", bold=True))
+        for c in caps.values():
+            if c.execution_type.value == "direct_model":
+                color = "green" if c.is_usable else ("yellow" if c.status == CapabilityStatus.UNAUTHENTICATED else "red")
+                click.echo(f"  • {c.display_name:20}: {click.style(c.status.value.upper(), fg=color):18} | {c.status_message}")
+
+        click.echo("\n" + click.style("[External Agent Harnesses]", bold=True))
+        for c in caps.values():
+            if c.execution_type.value == "agent_harness":
+                color = "green" if c.is_usable else ("yellow" if c.status == CapabilityStatus.UNAUTHENTICATED else "red")
+                click.echo(f"  • {c.display_name:20}: {click.style(c.status.value.upper(), fg=color):18} | {c.status_message}")
+
+        usable = [c for c in caps.values() if c.is_usable]
+        click.echo("\n" + click.style(f"Summary: {len(usable)} of {len(caps)} capabilities ready for execution.", bold=True))
+        if usable:
+            click.echo("Ready routes: " + ", ".join([u.display_name for u in usable]))
+        else:
+            click.echo(click.style("Warning: No execution routes are currently ready. Check above diagnostics.", fg="yellow"))
+
+    asyncio.run(_diagnose())
 
 
 @cli.command()
 @click.argument("goal")
-@click.option("--model", default=None, help="Override model name")
-def run(goal: str, model: str):
-    """Execute a task directly from the command line."""
-    config = load_config()
-    client = UnifiedLLMClient(
-        ollama_base_url=config.models.ollama_base_url,
-        fallback_chain=config.models.fallback_chain
-    )
+@click.option("--policy", "-p", default="auto", type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Execution routing policy")
+@click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
+@click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
+@click.option("--model", "-m", default=None, help="Override model name")
+@click.option("--timeout", default=180.0, type=float, help="Task execution timeout in seconds")
+def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str], model: Optional[str], timeout: float):
+    """Execute a task directly from the command line using intelligent routing."""
+    from .core.dispatcher import ExecutionDispatcher
+
+    dispatcher = ExecutionDispatcher()
+
     click.echo(click.style(f"Goal: {goal}", bold=True))
-    messages = [
-        {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
-        {"role": "user", "content": goal}
-    ]
+
+    def _on_route(cap):
+        model_info = f" (model: {cap.selected_model})" if cap.selected_model else ""
+        click.echo(click.style(f"[Emiliano] Routing to {cap.display_name}{model_info} via {cap.execution_type.value}...", fg="cyan"))
+
+    def _on_chunk(chunk: str):
+        click.echo(chunk, nl=False)
 
     async def _execute():
-        async for chunk in client.stream_completion(messages, model_name=model):
-            click.echo(chunk, nl=False)
-        click.echo()
+        try:
+            cap, full_output = await dispatcher.execute_task(
+                goal=goal,
+                policy=policy,
+                harness_override=harness,
+                provider_override=provider,
+                model_override=model,
+                on_chunk=_on_chunk,
+                on_route_selected=_on_route,
+                timeout=timeout,
+            )
+            click.echo()
+            click.echo(click.style(f"\n[Emiliano] Completed successfully via {cap.display_name}.", fg="green"))
+        except Exception as e:
+            click.echo(click.style(f"\n[Emiliano Error] {e}", fg="red"), err=True)
+            sys.exit(1)
 
     asyncio.run(_execute())
 

@@ -13,10 +13,12 @@ from pydantic import BaseModel, Field
 
 
 class ModelConfig(BaseModel):
-    default_provider: str = "ollama"  # "ollama" | "anthropic" | "openai" | "deepseek"
+    default_provider: str = "ollama"  # "ollama" | "anthropic" | "openai" | "deepseek" | "gemini"
     ollama_base_url: str = "http://localhost:11434"
     local_model: str = "qwen2.5-coder:32b"
     remote_model: str = "claude-3-7-sonnet-20250219"
+    auto_start_ollama: bool = False
+    ollama_timeout: float = 120.0
     fallback_chain: List[str] = Field(
         default_factory=lambda: [
             "ollama/qwen2.5-coder:32b",
@@ -24,6 +26,10 @@ class ModelConfig(BaseModel):
             "anthropic/claude-3-7-sonnet-20250219",
         ]
     )
+    anthropic_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    deepseek_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
 
 class HarnessPathsConfig(BaseModel):
@@ -40,6 +46,8 @@ class ServerConfig(BaseModel):
 
 
 class EmilianoConfig(BaseModel):
+    execution_policy: str = "auto"  # "auto" | "harness" | "local" | "api"
+    preferred_harness: Optional[str] = None
     models: ModelConfig = Field(default_factory=ModelConfig)
     harnesses: HarnessPathsConfig = Field(default_factory=HarnessPathsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
