@@ -58,13 +58,53 @@ emiliano/
 ## Development Setup
 
 ### 1. Engine (Python)
+
+Navigate to the engine directory and create a virtual environment:
+
 ```bash
 cd packages/engine
 uv venv
-source .venv/bin/activate # or .venv\Scripts\activate on Windows
-uv pip install -e .
-python -m emiliano.cli --help
 ```
+
+Activate the environment based on your operating system and shell:
+
+- **Linux / macOS**:
+  ```bash
+  source .venv/bin/activate
+  ```
+- **Windows (Git Bash / MINGW64)**:
+  ```bash
+  source .venv/Scripts/activate
+  ```
+  *(Note: Do not run `source .venv/bin/activate` in Git Bash on Windows; virtual environments on Windows create `.venv/Scripts/` rather than `.venv/bin/`.)*
+- **Windows (PowerShell)**:
+  ```powershell
+  .venv\Scripts\Activate.ps1
+  ```
+- **Windows (Command Prompt)**:
+  ```cmd
+  .venv\Scripts\activate.bat
+  ```
+
+Install the package in editable mode:
+
+```bash
+uv pip install -e .
+```
+
+Verify the installation and check system diagnostics:
+
+```bash
+emiliano --help
+emiliano doctor
+```
+
+> **CLI Commands vs. Flags**: Subcommands in Emiliano are called as positional commands, not flags:
+> - `emiliano doctor` (not `--doctor`): Full health check of models, credentials, and harnesses
+> - `emiliano harnesses` (not `--harnesses`): Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
+> - `emiliano models` (not `--models`): Detected local Ollama models and remote API providers
+> - `emiliano run "Your task"`: Direct execution with automatic provider/harness routing
+> - `emiliano server`: Background WebSocket daemon for Desktop Cowork UI
 
 ### 2. Desktop UI (Electron)
 ```bash
