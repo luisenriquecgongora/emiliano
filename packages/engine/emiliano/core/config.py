@@ -5,9 +5,8 @@ Loads settings from emiliano.yaml, environment variables, or sensible defaults.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 import yaml
 from pydantic import BaseModel, Field
 

@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import httpx
 try:
@@ -126,6 +126,22 @@ class OllamaManager:
             logger.debug(f"[Ollama] Error querying /api/tags: {e}")
         return []
 
+    @staticmethod
+    def match_installed(installed_models: List[str], requested_model: str) -> Optional[str]:
+        """
+        Returns the installed model matching requested_model exactly, or by partial name
+        (e.g. "qwen3.5" matches "qwen3.5:2b"). Returns None when nothing matches, so callers
+        can tell a genuine local model apart from a remote model name.
+        """
+        req_clean = requested_model.lower().removeprefix("ollama/")
+        for m in installed_models:
+            if m.lower() == req_clean:
+                return m
+        for m in installed_models:
+            if req_clean in m.lower():
+                return m
+        return None
+
     def select_best_model(self, installed_models: List[str], requested_model: Optional[str] = None) -> Optional[str]:
         """
         Selects an installed model:
@@ -136,17 +152,10 @@ class OllamaManager:
         if not installed_models:
             return None
 
-        # Clean model names (strip :latest or tags for comparisons if needed)
         if requested_model:
-            req_clean = requested_model.lower().removeprefix("ollama/")
-            # Exact match
-            for m in installed_models:
-                if m.lower() == req_clean:
-                    return m
-            # Partial match (e.g. "qwen3.5" matches "qwen3.5:2b")
-            for m in installed_models:
-                if req_clean in m.lower():
-                    return m
+            matched = self.match_installed(installed_models, requested_model)
+            if matched:
+                return matched
 
         # Priority keywords for automatic selection (coding tasks first)
         keywords = ["coder", "code", "deepseek", "qwen", "llama", "mistral", "instruct"]

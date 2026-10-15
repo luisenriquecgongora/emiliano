@@ -12,9 +12,12 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -23,6 +26,18 @@ except ImportError:
     logger = logging.getLogger("emiliano")
 
 from .pty_mgr import SubprocessPTYSession
+
+# Characters cmd.exe interprets even inside list2cmdline quoting. npm-installed CLIs are
+# .cmd shims on Windows, so any argument containing these could inject shell commands.
+CMD_METACHARS = frozenset('"&|<>^%!\r\n')
+
+
+@dataclass
+class HarnessInvocation:
+    """How to launch a task: command-line args, optional prompt on stdin, and temp files to clean up."""
+    args: List[str]
+    stdin_text: Optional[str] = None
+    temp_files: List[str] = field(default_factory=list)
 
 
 class BaseHarness(ABC):
@@ -120,6 +135,13 @@ class BaseHarness(ABC):
         """Builds safe command-line arguments for task execution."""
         pass
 
+    def build_invocation(self, prompt: str) -> HarnessInvocation:
+        """
+        Builds the invocation used by run_task. Harnesses that can read the prompt from
+        stdin or a file override this so the prompt never appears on the command line.
+        """
+        return HarnessInvocation(args=self.build_task_command(prompt))
+
     def run_task(
         self,
         prompt: str,
@@ -129,53 +151,91 @@ class BaseHarness(ABC):
     ) -> Tuple[int, str, str]:
         """
         Executes a task non-interactively, capturing stdout/stderr and streaming chunks safely.
+        Both pipes are drained on background threads so the timeout is always enforced.
         """
         exe = self.resolve_executable()
         if not exe:
             return 1, "", f"Harness executable '{self.command}' not found."
 
-        cmd_args = self.build_task_command(prompt)
+        inv = self.build_invocation(prompt)
         use_shell = sys.platform == "win32" and exe.lower().endswith((".cmd", ".bat"))
 
-        logger.info(f"[Harness] Running {self.name}: {cmd_args[:2]}...")
         stdout_chunks: List[str] = []
         stderr_chunks: List[str] = []
+        proc: Optional[subprocess.Popen] = None
 
         try:
+            if use_shell and any(ch in CMD_METACHARS for arg in inv.args[1:] for ch in arg):
+                return 1, "", (
+                    f"Refusing to run {self.display_name}: it is a .cmd script on Windows and the prompt "
+                    "would pass through cmd.exe, which interprets characters like \" & | < > ^ % !. "
+                    "Remove those characters or use a different harness."
+                )
+
+            logger.info(f"[Harness] Running {self.name}: {inv.args[:2]}...")
             proc = subprocess.Popen(
-                cmd_args,
+                inv.args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE if inv.stdin_text is not None else subprocess.DEVNULL,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 cwd=cwd or os.getcwd(),
                 shell=use_shell,
                 bufsize=1,
             )
 
-            # Read stdout line by line
-            if proc.stdout:
+            def _pump_stdout() -> None:
                 for line in iter(proc.stdout.readline, ""):
                     stdout_chunks.append(line)
                     if on_chunk:
                         on_chunk(line)
-                proc.stdout.close()
 
-            stderr_out = proc.stderr.read() if proc.stderr else ""
-            if stderr_out:
-                stderr_chunks.append(stderr_out)
-            if proc.stderr:
-                proc.stderr.close()
+            def _pump_stderr() -> None:
+                stderr_chunks.append(proc.stderr.read())
+
+            def _feed_stdin() -> None:
+                try:
+                    proc.stdin.write(inv.stdin_text)
+                    proc.stdin.close()
+                except OSError:
+                    pass  # Process exited before reading its input; its exit code reports why
+
+            workers = [threading.Thread(target=_pump_stdout, daemon=True), threading.Thread(target=_pump_stderr, daemon=True)]
+            if inv.stdin_text is not None:
+                workers.append(threading.Thread(target=_feed_stdin, daemon=True))
+            for w in workers:
+                w.start()
 
             proc.wait(timeout=timeout)
-            return proc.returncode or 0, "".join(stdout_chunks), "".join(stderr_chunks)
+            for w in workers:
+                w.join(timeout=5)
+            return proc.returncode, "".join(stdout_chunks), "".join(stderr_chunks)
 
         except subprocess.TimeoutExpired:
-            if proc:
-                proc.kill()
+            self._kill_process_tree(proc)
             return 124, "".join(stdout_chunks), f"Task timed out after {timeout} seconds."
         except Exception as e:
+            if proc:
+                self._kill_process_tree(proc)
             return 1, "".join(stdout_chunks), str(e)
+        finally:
+            for path in inv.temp_files:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _kill_process_tree(proc: subprocess.Popen) -> None:
+        """Kills the process and its children (on Windows, killing cmd.exe alone leaves node running)."""
+        if sys.platform == "win32" and isinstance(proc.pid, int):
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        try:
+            proc.kill()
+        except OSError:
+            pass
 
     def start_task(
         self,
@@ -230,6 +290,11 @@ class ClaudeCodeHarness(BaseHarness):
         # Claude Code non-interactive print mode
         return [exe, "-p", prompt]
 
+    def build_invocation(self, prompt: str) -> HarnessInvocation:
+        # `claude -p` reads the prompt from stdin when no prompt argument is given
+        exe = self.resolve_executable() or self.command
+        return HarnessInvocation(args=[exe, "-p"], stdin_text=prompt)
+
 
 class CodexHarness(BaseHarness):
     def __init__(self, command: str = "codex"):
@@ -260,6 +325,11 @@ class CodexHarness(BaseHarness):
         exe = self.resolve_executable() or self.command
         # Codex non-interactive exec mode
         return [exe, "exec", prompt]
+
+    def build_invocation(self, prompt: str) -> HarnessInvocation:
+        # `codex exec -` reads the prompt from stdin
+        exe = self.resolve_executable() or self.command
+        return HarnessInvocation(args=[exe, "exec", "-"], stdin_text=prompt)
 
 
 class AntigravityHarness(BaseHarness):
@@ -311,3 +381,15 @@ class OpenCodeHarness(BaseHarness):
         exe = self.resolve_executable() or self.command
         # opencode run <prompt>
         return [exe, "run", prompt]
+
+    def build_invocation(self, prompt: str) -> HarnessInvocation:
+        # `opencode run` has no stdin mode, so pass the prompt as an attached file.
+        # The message goes before -f because -f is an array option and would swallow it.
+        exe = self.resolve_executable() or self.command
+        fd, path = tempfile.mkstemp(prefix="emiliano-prompt-", suffix=".md")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(prompt)
+        return HarnessInvocation(
+            args=[exe, "run", "Follow the instructions in the attached file.", "-f", path],
+            temp_files=[path],
+        )

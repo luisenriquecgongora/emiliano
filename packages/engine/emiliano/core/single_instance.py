@@ -4,7 +4,6 @@ Prevents duplicate engine daemon processes from fighting over OS input hooks or 
 """
 
 import socket
-import sys
 from loguru import logger
 
 DEFAULT_MUTEX_PORT = 51838  # Distinct from robot_host's 51837

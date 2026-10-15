@@ -13,8 +13,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from emiliano.core.capabilities import Capability, CapabilityStatus, ExecutionType
 from emiliano.core.config import EmilianoConfig
-from emiliano.core.dispatcher import ExecutionDispatcher, RoutingPolicy
-from emiliano.core.registry import CapabilityRegistry
+from emiliano.core.dispatcher import ExecutionDispatcher
 from emiliano.direct.client import UnifiedLLMClient
 from emiliano.direct.credentials import CredentialManager, redact_key
 from emiliano.direct.ollama import OllamaManager
@@ -291,6 +290,156 @@ class TestExecutionRoutingAndFallback(unittest.TestCase):
                 self.assertIn("ollama/qwen3.5:2b", models)
                 self.assertNotIn("deepseek/deepseek-chat", models)
                 self.assertNotIn("anthropic/claude-3-7-sonnet-20250219", models)
+
+
+class _FakeStream:
+    """Async iterator mimicking a LiteLLM streaming response."""
+
+    def __init__(self, deltas):
+        self._chunks = [MagicMock(choices=[MagicMock(delta=d)]) for d in deltas]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._chunks:
+            raise StopAsyncIteration
+        return self._chunks.pop(0)
+
+
+def _delta(content=None, reasoning=None):
+    d = MagicMock()
+    d.content = content
+    d.reasoning_content = reasoning
+    return d
+
+
+async def _collect(agen):
+    return [c async for c in agen]
+
+
+class TestRoutingRegressions(unittest.TestCase):
+    def test_remote_model_not_rerouted_to_ollama(self):
+        client = UnifiedLLMClient()
+        with patch.object(client, "list_local_ollama_models", new_callable=AsyncMock, return_value=["qwen3.5:2b"]):
+            candidates = asyncio.run(client.get_viable_candidates("claude-sonnet-5-5"))
+            self.assertEqual(candidates, [("claude-sonnet-5-5", None)])
+            # A bare name that really is installed still resolves locally
+            candidates = asyncio.run(client.get_viable_candidates("qwen3.5"))
+            self.assertEqual(candidates, [("ollama/qwen3.5:2b", client.ollama_base_url)])
+
+    def test_dispatcher_qualifies_model_with_provider(self):
+        def cap(name, model):
+            return Capability(name=name, display_name=name, execution_type=ExecutionType.DIRECT_MODEL, selected_model=model)
+
+        self.assertEqual(ExecutionDispatcher._litellm_model_id(cap("anthropic", "claude-sonnet-5-5")), "anthropic/claude-sonnet-5-5")
+        self.assertEqual(ExecutionDispatcher._litellm_model_id(cap("ollama", "qwen3.5:2b")), "ollama/qwen3.5:2b")
+        self.assertEqual(ExecutionDispatcher._litellm_model_id(cap("ollama", "hf.co/org/model")), "ollama/hf.co/org/model")
+        self.assertEqual(ExecutionDispatcher._litellm_model_id(cap("openai", "openai/gpt-5")), "openai/gpt-5")
+
+    def test_harness_override_aliases(self):
+        dispatcher = ExecutionDispatcher()
+        mock_caps = {
+            "antigravity": Capability(
+                name="antigravity",
+                display_name="Antigravity (AGY)",
+                execution_type=ExecutionType.AGENT_HARNESS,
+                status=CapabilityStatus.READY,
+            )
+        }
+        with patch.object(dispatcher.registry, "discover_all", new_callable=AsyncMock, return_value=mock_caps):
+            routes = asyncio.run(dispatcher.route_task("x", harness_override="agy"))
+            self.assertEqual(routes[0].name, "antigravity")
+
+    def test_config_keys_used_without_touching_environ(self):
+        cfg = EmilianoConfig()
+        cfg.models.anthropic_api_key = "sk-from-config-file-123"
+        with patch.dict(os.environ, {}, clear=True):
+            client = UnifiedLLMClient(config=cfg)
+            stream = _FakeStream([_delta(content="hello")])
+            with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
+                out = asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="anthropic/claude-sonnet-5-5")))
+            self.assertEqual(out, ["hello"])
+            self.assertEqual(mock_acompletion.call_args.kwargs["api_key"], "sk-from-config-file-123")
+            self.assertNotIn("ANTHROPIC_API_KEY", os.environ)
+
+    def test_reasoning_only_response_is_a_failure(self):
+        client = UnifiedLLMClient()
+        stream = _FakeStream([_delta(reasoning="Thinking..."), _delta(reasoning="still thinking")])
+        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream):
+            with self.assertRaises(RuntimeError) as ctx:
+                asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b")))
+        self.assertIn("empty response", str(ctx.exception))
+        self.assertIn("reasoning", str(ctx.exception))
+
+    def test_empty_harness_output_is_a_failure(self):
+        dispatcher = ExecutionDispatcher()
+        codex_cap = Capability(name="codex", display_name="Codex", execution_type=ExecutionType.AGENT_HARNESS, status=CapabilityStatus.READY)
+        with patch.object(dispatcher, "route_task", new_callable=AsyncMock, return_value=[codex_cap]):
+            with patch.object(CodexHarness, "run_task", return_value=(0, "", "")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    asyncio.run(dispatcher.execute_task("x"))
+        self.assertIn("no output", str(ctx.exception))
+
+
+class TestHarnessPromptSafety(unittest.TestCase):
+    PROMPT = 'fix it" & calc & "'
+
+    def test_prompt_sent_via_stdin_not_argv(self):
+        for harness in (ClaudeCodeHarness(), CodexHarness()):
+            harness._resolved_path = "C:\\fake\\tool.cmd"
+            with patch.object(harness, "resolve_executable", return_value="C:\\fake\\tool.cmd"):
+                inv = harness.build_invocation(self.PROMPT)
+            self.assertEqual(inv.stdin_text, self.PROMPT)
+            self.assertFalse(any(self.PROMPT in a for a in inv.args))
+
+    def test_opencode_prompt_sent_via_temp_file_and_cleaned_up(self):
+        oc = OpenCodeHarness()
+        with patch.object(oc, "resolve_executable", return_value="opencode"):
+            inv = oc.build_invocation(self.PROMPT)
+        try:
+            self.assertFalse(any(self.PROMPT in a for a in inv.args))
+            path = inv.args[inv.args.index("-f") + 1]
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), self.PROMPT)
+        finally:
+            for p in inv.temp_files:
+                os.remove(p)
+
+        # run_task removes the temp file afterwards
+        with patch.object(oc, "resolve_executable", return_value="opencode"):
+            with patch("subprocess.Popen") as mock_popen:
+                proc = MagicMock()
+                proc.stdout.readline.side_effect = ["done\n", ""]
+                proc.stderr.read.return_value = ""
+                proc.returncode = 0
+                mock_popen.return_value = proc
+                oc.run_task(self.PROMPT)
+                used_path = mock_popen.call_args.args[0][-1]
+        self.assertFalse(os.path.exists(used_path))
+
+    def test_cmd_shim_refuses_metacharacters_on_argv(self):
+        agy = AntigravityHarness()  # passes the prompt as an argument
+        with patch("sys.platform", "win32"), patch.object(agy, "resolve_executable", return_value="C:\\fake\\agy.cmd"):
+            with patch("subprocess.Popen") as mock_popen:
+                code, _, err = agy.run_task(self.PROMPT)
+        self.assertEqual(code, 1)
+        self.assertIn("cmd.exe", err)
+        mock_popen.assert_not_called()
+
+    def test_run_task_writes_prompt_to_stdin(self):
+        claude = ClaudeCodeHarness()
+        with patch.object(claude, "resolve_executable", return_value="claude"):
+            with patch("subprocess.Popen") as mock_popen:
+                proc = MagicMock()
+                proc.stdout.readline.side_effect = ["ok\n", ""]
+                proc.stderr.read.return_value = ""
+                proc.returncode = 0
+                mock_popen.return_value = proc
+                code, out, _ = claude.run_task(self.PROMPT)
+        self.assertEqual((code, out), (0, "ok\n"))
+        proc.stdin.write.assert_called_once_with(self.PROMPT)
+        self.assertEqual(mock_popen.call_args.args[0], ["claude", "-p"])
 
 
 if __name__ == "__main__":
