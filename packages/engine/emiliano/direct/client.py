@@ -8,13 +8,13 @@ from __future__ import annotations
 import os
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
-import httpx
 try:
     from loguru import logger
 except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
 
+from ..core.config import EmilianoConfig
 from .credentials import CredentialManager
 from .ollama import OllamaManager
 
@@ -25,6 +25,7 @@ class UnifiedLLMClient:
         ollama_base_url: str = "http://localhost:11434",
         fallback_chain: Optional[List[str]] = None,
         auto_start_ollama: bool = False,
+        config: Optional[EmilianoConfig] = None,
     ):
         self.ollama_base_url = ollama_base_url.rstrip("/")
         self.fallback_chain = fallback_chain
@@ -32,7 +33,8 @@ class UnifiedLLMClient:
             base_url=self.ollama_base_url,
             auto_start=auto_start_ollama,
         )
-        self.cred_mgr = CredentialManager()
+        # Pass config so API keys stored in emiliano.yaml are found, not just env vars
+        self.cred_mgr = CredentialManager(config=config)
 
     async def list_local_ollama_models(self) -> List[str]:
         """Queries local Ollama instance for installed models."""
@@ -53,8 +55,10 @@ class UnifiedLLMClient:
             if target.startswith("ollama/"):
                 api_base = self.ollama_base_url
             elif "/" not in target:
+                # Only treat a bare name as local when it really matches an installed model;
+                # otherwise remote names like "gpt-4o" would be silently rerouted to Ollama.
                 installed = await self.list_local_ollama_models()
-                matched = self.ollama_mgr.select_best_model(installed, requested_model=target)
+                matched = self.ollama_mgr.match_installed(installed, target)
                 if matched:
                     target = f"ollama/{matched}"
                     api_base = self.ollama_base_url
@@ -121,6 +125,8 @@ class UnifiedLLMClient:
         """
         # Lazy import litellm to avoid blocking CLI startup
         os.environ["LITELLM_TELEMETRY"] = "False"
+        # Use the bundled cost map instead of downloading it on every run
+        os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
         try:
             import litellm
             litellm.telemetry = False
@@ -148,21 +154,30 @@ class UnifiedLLMClient:
         for target_model, api_base in candidates:
             logger.info(f"[LLM] Attempting completion with model: {target_model} (api_base={api_base})")
             try:
-                # Add provider keys to environment if retrieved from config
-                self._inject_provider_key(target_model)
-
+                # Pass the key per call rather than via os.environ, so it never leaks
+                # into harness subprocesses (e.g. switching Claude Code to API billing)
                 response = await litellm.acompletion(
                     model=target_model,
                     messages=messages,
                     stream=True,
                     temperature=temperature,
                     api_base=api_base,
+                    api_key=self._provider_key(target_model),
                     timeout=timeout,
                 )
+                produced_content = False
+                reasoning_chars = 0
                 async for chunk in response:
-                    content = chunk.choices[0].delta.content or ""
+                    delta = chunk.choices[0].delta
+                    content = delta.content or ""
+                    reasoning_chars += len(getattr(delta, "reasoning_content", None) or "")
                     if content:
+                        produced_content = True
                         yield content
+                if not produced_content:
+                    # Thinking models (e.g. qwen3.5) can spend the whole run reasoning and never answer
+                    detail = f" (it produced {reasoning_chars} chars of reasoning but no answer)" if reasoning_chars else ""
+                    raise RuntimeError(f"Model {target_model} returned an empty response{detail}")
                 return
             except Exception as e:
                 logger.warning(f"[LLM] Model {target_model} failed: {e}. Trying next viable candidate...")
@@ -171,22 +186,17 @@ class UnifiedLLMClient:
         if last_error:
             raise RuntimeError(f"All viable models failed. Last error: {last_error}")
 
-    def _inject_provider_key(self, model_name: str) -> None:
-        """Injects API key into os.environ for litellm if present in config."""
+    def _provider_key(self, model_name: str) -> Optional[str]:
+        """Returns the API key for the model's provider (env or config), or None for local models."""
         m = model_name.lower()
-        if "anthropic" in m and not os.environ.get("ANTHROPIC_API_KEY"):
-            k = self.cred_mgr.get_anthropic_key()
-            if k:
-                os.environ["ANTHROPIC_API_KEY"] = k
-        elif "openai" in m and not os.environ.get("OPENAI_API_KEY"):
-            k = self.cred_mgr.get_openai_key()
-            if k:
-                os.environ["OPENAI_API_KEY"] = k
-        elif "deepseek" in m and not os.environ.get("DEEPSEEK_API_KEY"):
-            k = self.cred_mgr.get_deepseek_key()
-            if k:
-                os.environ["DEEPSEEK_API_KEY"] = k
-        elif "gemini" in m and not os.environ.get("GEMINI_API_KEY"):
-            k = self.cred_mgr.get_gemini_key()
-            if k:
-                os.environ["GEMINI_API_KEY"] = k
+        if m.startswith("ollama/"):
+            return None
+        if "anthropic" in m or "claude" in m:
+            return self.cred_mgr.get_anthropic_key()
+        if "deepseek" in m:
+            return self.cred_mgr.get_deepseek_key()
+        if "openai" in m or "gpt" in m:
+            return self.cred_mgr.get_openai_key()
+        if "gemini" in m:
+            return self.cred_mgr.get_gemini_key()
+        return None

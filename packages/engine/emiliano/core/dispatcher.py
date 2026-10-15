@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from enum import Enum
-from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -17,11 +17,10 @@ except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
 
-from .capabilities import Capability, CapabilityStatus, ExecutionType
+from .capabilities import Capability, ExecutionType
 from .config import EmilianoConfig, load_config
 from .registry import CapabilityRegistry
 from ..direct.client import UnifiedLLMClient
-from ..harnesses.base import BaseHarness
 
 
 class RoutingPolicy(str, Enum):
@@ -29,6 +28,17 @@ class RoutingPolicy(str, Enum):
     LOCAL = "local"
     HARNESS = "harness"
     API = "api"
+
+
+# CLI names accepted by --harness, mapped to capability names
+HARNESS_ALIASES = {
+    "claude": "claude_code",
+    "claude_code": "claude_code",
+    "codex": "codex",
+    "agy": "antigravity",
+    "antigravity": "antigravity",
+    "opencode": "opencode",
+}
 
 
 class ExecutionDispatcher:
@@ -56,7 +66,7 @@ class ExecutionDispatcher:
         # 1. Explicit Harness Override
         if harness_override:
             h_key = harness_override.lower().replace("-", "_")
-            target = caps.get(h_key) or caps.get(f"{h_key}_code")
+            target = caps.get(HARNESS_ALIASES.get(h_key, h_key))
             if not target:
                 raise ValueError(f"Unknown harness override '{harness_override}'. Available: claude, codex, agy, opencode")
             if not target.is_usable:
@@ -184,9 +194,11 @@ class ExecutionDispatcher:
             try:
                 if candidate.execution_type == ExecutionType.DIRECT_MODEL:
                     # Execute via Direct LLM Client
+                    model_id = self._litellm_model_id(candidate)
                     client = UnifiedLLMClient(
                         ollama_base_url=self.config.models.ollama_base_url,
-                        fallback_chain=[f"ollama/{candidate.selected_model}"] if candidate.name == "ollama" else [candidate.selected_model or candidate.name],
+                        fallback_chain=[model_id],
+                        config=self.config,
                     )
                     messages = [
                         {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
@@ -195,13 +207,16 @@ class ExecutionDispatcher:
                     output_parts = []
                     async for chunk in client.stream_completion(
                         messages=messages,
-                        model_name=f"ollama/{candidate.selected_model}" if candidate.name == "ollama" and candidate.selected_model else candidate.selected_model,
+                        model_name=model_id,
                         timeout=timeout,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
                             on_chunk(chunk)
-                    return candidate, "".join(output_parts)
+                    output = "".join(output_parts)
+                    if not output.strip():
+                        raise RuntimeError(f"{candidate.display_name} returned an empty response.")
+                    return candidate, output
 
                 elif candidate.execution_type == ExecutionType.AGENT_HARNESS:
                     # Execute via External Agent Harness
@@ -215,8 +230,11 @@ class ExecutionDispatcher:
                         on_chunk=on_chunk,
                         timeout=timeout,
                     )
-                    if code == 0:
+                    if code == 0 and stdout.strip():
                         return candidate, stdout
+                    elif code == 0:
+                        detail = f": {stderr.strip()}" if stderr.strip() else ""
+                        raise RuntimeError(f"Harness '{candidate.display_name}' exited successfully but produced no output{detail}")
                     else:
                         err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {code}"
                         raise RuntimeError(f"Harness '{candidate.display_name}' failed: {err_msg}")
@@ -226,3 +244,14 @@ class ExecutionDispatcher:
                 last_error = e
 
         raise RuntimeError(f"All execution routes failed. Last error: {last_error}")
+
+    @staticmethod
+    def _litellm_model_id(candidate: Capability) -> str:
+        """Builds a provider-qualified LiteLLM model id, e.g. 'anthropic/<model>' or 'ollama/<model>'."""
+        model = candidate.selected_model or ""
+        if not model:
+            raise RuntimeError(f"No model selected for {candidate.display_name}.")
+        # Ollama names may contain "/" themselves (e.g. hf.co/user/model), so check the exact prefix
+        if model.startswith(f"{candidate.name}/"):
+            return model
+        return f"{candidate.name}/{model}"

@@ -5,8 +5,6 @@ Executes mouse movements, clicks, typing, and window focus with safety guardrail
 
 from __future__ import annotations
 
-import time
-from typing import Optional
 from loguru import logger
 import pyautogui
 

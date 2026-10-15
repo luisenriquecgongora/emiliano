@@ -8,7 +8,6 @@ and unified routing across direct models and agent harnesses.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from typing import Optional
 import click

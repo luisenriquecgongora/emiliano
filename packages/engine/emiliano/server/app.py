@@ -5,7 +5,6 @@ Bridges the Python core to the Electron desktop Cowork UI.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Dict, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
