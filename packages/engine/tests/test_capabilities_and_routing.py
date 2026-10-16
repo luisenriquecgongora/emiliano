@@ -146,7 +146,7 @@ class TestHarnessIntegration(unittest.TestCase):
         self.assertEqual(cmd_opencode[-2:], ["run", dangerous_prompt])
 
         cmd_agy = agy.build_task_command(dangerous_prompt)
-        self.assertEqual(cmd_agy[-1], dangerous_prompt)
+        self.assertEqual(cmd_agy[-2:], ["-p", dangerous_prompt])
 
     def test_harness_task_execution_success_and_timeout(self):
         codex = CodexHarness()
@@ -440,6 +440,35 @@ class TestHarnessPromptSafety(unittest.TestCase):
         self.assertEqual((code, out), (0, "ok\n"))
         proc.stdin.write.assert_called_once_with(self.PROMPT)
         self.assertEqual(mock_popen.call_args.args[0], ["claude", "-p"])
+
+    def test_run_task_keyboard_interrupt_kills_process(self):
+        claude = ClaudeCodeHarness()
+        with patch.object(claude, "resolve_executable", return_value="claude"):
+            with patch("subprocess.Popen") as mock_popen:
+                proc = MagicMock()
+                proc.pid = 12345
+                proc.wait.side_effect = KeyboardInterrupt("Interrupted")
+                mock_popen.return_value = proc
+                with patch.object(claude, "_kill_process_tree") as mock_kill:
+                    with self.assertRaises(KeyboardInterrupt):
+                        claude.run_task("do work")
+                    mock_kill.assert_called_once_with(proc)
+
+    def test_chat_command_help_and_exit(self):
+        from click.testing import CliRunner
+        from emiliano.cli import chat
+
+        runner = CliRunner()
+        # Verify --help works
+        help_result = runner.invoke(chat, ["--help"])
+        self.assertEqual(help_result.exit_code, 0)
+        self.assertIn("interactive terminal coworking session", help_result.output)
+
+        # Verify /help and exit in interactive session
+        chat_result = runner.invoke(chat, input="/help\nexit\n")
+        self.assertEqual(chat_result.exit_code, 0)
+        self.assertIn("Available Slash Commands", chat_result.output)
+        self.assertIn("Exiting Emiliano. Goodbye!", chat_result.output)
 
 
 if __name__ == "__main__":

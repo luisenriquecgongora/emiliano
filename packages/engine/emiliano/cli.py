@@ -173,6 +173,9 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
     def _on_chunk(chunk: str):
         click.echo(chunk, nl=False)
 
+    def _on_reasoning(chunk: str):
+        click.echo(click.style(chunk, dim=True, fg="bright_black"), nl=False)
+
     async def _execute():
         try:
             cap, full_output = await dispatcher.execute_task(
@@ -182,16 +185,194 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
                 provider_override=provider,
                 model_override=model,
                 on_chunk=_on_chunk,
+                on_reasoning=_on_reasoning,
                 on_route_selected=_on_route,
                 timeout=timeout,
             )
             click.echo()
             click.echo(click.style(f"\n[Emiliano] Completed successfully via {cap.display_name}.", fg="green"))
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            click.echo(click.style("\n[Emiliano] Interrupted by user (Ctrl+C).", fg="yellow"))
+            sys.exit(130)
         except Exception as e:
             click.echo(click.style(f"\n[Emiliano Error] {e}", fg="red"), err=True)
             sys.exit(1)
 
     asyncio.run(_execute())
+
+
+@cli.command()
+@click.option("--policy", "-p", default="auto", type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Initial execution routing policy")
+@click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
+@click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
+@click.option("--model", "-m", default=None, help="Override model name")
+@click.option("--timeout", default=180.0, type=float, help="Turn execution timeout in seconds")
+def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Optional[str], timeout: float):
+    """Start an interactive terminal coworking session with Emiliano."""
+    from .core.dispatcher import ExecutionDispatcher
+
+    dispatcher = ExecutionDispatcher()
+
+    click.echo(click.style("╔══════════════════════════════════════════════════════════════╗", fg="cyan"))
+    click.echo(click.style("║         Emiliano Autonomous Terminal Coworker (v0.1)         ║", fg="cyan", bold=True))
+    click.echo(click.style("║   Type your goal or question. Type /help for slash commands.  ║", fg="cyan"))
+    click.echo(click.style("║   Type 'exit' or press Ctrl+C to quit.                       ║", fg="cyan"))
+    click.echo(click.style("╚══════════════════════════════════════════════════════════════╝", fg="cyan"))
+
+    active_policy = policy
+    active_harness = harness
+    active_provider = provider
+    active_model = model
+
+    conversation_history = [
+        {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
+    ]
+
+    while True:
+        target_desc = active_harness or active_provider or active_model or active_policy
+        prompt_label = click.style(f"emiliano [{target_desc}]", fg="cyan", bold=True) + "> "
+        try:
+            user_input = input(prompt_label).strip()
+        except (KeyboardInterrupt, EOFError):
+            click.echo(click.style("\nExiting Emiliano. Goodbye!", fg="yellow"))
+            break
+
+        if not user_input:
+            continue
+
+        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
+            click.echo(click.style("Exiting Emiliano. Goodbye!", fg="yellow"))
+            break
+
+        if user_input == "/help":
+            click.echo(click.style("\nAvailable Slash Commands in Chat:", bold=True))
+            click.echo("  • /switch <target> : Lock to harness or provider (claude, codex, agy, opencode, ollama, anthropic, auto)")
+            click.echo("  • /policy <p>      : Switch routing policy (auto, local, harness, api)")
+            click.echo("  • /model <name>    : Override model name (e.g. /model qwen3.5:2b)")
+            click.echo("  • /clear           : Clear conversation history")
+            click.echo("  • /history         : Show conversation turn count")
+            click.echo("  • /doctor          : Run diagnostic check")
+            click.echo("  • /models          : List available models and providers")
+            click.echo("  • /harnesses       : List external agent harnesses")
+            click.echo("  • /exit, exit      : Exit interactive session\n")
+            continue
+
+        if user_input == "/clear":
+            conversation_history = [
+                {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
+            ]
+            click.echo(click.style("Conversation history cleared.", fg="green"))
+            continue
+
+        if user_input == "/history":
+            turns = [m for m in conversation_history if m["role"] != "system"]
+            click.echo(click.style(f"Conversation history has {len(turns)} turns ({len(conversation_history)} messages total).", fg="cyan"))
+            continue
+
+        if user_input.startswith("/policy"):
+            parts = user_input.split(maxsplit=1)
+            if len(parts) > 1 and parts[1].lower() in ("auto", "local", "harness", "api"):
+                active_policy = parts[1].lower()
+                click.echo(click.style(f"Routing policy set to: {active_policy}", fg="green"))
+            else:
+                click.echo(click.style("Usage: /policy <auto|local|harness|api>", fg="yellow"))
+            continue
+
+        if user_input.startswith("/switch"):
+            parts = user_input.split(maxsplit=1)
+            if len(parts) > 1:
+                target = parts[1].strip().lower()
+                if target in ("auto", "none", "reset"):
+                    active_harness = None
+                    active_provider = None
+                    active_policy = "auto"
+                    click.echo(click.style("Reset to automatic routing.", fg="green"))
+                elif target in ("claude", "claude_code", "codex", "agy", "antigravity", "opencode"):
+                    active_harness = target
+                    active_provider = None
+                    click.echo(click.style(f"Locked to harness: {active_harness}", fg="green"))
+                elif target in ("ollama", "anthropic", "openai", "deepseek", "gemini"):
+                    active_provider = target
+                    active_harness = None
+                    click.echo(click.style(f"Locked to provider: {active_provider}", fg="green"))
+                else:
+                    click.echo(click.style(f"Unknown target '{target}'. Use claude, codex, agy, opencode, ollama, anthropic, openai, deepseek, gemini, or auto.", fg="yellow"))
+            else:
+                click.echo(click.style("Usage: /switch <harness|provider|auto>", fg="yellow"))
+            continue
+
+        if user_input.startswith("/model"):
+            parts = user_input.split(maxsplit=1)
+            if len(parts) > 1:
+                m_target = parts[1].strip()
+                if m_target in ("none", "auto", "reset"):
+                    active_model = None
+                    click.echo(click.style("Model override removed.", fg="green"))
+                else:
+                    active_model = m_target
+                    click.echo(click.style(f"Model override set to: {active_model}", fg="green"))
+            else:
+                click.echo(click.style("Usage: /model <model_name|auto>", fg="yellow"))
+            continue
+
+        if user_input == "/doctor":
+            from click.testing import CliRunner
+            runner = CliRunner()
+            result = runner.invoke(doctor)
+            click.echo(result.output)
+            continue
+
+        if user_input == "/models":
+            from click.testing import CliRunner
+            runner = CliRunner()
+            result = runner.invoke(models)
+            click.echo(result.output)
+            continue
+
+        if user_input == "/harnesses":
+            from click.testing import CliRunner
+            runner = CliRunner()
+            result = runner.invoke(harnesses)
+            click.echo(result.output)
+            continue
+
+        conversation_history.append({"role": "user", "content": user_input})
+
+        def _chat_route(cap):
+            model_info = f" (model: {cap.selected_model})" if cap.selected_model else ""
+            click.echo(click.style(f"[{cap.display_name}{model_info}] ", fg="cyan", bold=True), nl=False)
+
+        def _chat_chunk(chunk: str):
+            click.echo(chunk, nl=False)
+
+        def _chat_reasoning(chunk: str):
+            click.echo(click.style(chunk, dim=True, fg="bright_black"), nl=False)
+
+        async def _execute_turn():
+            try:
+                cap, reply = await dispatcher.execute_task(
+                    goal=user_input,
+                    policy=active_policy,
+                    harness_override=active_harness,
+                    provider_override=active_provider,
+                    model_override=active_model,
+                    messages=conversation_history,
+                    on_chunk=_chat_chunk,
+                    on_reasoning=_chat_reasoning,
+                    on_route_selected=_chat_route,
+                    timeout=timeout,
+                )
+                click.echo()
+                conversation_history.append({"role": "assistant", "content": reply})
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                click.echo(click.style("\n[Interrupted by user]", fg="yellow"))
+                conversation_history.pop()
+            except Exception as e:
+                click.echo(click.style(f"\n[Error] {e}", fg="red"))
+                conversation_history.pop()
+
+        asyncio.run(_execute_turn())
+        click.echo()
 
 
 def main():

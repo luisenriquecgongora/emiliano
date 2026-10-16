@@ -167,7 +167,9 @@ class ExecutionDispatcher:
         harness_override: Optional[str] = None,
         provider_override: Optional[str] = None,
         model_override: Optional[str] = None,
+        messages: Optional[List[Dict[str, str]]] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
+        on_reasoning: Optional[Callable[[str], None]] = None,
         on_route_selected: Optional[Callable[[Capability], None]] = None,
         timeout: float = 180.0,
     ) -> Tuple[Capability, str]:
@@ -200,15 +202,16 @@ class ExecutionDispatcher:
                         fallback_chain=[model_id],
                         config=self.config,
                     )
-                    messages = [
+                    task_messages = messages or [
                         {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
                         {"role": "user", "content": goal},
                     ]
                     output_parts = []
                     async for chunk in client.stream_completion(
-                        messages=messages,
+                        messages=task_messages,
                         model_name=model_id,
                         timeout=timeout,
+                        on_reasoning=on_reasoning,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
@@ -239,6 +242,9 @@ class ExecutionDispatcher:
                         err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {code}"
                         raise RuntimeError(f"Harness '{candidate.display_name}' failed: {err_msg}")
 
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                logger.info("[Dispatcher] Execution interrupted by user.")
+                raise
             except Exception as e:
                 logger.warning(f"[Dispatcher] Execution via {candidate.display_name} failed: {e}")
                 last_error = e

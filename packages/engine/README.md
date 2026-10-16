@@ -144,7 +144,25 @@ emiliano run "Refactor perception.py" --policy harness
 emiliano run "Generate test cases" --policy local -m qwen3.5:2b
 ```
 
-### 5. `emiliano server`
+### 5. `emiliano chat`
+Starts an interactive terminal coworking session with conversational memory, dynamic harness switching, and in-session slash commands.
+
+```bash
+emiliano chat
+```
+
+#### In-Session Slash Commands:
+- `/switch <harness|provider>`: Lock to an external harness (`claude`, `codex`, `agy`, `opencode`) or direct provider (`ollama`, `anthropic`, `openai`, `deepseek`, `gemini`), or `auto`.
+- `/policy <auto|local|harness|api>`: Change routing policy on the fly.
+- `/model <name>`: Override the model name dynamically (e.g. `/model qwen3.5:2b`).
+- `/clear`: Clear conversation history.
+- `/history`: View current turn count.
+- `/doctor`: Run system diagnostics inline.
+- `/models`: List available models.
+- `/harnesses`: List agent harnesses.
+- `/exit` or `exit`: Quit the session.
+
+### 6. `emiliano server`
 Starts the background WebSocket IPC daemon bridging the Python engine to the Electron desktop Cowork UI.
 
 ```bash
