@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from typing import Optional
 import click
 from .core.config import load_config
@@ -378,6 +379,7 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
         {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
     ]
 
+    last_ctrl_c = 0.0
     while True:
         target_desc = active_harness or active_provider or active_model or active_policy
         prompt_label = click.style(f"emiliano [{target_desc}]", fg="cyan", bold=True) + "> "
@@ -386,8 +388,14 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                 user_input = prompt_session.prompt(f"emiliano [{target_desc}]> ").strip()
             else:
                 user_input = input(prompt_label).strip()
+            last_ctrl_c = 0.0
         except KeyboardInterrupt:
-            click.echo(click.style("\n(Press Enter to continue, or type 'exit' to quit)", fg="yellow"))
+            now = time.time()
+            if now - last_ctrl_c < 1.5:
+                click.echo(click.style("\nExiting Emiliano. Goodbye!", fg="yellow"))
+                break
+            last_ctrl_c = now
+            click.echo(click.style("\n(Press Ctrl+C again or type 'exit' to quit)", fg="yellow"))
             continue
         except EOFError:
             click.echo(click.style("\nExiting Emiliano. Goodbye!", fg="yellow"))
