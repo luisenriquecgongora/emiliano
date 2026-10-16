@@ -505,7 +505,10 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
 
         def _chat_route(cap):
             model_info = f" (model: {cap.selected_model})" if cap.selected_model else ""
-            click.echo(click.style(f"[{cap.display_name}{model_info}] ", fg="cyan", bold=True), nl=False)
+            if getattr(cap, "execution_type", None) and cap.execution_type.value == "agent_harness":
+                click.echo(click.style(f"[{cap.display_name}] ", fg="cyan", bold=True) + click.style("Inspecting workspace & analyzing files...\n", dim=True))
+            else:
+                click.echo(click.style(f"[{cap.display_name}{model_info}] ", fg="cyan", bold=True), nl=False)
 
         def _chat_chunk(chunk: str):
             click.echo(chunk, nl=False)
