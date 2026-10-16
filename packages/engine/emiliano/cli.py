@@ -345,6 +345,7 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     }) if PROMPT_TOOLKIT_AVAILABLE else None
 
     prompt_session = None
+    prompt_error = None
     if PROMPT_TOOLKIT_AVAILABLE:
         try:
             history_dir = os.path.expanduser("~/.emiliano")
@@ -355,14 +356,18 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                 history=FileHistory(os.path.join(history_dir, "history")),
                 style=menu_style,
             )
-        except Exception:
+        except Exception as e:
             prompt_session = None
+            prompt_error = e
 
     click.echo(click.style("╔══════════════════════════════════════════════════════════════╗", fg="cyan"))
     click.echo(click.style("║         Emiliano Autonomous Terminal Coworker (v0.1)         ║", fg="cyan", bold=True))
     click.echo(click.style("║   Type your goal or question. Type / for slash commands.      ║", fg="cyan"))
     click.echo(click.style("║   Type 'exit' or 'quit' to quit.                             ║", fg="cyan"))
     click.echo(click.style("╚══════════════════════════════════════════════════════════════╝", fg="cyan"))
+    if prompt_session is None:
+        if os.environ.get("MSYSTEM") or os.environ.get("TERM_PROGRAM") == "mintty":
+            click.echo(click.style("  [Tip] In Git Bash (MinTTY), run 'winpty emiliano' to enable slash command autocomplete.", fg="yellow"))
 
     active_policy = policy
     active_harness = harness
