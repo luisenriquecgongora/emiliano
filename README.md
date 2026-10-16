@@ -104,6 +104,7 @@ emiliano doctor
 > - `emiliano harnesses` (not `--harnesses`): Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
 > - `emiliano models` (not `--models`): Detected local Ollama models and remote API providers
 > - `emiliano run "Your task"`: Direct execution with automatic provider/harness routing
+> - `emiliano chat`: Interactive terminal coworking session with slash commands and memory
 > - `emiliano server`: Background WebSocket daemon for Desktop Cowork UI
 
 ### 2. Desktop UI (Electron)

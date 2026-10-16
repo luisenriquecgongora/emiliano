@@ -216,6 +216,10 @@ class BaseHarness(ABC):
         except subprocess.TimeoutExpired:
             self._kill_process_tree(proc)
             return 124, "".join(stdout_chunks), f"Task timed out after {timeout} seconds."
+        except (KeyboardInterrupt, SystemExit):
+            if proc:
+                self._kill_process_tree(proc)
+            raise
         except Exception as e:
             if proc:
                 self._kill_process_tree(proc)
@@ -228,10 +232,15 @@ class BaseHarness(ABC):
                     pass
 
     @staticmethod
-    def _kill_process_tree(proc: subprocess.Popen) -> None:
+    def _kill_process_tree(proc: Optional[subprocess.Popen]) -> None:
         """Kills the process and its children (on Windows, killing cmd.exe alone leaves node running)."""
+        if not proc:
+            return
         if sys.platform == "win32" and isinstance(proc.pid, int):
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+            try:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=5)
+            except Exception:
+                pass
         try:
             proc.kill()
         except OSError:
@@ -350,7 +359,7 @@ class AntigravityHarness(BaseHarness):
 
     def build_task_command(self, prompt: str) -> List[str]:
         exe = self.resolve_executable() or self.command
-        return [exe, prompt]
+        return [exe, "-p", prompt]
 
 
 class OpenCodeHarness(BaseHarness):

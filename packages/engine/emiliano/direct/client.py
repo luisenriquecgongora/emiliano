@@ -5,6 +5,7 @@ Uses LiteLLM with streaming and dynamic fallback chains based on actual installe
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -119,6 +120,7 @@ class UnifiedLLMClient:
         model_name: Optional[str] = None,
         temperature: float = 0.2,
         timeout: float = 120.0,
+        on_reasoning: Optional[Callable[[str], None]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams completion tokens, trying the requested model first or cascading down viable candidates.
@@ -170,7 +172,11 @@ class UnifiedLLMClient:
                 async for chunk in response:
                     delta = chunk.choices[0].delta
                     content = delta.content or ""
-                    reasoning_chars += len(getattr(delta, "reasoning_content", None) or "")
+                    reasoning = getattr(delta, "reasoning_content", None) or ""
+                    if reasoning:
+                        reasoning_chars += len(reasoning)
+                        if on_reasoning:
+                            on_reasoning(reasoning)
                     if content:
                         produced_content = True
                         yield content
@@ -179,6 +185,9 @@ class UnifiedLLMClient:
                     detail = f" (it produced {reasoning_chars} chars of reasoning but no answer)" if reasoning_chars else ""
                     raise RuntimeError(f"Model {target_model} returned an empty response{detail}")
                 return
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                logger.info(f"[LLM] Completion cancelled by user.")
+                raise
             except Exception as e:
                 logger.warning(f"[LLM] Model {target_model} failed: {e}. Trying next viable candidate...")
                 last_error = e
