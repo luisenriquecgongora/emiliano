@@ -470,6 +470,50 @@ class TestHarnessPromptSafety(unittest.TestCase):
         self.assertIn("Available Slash Commands", chat_result.output)
         self.assertIn("Exiting Emiliano. Goodbye!", chat_result.output)
 
+    def test_requires_agent_harness_classification(self):
+        dispatcher = ExecutionDispatcher()
+        # Coding / filesystem tasks
+        self.assertTrue(dispatcher.requires_agent_harness("can u chekc our files on this folder and check whether will compile and what is missing?"))
+        self.assertTrue(dispatcher.requires_agent_harness("inspect files in this directory"))
+        self.assertTrue(dispatcher.requires_agent_harness("will this compile?"))
+        self.assertTrue(dispatcher.requires_agent_harness("run tests with pytest"))
+        self.assertTrue(dispatcher.requires_agent_harness("check our files"))
+
+        # General conceptual / conversational tasks
+        self.assertFalse(dispatcher.requires_agent_harness("hi"))
+        self.assertFalse(dispatcher.requires_agent_harness("what is backpropagation?"))
+        self.assertFalse(dispatcher.requires_agent_harness("write a python function to compute fibonacci"))
+
+    def test_auto_routing_prioritizes_harness_for_filesystem_tasks(self):
+        dispatcher = ExecutionDispatcher()
+        mock_caps = {
+            "ollama": Capability(
+                name="ollama",
+                display_name="Ollama (Local)",
+                execution_type=ExecutionType.DIRECT_MODEL,
+                status=CapabilityStatus.READY,
+                selected_model="qwen3.5:2b",
+                priority=10,
+            ),
+            "codex": Capability(
+                name="codex",
+                display_name="Codex",
+                execution_type=ExecutionType.AGENT_HARNESS,
+                status=CapabilityStatus.READY,
+                priority=16,
+            ),
+        }
+        with patch.object(dispatcher.registry, "discover_all", new_callable=AsyncMock, return_value=mock_caps):
+            # 1. Filesystem task routes to agent harness first
+            routes_coding = asyncio.run(dispatcher.route_task("check our files in this folder and compile", policy="auto"))
+            self.assertEqual(routes_coding[0].name, "codex")
+            self.assertEqual(routes_coding[1].name, "ollama")
+
+            # 2. Conceptual task routes to local Ollama first
+            routes_conceptual = asyncio.run(dispatcher.route_task("Explain repo", policy="auto"))
+            self.assertEqual(routes_conceptual[0].name, "ollama")
+            self.assertEqual(routes_conceptual[1].name, "codex")
+
 
 if __name__ == "__main__":
     unittest.main()

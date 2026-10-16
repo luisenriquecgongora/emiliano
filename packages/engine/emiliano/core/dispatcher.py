@@ -8,6 +8,7 @@ Handles fallback and error classification.
 from __future__ import annotations
 
 import asyncio
+import re
 from enum import Enum
 from typing import Callable, List, Optional, Tuple
 
@@ -118,27 +119,35 @@ class ExecutionDispatcher:
             return apis
 
         # 6. Policy: AUTO (Default)
-        # Automatic routing priority:
-        # 1) If local Ollama is ready with an installed model -> use local Ollama (local-first principle)
-        # 2) If an external agent harness is ready and authenticated -> use harness
-        # 3) If remote API is configured -> use direct remote API
+        # Intent-Aware Automatic routing:
+        # If the goal requires tools, filesystem inspection, compiling, testing, or editing,
+        # prioritize ready agent harnesses. Otherwise, use local Ollama first (local-first principle).
+        needs_harness = self.requires_agent_harness(goal)
+
         candidates: List[Capability] = []
 
         ollama_cap = caps.get("ollama")
         if ollama_cap and ollama_cap.is_usable:
             if model_override:
                 ollama_cap = ollama_cap.model_copy(update={"selected_model": model_override})
-            candidates.append(ollama_cap)
 
-        # Usable harnesses
         usable_harnesses = [c for c in ready_caps if c.execution_type == ExecutionType.AGENT_HARNESS]
         usable_harnesses.sort(key=lambda c: c.priority)
-        candidates.extend(usable_harnesses)
 
-        # Usable direct APIs
         usable_apis = [c for c in ready_caps if c.execution_type == ExecutionType.DIRECT_MODEL and c.name != "ollama"]
         usable_apis.sort(key=lambda c: c.priority)
-        candidates.extend(usable_apis)
+
+        if needs_harness and usable_harnesses:
+            logger.info("[Dispatcher] Detected coding/filesystem task. Prioritizing agent harnesses.")
+            candidates.extend(usable_harnesses)
+            if ollama_cap and ollama_cap.is_usable:
+                candidates.append(ollama_cap)
+            candidates.extend(usable_apis)
+        else:
+            if ollama_cap and ollama_cap.is_usable:
+                candidates.append(ollama_cap)
+            candidates.extend(usable_harnesses)
+            candidates.extend(usable_apis)
 
         if not candidates:
             # Generate detailed actionable report
@@ -261,3 +270,41 @@ class ExecutionDispatcher:
         if model.startswith(f"{candidate.name}/"):
             return model
         return f"{candidate.name}/{model}"
+
+    @staticmethod
+    def requires_agent_harness(goal: str) -> bool:
+        """
+        Determines whether a user goal requires an agent harness (filesystem access,
+        compiling, testing, or modifying local code).
+        """
+        g = goal.lower()
+
+        # Specific local filesystem or project context markers
+        fs_markers = [
+            "this folder", "this directory", "this repo", "this project", "this codebase",
+            "our files", "my files", "local files", "the files in", "files in this",
+            "in this folder", "in this directory", "in this repo", "on this folder",
+            "in the current folder", "in current directory",
+        ]
+        if any(marker in g for marker in fs_markers):
+            return True
+
+        # Compilation, build, and test keywords
+        build_markers = [
+            "compile", "compiling", "will compile", "does it compile", "can it compile",
+            "build the project", "build the code",
+            "run test", "run tests", "pytest", "npm test", "cargo test",
+            "git status", "git diff", "git commit", "git push",
+            "refactor the file", "edit the file", "fix the bug", "fix the test",
+        ]
+        if any(marker in g for marker in build_markers):
+            return True
+
+        # Action verb + target combination (e.g. "check files", "inspect files")
+        words = set(re.findall(r"\b[a-zA-Z]+\b", g))
+        action_verbs = {"check", "chekc", "inspect", "audit", "scan", "list"}
+        file_targets = {"files", "folders", "directories"}
+        if (action_verbs & words) and (file_targets & words):
+            return True
+
+        return False
