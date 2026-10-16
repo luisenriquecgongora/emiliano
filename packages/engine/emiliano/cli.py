@@ -15,10 +15,12 @@ from .core.config import load_config
 from .core.single_instance import SingleInstanceGuard
 
 
-@click.group()
-def cli():
+@click.group(invoke_without_command=True)
+@click.pass_context
+def cli(ctx: click.Context):
     """Emiliano: Unified Meta-Harness & Desktop Cowork Platform."""
-    pass
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(chat)
 
 
 @cli.command()
