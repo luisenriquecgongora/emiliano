@@ -179,6 +179,32 @@ class TestHarnessIntegration(unittest.TestCase):
             self.assertEqual(code, 124)
             self.assertIn("timed out", err)
 
+    def test_harness_stream_json_tool_and_text_streaming(self):
+        agy = AntigravityHarness()
+        agy._resolved_path = "agy"
+
+        sample_lines = [
+            '{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"Get-ChildItem"}}}}\n',
+            '{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"Found 22 files"}}\n',
+            '{"event":"result","result":{"status":"SUCCESS","response":"Found 22 files"}}\n',
+            "",
+        ]
+
+        with patch("subprocess.Popen") as mock_popen:
+            proc = MagicMock()
+            proc.stdout.readline.side_effect = sample_lines
+            proc.stderr.read.return_value = ""
+            proc.returncode = 0
+            mock_popen.return_value = proc
+
+            chunks = []
+            code, out, err = agy.run_task("check files", on_chunk=lambda c: chunks.append(c))
+            self.assertEqual(code, 0)
+            self.assertEqual(out, "Found 22 files")
+            self.assertTrue(any("Tool:" in c and "run_command" in c for c in chunks))
+            self.assertTrue(any("Get-ChildItem" in c for c in chunks))
+            self.assertIn("Found 22 files", chunks)
+
 
 class TestExecutionRoutingAndFallback(unittest.TestCase):
     def test_routing_local_policy(self):

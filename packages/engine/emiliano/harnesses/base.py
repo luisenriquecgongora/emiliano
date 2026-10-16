@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
+import click
 
 try:
     from loguru import logger
@@ -172,6 +173,11 @@ class BaseHarness(ABC):
                     "Remove those characters or use a different harness."
                 )
 
+            env = dict(os.environ)
+            env["FORCE_COLOR"] = "1"
+            env["COLORTERM"] = "truecolor"
+            env["PYTHONUNBUFFERED"] = "1"
+
             logger.info(f"[Harness] Running {self.name}: {inv.args[:2]}...")
             proc = subprocess.Popen(
                 inv.args,
@@ -184,10 +190,50 @@ class BaseHarness(ABC):
                 cwd=cwd or os.getcwd(),
                 shell=use_shell,
                 bufsize=1,
+                env=env,
             )
+
+            final_response: List[str] = []
+            agent_text_parts: List[str] = []
 
             def _pump_stdout() -> None:
                 for line in iter(proc.stdout.readline, ""):
+                    stripped = line.strip()
+                    if stripped.startswith('{"') and ('"event"' in stripped or '"step_update"' in stripped):
+                        try:
+                            data = json.loads(stripped)
+                            if data.get("event") == "step_update":
+                                step = data.get("step_update", {})
+                                stype = step.get("step_type")
+                                state = step.get("state")
+                                if stype == "tool" and state == "ACTIVE":
+                                    tname = step.get("tool_name") or step.get("tool_info", {}).get("name", "tool")
+                                    params = step.get("tool_info", {}).get("parameters", {})
+                                    target = params.get("CommandLine") or params.get("AbsolutePath") or params.get("path") or params.get("query") or ""
+                                    summary = f" {target[:80]}" if target else ""
+                                    badge = (
+                                        click.style("\n  ⚡ [Tool: ", fg="yellow", bold=True)
+                                        + click.style(tname, fg="cyan", bold=True)
+                                        + click.style(f"]{summary}\n", fg="bright_black")
+                                    )
+                                    if on_chunk:
+                                        on_chunk(badge)
+                                elif stype == "agent_response":
+                                    delta = step.get("text_delta", "")
+                                    if delta:
+                                        agent_text_parts.append(delta)
+                                        if on_chunk:
+                                            on_chunk(delta)
+                                continue
+                            elif data.get("event") == "result":
+                                res = data.get("result", {})
+                                resp = res.get("response", "")
+                                if resp:
+                                    final_response.append(resp)
+                                continue
+                        except Exception:
+                            pass
+
                     stdout_chunks.append(line)
                     if on_chunk:
                         on_chunk(line)
@@ -211,7 +257,8 @@ class BaseHarness(ABC):
             proc.wait(timeout=timeout)
             for w in workers:
                 w.join(timeout=5)
-            return proc.returncode, "".join(stdout_chunks), "".join(stderr_chunks)
+            full_output = "".join(final_response) if final_response else ("".join(agent_text_parts) if agent_text_parts else "".join(stdout_chunks))
+            return proc.returncode, full_output, "".join(stderr_chunks)
 
         except subprocess.TimeoutExpired:
             self._kill_process_tree(proc)
@@ -339,7 +386,7 @@ class CodexHarness(BaseHarness):
         # `codex exec -` reads the prompt from stdin
         exe = self.resolve_executable() or self.command
         return HarnessInvocation(
-            args=[exe, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],
+            args=[exe, "exec", "--color", "always", "--dangerously-bypass-approvals-and-sandbox", "-"],
             stdin_text=prompt
         )
 
@@ -362,7 +409,7 @@ class AntigravityHarness(BaseHarness):
 
     def build_task_command(self, prompt: str) -> List[str]:
         exe = self.resolve_executable() or self.command
-        return [exe, "--dangerously-skip-permissions", "-p", prompt]
+        return [exe, "--dangerously-skip-permissions", "--output-format", "stream-json", "-p", prompt]
 
 
 class OpenCodeHarness(BaseHarness):
