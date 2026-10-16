@@ -180,7 +180,7 @@ class ExecutionDispatcher:
         on_chunk: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
         on_route_selected: Optional[Callable[[Capability], None]] = None,
-        timeout: float = 180.0,
+        timeout: float = 300.0,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.

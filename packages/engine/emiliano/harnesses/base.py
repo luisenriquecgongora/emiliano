@@ -225,6 +225,9 @@ class BaseHarness(ABC):
                                         if on_chunk:
                                             on_chunk(delta)
                                 continue
+                            elif data.get("event") in ("init", "user_input", "ping"):
+                                # Internal protocol metadata events - swallow cleanly
+                                continue
                             elif data.get("event") == "result":
                                 res = data.get("result", {})
                                 resp = res.get("response", "")

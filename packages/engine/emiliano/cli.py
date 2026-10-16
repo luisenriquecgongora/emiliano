@@ -260,7 +260,7 @@ def doctor():
 @click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
 @click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
 @click.option("--model", "-m", default=None, help="Override model name")
-@click.option("--timeout", default=180.0, type=float, help="Task execution timeout in seconds")
+@click.option("--timeout", default=300.0, type=float, help="Task execution timeout in seconds")
 def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str], model: Optional[str], timeout: float):
     """Execute a task directly from the command line using intelligent routing."""
     from .core.dispatcher import ExecutionDispatcher
@@ -315,7 +315,7 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
 @click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
 @click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
 @click.option("--model", "-m", default=None, help="Override model name")
-@click.option("--timeout", default=180.0, type=float, help="Turn execution timeout in seconds")
+@click.option("--timeout", default=300.0, type=float, help="Turn execution timeout in seconds")
 def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Optional[str], timeout: float):
     """Start an interactive terminal coworking session with Emiliano."""
     from .core.dispatcher import ExecutionDispatcher
