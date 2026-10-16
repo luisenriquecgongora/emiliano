@@ -71,15 +71,28 @@ function FloatingDockView() {
   const [isRunning, setIsRunning] = useState(false);
   const [thoughts, setThoughts] = useState<string[]>([]);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const logEndRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [thoughts]);
 
   useEffect(() => {
     const socket = new WebSocket('ws://127.0.0.1:8765/ws');
-    socket.onopen = () => console.log('Connected to Engine daemon.');
+    socket.onopen = () => {
+      console.log('Connected to Engine daemon.');
+      socket.send(JSON.stringify({ type: 'GET_CAPABILITIES', payload: {} }));
+    };
     socket.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'THOUGHT_STREAM') {
           setThoughts((prev) => [...prev, msg.payload.chunk]);
+        } else if (msg.type === 'DAG_UPDATE') {
+          const status = msg.payload?.status;
+          if (status === 'completed' || status === 'failed' || status === 'paused') {
+            setIsRunning(false);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -90,7 +103,12 @@ function FloatingDockView() {
     // Listen for Escape key from electron
     (window as any).emilianoApi?.onEmergencyStop(() => {
       setIsRunning(false);
-      setThoughts((prev) => [...prev, '\n[STOP] Emergency stop trigger by User (Esc)']);
+      try {
+        socket.send(JSON.stringify({ type: 'TASK_CANCEL', payload: {} }));
+      } catch (e) {
+        // Socket may already be closed
+      }
+      setThoughts((prev) => [...prev, '\n[STOP] Emergency stop triggered by User (Esc)\n']);
     });
 
     return () => socket.close();
@@ -99,7 +117,7 @@ function FloatingDockView() {
   const handleStart = () => {
     if (!goal.trim()) return;
     setIsRunning(true);
-    setThoughts([`Initiating objective: "${goal}"\nSelected harness: ${harness}`]);
+    setThoughts([`Initiating objective: "${goal}"\nSelected harness: ${harness}\n`]);
     ws?.send(
       JSON.stringify({
         type: 'TASK_START',
@@ -109,6 +127,11 @@ function FloatingDockView() {
         },
       })
     );
+  };
+
+  const handleCancel = () => {
+    setIsRunning(false);
+    ws?.send(JSON.stringify({ type: 'TASK_CANCEL', payload: {} }));
   };
 
   return (
@@ -159,6 +182,7 @@ function FloatingDockView() {
               </div>
             ))
           )}
+          <div ref={logEndRef} />
         </div>
 
         {/* Input & Action Control */}
@@ -184,7 +208,7 @@ function FloatingDockView() {
               </button>
             ) : (
               <button
-                onClick={() => setIsRunning(false)}
+                onClick={handleCancel}
                 className="flex-1 py-2 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all"
               >
                 <Pause className="w-3.5 h-3.5 fill-current" />
