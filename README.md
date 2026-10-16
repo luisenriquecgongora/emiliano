@@ -99,12 +99,12 @@ emiliano --help
 emiliano doctor
 ```
 
-> **CLI Commands vs. Flags**: Subcommands in Emiliano are called as positional commands, not flags:
-> - `emiliano doctor` (not `--doctor`): Full health check of models, credentials, and harnesses
-> - `emiliano harnesses` (not `--harnesses`): Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
-> - `emiliano models` (not `--models`): Detected local Ollama models and remote API providers
-> - `emiliano run "Your task"`: Direct execution with automatic provider/harness routing
-> - `emiliano chat`: Interactive terminal coworking session with slash commands and memory
+> **CLI Commands vs. Flags**: Subcommands in Emiliano are called as positional commands, or run bare `emiliano` to start coworking immediately:
+> - `emiliano` or `emiliano chat`: Interactive terminal coworking session with floating `/` autocompletion, dynamic harness switching, real-time reasoning streaming, and persistent history
+> - `emiliano doctor`: Full health check of models, credentials, and harnesses
+> - `emiliano harnesses`: Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
+> - `emiliano models`: Detected local Ollama models and remote API providers
+> - `emiliano run "Your task"`: Direct execution with automatic intent-aware provider/harness routing
 > - `emiliano server`: Background WebSocket daemon for Desktop Cowork UI
 
 ### 2. Desktop UI (Electron)

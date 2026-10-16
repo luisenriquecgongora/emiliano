@@ -8,11 +8,111 @@ and unified routing across direct models and agent harnesses.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from typing import Optional
 import click
 from .core.config import load_config
 from .core.single_instance import SingleInstanceGuard
+
+try:
+    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.styles import Style
+    PROMPT_TOOLKIT_AVAILABLE = True
+except ImportError:
+    PROMPT_TOOLKIT_AVAILABLE = False
+    class Completer:
+        pass
+    class Completion:
+        def __init__(self, text: str, start_position: int = 0, display: str = None, display_meta: str = None):
+            self.text = text
+            self.start_position = start_position
+            self.display = display or text
+            self.display_meta = display_meta
+
+
+class SlashCommandCompleter(Completer):
+    """Floating dropdown completer for slash commands and sub-arguments."""
+
+    COMMANDS = {
+        "/switch": "Switch active harness or provider (claude, agy, codex, ollama, auto)",
+        "/policy": "Change execution routing policy (auto, local, harness, api)",
+        "/model": "Override the active model name (e.g. qwen3.5:2b)",
+        "/doctor": "Run diagnostic check of models, credentials, and harnesses",
+        "/models": "List detected local Ollama models and remote API providers",
+        "/harnesses": "List external CLI agent harnesses and auth status",
+        "/clear": "Reset conversation memory context",
+        "/history": "Show current conversation turn count",
+        "/help": "Display command list and keyboard shortcuts",
+        "/exit": "Quit the interactive session",
+    }
+
+    SWITCH_TARGETS = {
+        "agy": "Antigravity CLI Agent (Gemini)",
+        "claude": "Claude Code CLI Agent (Anthropic)",
+        "codex": "OpenAI Codex CLI Agent",
+        "opencode": "OpenCode CLI Agent",
+        "ollama": "Local Ollama Runtime",
+        "anthropic": "Direct Anthropic Claude API",
+        "openai": "Direct OpenAI GPT API",
+        "deepseek": "Direct DeepSeek API",
+        "gemini": "Direct Google Gemini API",
+        "auto": "Automatic Intent-Aware Routing",
+    }
+
+    POLICIES = {
+        "auto": "Intent-aware automatic routing (default)",
+        "local": "Local-only execution via Ollama",
+        "harness": "Prioritize external agent harnesses",
+        "api": "Direct remote frontier APIs",
+    }
+
+    def get_completions(self, document, complete_event=None):
+        text = document.text_before_cursor
+        stripped = text.lstrip()
+
+        # 1. Primary command completion on '/'
+        if stripped.startswith("/") and " " not in stripped:
+            word = stripped
+            for cmd, desc in self.COMMANDS.items():
+                if cmd.lower().startswith(word.lower()):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(word),
+                        display=cmd,
+                        display_meta=desc,
+                    )
+            return
+
+        # 2. Sub-argument completion for /switch <target>
+        if stripped.startswith("/switch ") or stripped.startswith("switch "):
+            parts = stripped.split()
+            current_arg = parts[1] if len(parts) > 1 and not stripped.endswith(" ") else ""
+            for target, desc in self.SWITCH_TARGETS.items():
+                if target.lower().startswith(current_arg.lower()):
+                    yield Completion(
+                        target,
+                        start_position=-len(current_arg),
+                        display=target,
+                        display_meta=desc,
+                    )
+            return
+
+        # 3. Sub-argument completion for /policy <p>
+        if stripped.startswith("/policy ") or stripped.startswith("policy "):
+            parts = stripped.split()
+            current_arg = parts[1] if len(parts) > 1 and not stripped.endswith(" ") else ""
+            for pol, desc in self.POLICIES.items():
+                if pol.lower().startswith(current_arg.lower()):
+                    yield Completion(
+                        pol,
+                        start_position=-len(current_arg),
+                        display=pol,
+                        display_meta=desc,
+                    )
+            return
 
 
 @click.group(invoke_without_command=True)
@@ -229,9 +329,38 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     except ImportError:
         pass
 
+
+
+
+
+
+
+    menu_style = Style.from_dict({
+        "completion-menu.completion": "bg:#1e293b #38bdf8",
+        "completion-menu.completion.current": "bg:#0284c7 #ffffff bold",
+        "completion-menu.meta": "bg:#0f172a #94a3b8",
+        "completion-menu.meta.current": "bg:#0369a1 #ffffff bold",
+        "scrollbar.background": "bg:#1e293b",
+        "scrollbar.button": "bg:#38bdf8",
+    }) if PROMPT_TOOLKIT_AVAILABLE else None
+
+    prompt_session = None
+    if PROMPT_TOOLKIT_AVAILABLE:
+        try:
+            history_dir = os.path.expanduser("~/.emiliano")
+            os.makedirs(history_dir, exist_ok=True)
+            prompt_session = PromptSession(
+                completer=SlashCommandCompleter(),
+                complete_while_typing=True,
+                history=FileHistory(os.path.join(history_dir, "history")),
+                style=menu_style,
+            )
+        except Exception:
+            prompt_session = None
+
     click.echo(click.style("╔══════════════════════════════════════════════════════════════╗", fg="cyan"))
     click.echo(click.style("║         Emiliano Autonomous Terminal Coworker (v0.1)         ║", fg="cyan", bold=True))
-    click.echo(click.style("║   Type your goal or question. Type /help for slash commands.  ║", fg="cyan"))
+    click.echo(click.style("║   Type your goal or question. Type / for slash commands.      ║", fg="cyan"))
     click.echo(click.style("║   Type 'exit' or 'quit' to quit.                             ║", fg="cyan"))
     click.echo(click.style("╚══════════════════════════════════════════════════════════════╝", fg="cyan"))
 
@@ -248,7 +377,10 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
         target_desc = active_harness or active_provider or active_model or active_policy
         prompt_label = click.style(f"emiliano [{target_desc}]", fg="cyan", bold=True) + "> "
         try:
-            user_input = input(prompt_label).strip()
+            if prompt_session:
+                user_input = prompt_session.prompt(f"emiliano [{target_desc}]> ").strip()
+            else:
+                user_input = input(prompt_label).strip()
         except KeyboardInterrupt:
             click.echo(click.style("\n(Press Enter to continue, or type 'exit' to quit)", fg="yellow"))
             continue

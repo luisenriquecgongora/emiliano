@@ -19,12 +19,13 @@
   - Enforce `SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)` on all Win32 threads.
   - Normalize coordinates to standard virtual desktop space before invoking mouse/keyboard actions.
 
-### C. Terminal Buffer Emulation (`pyte`)
-- **Challenge**: Parsing ANSI terminal escapes, curses full-screen buffers, and progress spinners from interactive terminal CLIs (Claude Code, Antigravity, OpenCode) with raw regex is fragile.
-- **Solution**:
-  - Embed [`pyte`](https://github.com/selectel/pyte) into `packages/engine/emiliano/harnesses/pty_mgr.py`.
-  - Maintain an accurate 2D screen character grid in memory at all times.
-  - Detect prompts (e.g. `[y/N]`, `Select model:`) and send responses reliably without regex scraping.
+### C. Terminal Buffer Emulation (`pyte`) & Rich REPL Evolutions
+- **Foundation Delivered**:
+  - Full interactive terminal Coworker (`emiliano` / `emiliano chat`) powered by `prompt_toolkit`.
+  - Floating dropdown autocomplete on `/` with two-tier completions (`/switch`, `/policy`), persistent shell history, intent-aware agent routing, and real-time reasoning streaming.
+- **Next Evolution**:
+  - Embed [`pyte`](https://github.com/selectel/pyte) into `packages/engine/emiliano/harnesses/pty_mgr.py` to maintain an accurate 2D screen character grid for interactive CLI sub-agents.
+  - Multi-line code block editing with syntax highlighting and external `$EDITOR` support.
 
 ---
 

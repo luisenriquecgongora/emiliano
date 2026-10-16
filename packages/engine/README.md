@@ -144,22 +144,37 @@ emiliano run "Refactor perception.py" --policy harness
 emiliano run "Generate test cases" --policy local -m qwen3.5:2b
 ```
 
-### 5. `emiliano chat`
-Starts an interactive terminal coworking session with conversational memory, dynamic harness switching, and in-session slash commands.
+### 5. `emiliano chat` (or bare `emiliano`)
+Starts an interactive terminal coworking session with conversational memory, dynamic harness switching, real-time reasoning stream, and floating slash command autocompletion.
 
 ```bash
+# Launch interactive coworking directly:
+emiliano
+
+# Or explicitly:
 emiliano chat
 ```
+
+#### State-of-the-Art Terminal REPL Features:
+- **Floating `/` Dropdown Autocomplete**: Powered by `prompt_toolkit`. Typing `/` opens a floating dropdown with descriptions for every command.
+- **Contextual Sub-argument Completions**:
+  - `/switch <target>` suggests harnesses (`agy`, `claude`, `codex`, `opencode`) and providers (`ollama`, `anthropic`, `openai`, `deepseek`, `gemini`, `auto`).
+  - `/policy <p>` suggests routing policies (`auto`, `local`, `harness`, `api`).
+- **Persistent Shell History**: Input history is saved across sessions to `~/.emiliano/history` with standard Up/Down arrow navigation.
+- **Real-Time Reasoning Stream**: Chain-of-thought tokens from reasoning models (e.g. `qwen3.5:2b`, DeepSeek-R1) stream live in dimmed italics so you can observe the internal thought process without freezing.
+- **Intent-Aware Routing**: File inspection, coding, test, and build tasks automatically delegate to external agent harnesses with filesystem access (`agy`, `claude`, `codex`) rather than raw local text models.
+- **Process Cancellation**: Pressing <kbd>Ctrl+C</kbd> cleanly cancels active tasks and terminates child process trees.
 
 #### In-Session Slash Commands:
 - `/switch <harness|provider>`: Lock to an external harness (`claude`, `codex`, `agy`, `opencode`) or direct provider (`ollama`, `anthropic`, `openai`, `deepseek`, `gemini`), or `auto`.
 - `/policy <auto|local|harness|api>`: Change routing policy on the fly.
 - `/model <name>`: Override the model name dynamically (e.g. `/model qwen3.5:2b`).
-- `/clear`: Clear conversation history.
+- `/clear`: Clear conversation memory context.
 - `/history`: View current turn count.
 - `/doctor`: Run system diagnostics inline.
 - `/models`: List available models.
 - `/harnesses`: List agent harnesses.
+- `/help`: Display command list and shortcuts.
 - `/exit` or `exit`: Quit the session.
 
 ### 6. `emiliano server`
