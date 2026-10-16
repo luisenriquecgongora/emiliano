@@ -263,7 +263,7 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             break
 
         if cmd_lower in ("/help", "help"):
-            click.echo(click.style("\nAvailable Commands in Chat:", bold=True))
+            click.echo(click.style("\nAvailable Slash Commands in Chat:", bold=True))
             click.echo("  • /switch <target> : Lock to harness or provider (claude, codex, agy, opencode, ollama, auto)")
             click.echo("  • /policy <p>      : Switch routing policy (auto, local, harness, api)")
             click.echo("  • /model <name>    : Override model name (e.g. /model qwen3.5:2b)")
