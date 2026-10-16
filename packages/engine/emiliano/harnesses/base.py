@@ -338,7 +338,10 @@ class CodexHarness(BaseHarness):
     def build_invocation(self, prompt: str) -> HarnessInvocation:
         # `codex exec -` reads the prompt from stdin
         exe = self.resolve_executable() or self.command
-        return HarnessInvocation(args=[exe, "exec", "-"], stdin_text=prompt)
+        return HarnessInvocation(
+            args=[exe, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],
+            stdin_text=prompt
+        )
 
 
 class AntigravityHarness(BaseHarness):
@@ -359,7 +362,7 @@ class AntigravityHarness(BaseHarness):
 
     def build_task_command(self, prompt: str) -> List[str]:
         exe = self.resolve_executable() or self.command
-        return [exe, "-p", prompt]
+        return [exe, "--dangerously-skip-permissions", "-p", prompt]
 
 
 class OpenCodeHarness(BaseHarness):

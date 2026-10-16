@@ -243,6 +243,15 @@ class ExecutionDispatcher:
                         timeout=timeout,
                     )
                     if code == 0 and stdout.strip():
+                        lower_out = stdout.lower()
+                        if any(phrase in lower_out for phrase in [
+                            "permission policy blocks",
+                            "i can't read this workspace",
+                            "i can’t read this workspace",
+                            "you've hit your weekly limit",
+                            "rate limit exceeded",
+                        ]):
+                            raise RuntimeError(f"Harness '{candidate.display_name}' reported soft failure: {stdout.strip()[:140]}...")
                         return candidate, stdout
                     elif code == 0:
                         detail = f": {stderr.strip()}" if stderr.strip() else ""

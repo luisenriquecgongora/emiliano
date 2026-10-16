@@ -165,8 +165,8 @@ class CapabilityRegistry:
         # Priority weights for harnesses
         prio_map = {
             "claude_code": 15,
-            "codex": 16,
-            "antigravity": 17,
+            "antigravity": 16,
+            "codex": 17,
             "opencode": 18,
         }
 
