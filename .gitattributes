@@ -1,0 +1,17 @@
+# Auto-normalize line endings
+* text=auto eol=lf
+
+# Collapse lockfiles in PRs and git diffs
+*lock.yaml linguist-generated=true
+package-lock.json linguist-generated=true
+yarn.lock linguist-generated=true
+pnpm-lock.yaml linguist-generated=true
+
+# Collapse build outputs and schemas
+dist/** linguist-generated=true
+build/** linguist-generated=true
+out/** linguist-generated=true
+*.min.js linguist-generated=true
+*.min.css linguist-generated=true
+*.generated.* linguist-generated=true
+*.d.ts.map linguist-generated=true
