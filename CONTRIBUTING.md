@@ -71,3 +71,15 @@ To add support for a new agent harness (e.g., adding a new CLI agent):
    - TypeScript: Run `yarn format` and `yarn lint` at root.
 3. **Commit Messages**: Write clear, imperative commit messages (e.g. `feat: add per-monitor DPI scaling to screen perceiver`).
 4. **Safety & Tests**: Ensure all automated tests pass before submitting your PR.
+
+---
+
+## 4. Commit Standards & Git Hooks
+
+After cloning, activate the local git config and commit hooks once:
+
+```bash
+./scripts/setup-hooks.sh
+```
+
+This enforces conventional commit messages (`<type>(<scope>): <subject>`), blocks trailing whitespace, caps commits at 5 staged files (excluding lockfiles and docs), and rejects commits that mix build configuration with application source. See `AGENTS.md` for the full contract and allowed scopes. Existing hooks are preserved as `<hook>.local` and still run.
