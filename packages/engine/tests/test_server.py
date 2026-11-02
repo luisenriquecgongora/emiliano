@@ -5,9 +5,11 @@ Tests endpoints, WebSocket lifecycle, task dispatching, and task cancellation.
 
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from emiliano.core.capabilities import Capability, CapabilityStatus, ExecutionType
@@ -156,6 +158,42 @@ class TestServerIPC(unittest.TestCase):
                         break
 
                 self.assertTrue(cancelled)
+
+
+class TestWebSocketOriginCheck(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+
+    def _ping(self, origin):
+        headers = {"origin": origin} if origin is not None else {}
+        with self.client.websocket_connect("/ws", headers=headers) as ws:
+            ws.send_text(json.dumps({"type": "PING"}))
+            return json.loads(ws.receive_text())["type"]
+
+    def test_desktop_origins_and_local_clients_allowed(self):
+        for origin in ("file://", "http://localhost:5173", "http://127.0.0.1:5173/", None):
+            with self.subTest(origin=origin):
+                self.assertEqual(self._ping(origin), "PONG")
+
+    def test_foreign_and_null_origins_rejected(self):
+        for origin in ("https://evil.example", "http://localhost:3000", "null"):
+            with self.subTest(origin=origin):
+                with self.assertRaises(WebSocketDisconnect):
+                    self._ping(origin)
+
+    def test_rejected_origin_cannot_start_task(self):
+        dispatcher = get_dispatcher()
+        with patch.object(dispatcher, "execute_task", new_callable=AsyncMock) as mock_exec:
+            with self.assertRaises(WebSocketDisconnect):
+                with self.client.websocket_connect("/ws", headers={"origin": "https://evil.example"}) as ws:
+                    ws.send_text(json.dumps({"type": "TASK_START", "payload": {"goal": "rm -rf ~"}}))
+            mock_exec.assert_not_called()
+
+    def test_allowed_origins_env_override(self):
+        with patch.dict(os.environ, {"EMILIANO_ALLOWED_ORIGINS": "app://emiliano, http://localhost:4000"}):
+            self.assertEqual(self._ping("app://emiliano"), "PONG")
+            with self.assertRaises(WebSocketDisconnect):
+                self._ping("http://localhost:5173")
 
 
 if __name__ == "__main__":
