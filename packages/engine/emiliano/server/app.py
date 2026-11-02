@@ -15,6 +15,8 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from ..core.dispatcher import ExecutionDispatcher
+from ..history import HistoryStore
+from ..history.api import router as history_router
 from .security import get_allowed_origins, is_origin_allowed
 
 app = FastAPI(title="Emiliano Engine IPC")
@@ -50,11 +52,27 @@ _dispatcher: Optional[ExecutionDispatcher] = None
 active_tasks: Dict[str, asyncio.Task] = {}
 
 
+_history: Optional[HistoryStore] = None
+
+
 def get_dispatcher() -> ExecutionDispatcher:
     global _dispatcher
     if _dispatcher is None:
         _dispatcher = ExecutionDispatcher()
     return _dispatcher
+
+
+def get_history_store() -> HistoryStore:
+    global _history
+    if _history is None:
+        _history = HistoryStore()
+    return _history
+
+
+# Saved chats (/api/chats, /api/chat); the routes find these through app.state
+app.state.get_dispatcher = lambda: get_dispatcher()
+app.state.get_history_store = lambda: get_history_store()
+app.include_router(history_router)
 
 
 @app.get("/health")
