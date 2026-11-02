@@ -66,6 +66,18 @@ def publish_release(version: str, prefix: str = "emiliano", max_keep: int = MAX_
         (zip_file, f"{latest_dir}/{PRODUCT}-windows-x64.zip", "application/zip", short),
         (manifest_file, f"{latest_dir}/version.json", "application/json", "no-cache, must-revalidate"),
     ]
+    # Desktop installers from build_desktop_release.py, when this release includes them
+    desktop = [
+        (f"{PRODUCT}-Desktop-v{version}-windows-x64-setup.exe", f"{PRODUCT}-Desktop-windows-x64-setup.exe", "application/octet-stream"),
+        (f"{PRODUCT}-Desktop-v{version}-windows-x64.msi", f"{PRODUCT}-Desktop-windows-x64.msi", "application/x-msi"),
+    ]
+    for versioned_name, latest_name, content_type in desktop:
+        src = DIST_DIR / versioned_name
+        if src.exists():
+            uploads.append((src, f"{version_dir}/{versioned_name}", content_type, immutable))
+            uploads.append((src, f"{latest_dir}/{latest_name}", content_type, short))
+    # Upload the manifests last, so version.json never points at a file that is not there yet
+    uploads.sort(key=lambda upload: upload[0] == manifest_file)
     logger.info("Uploading %d objects to s3://%s/%s ...", len(uploads), bucket, prefix)
     for src, key, content_type, cache_control in uploads:
         upload_with_retry(s3, src, bucket, key, content_type, cache_control)
