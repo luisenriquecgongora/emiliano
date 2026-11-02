@@ -178,7 +178,7 @@ emiliano chat
 - `/exit` or `exit`: Quit the session.
 
 ### 6. `emiliano server`
-Starts the background WebSocket IPC daemon bridging the Python engine to the Electron desktop Cowork UI.
+Starts the background WebSocket IPC daemon bridging the Python engine to the Tauri desktop Cowork UI.
 
 ```bash
 emiliano server --port 8765 --host 127.0.0.1

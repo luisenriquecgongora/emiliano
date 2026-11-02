@@ -11,11 +11,11 @@
 ## Subsystems Affected
 - [ ] `packages/engine` (Python Meta-Harness & Direct Execution Engine)
 - [ ] `packages/protocol` (Shared TypeScript/Python schemas)
-- [ ] `apps/desktop` (Electron Cowork UI & HUD Overlay)
+- [ ] `apps/desktop` (Tauri Cowork UI & HUD Overlay)
 - [ ] CI/CD or Repository tooling
 
 ## Verification & Testing
-<!-- Describe how you verified your changes (e.g. CLI run, Electron smoke test, unit tests). -->
+<!-- Describe how you verified your changes (e.g. CLI run, desktop app smoke test, unit tests). -->
 - [ ] Tested locally with `python -m emiliano.cli harnesses`
 - [ ] Emergency stop (<kbd>Esc</kbd>) remains functional
 - [ ] Code formatted and typechecked

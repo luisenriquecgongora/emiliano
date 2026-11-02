@@ -9,7 +9,7 @@ Thank you for your interest in contributing to **Emiliano**! We welcome contribu
 Emiliano is organized as a monorepo containing:
 - `packages/engine`: Python 3.10+ (Core Meta-Harness & Cowork Engine)
 - `packages/protocol`: Shared TypeScript & Python contracts
-- `apps/desktop`: Electron + React 19 + TypeScript (Desktop Cowork UI)
+- `apps/desktop`: Tauri 2 + React 19 + TypeScript (Desktop Cowork UI; bundles the Python engine as a sidecar)
 
 ### Prerequisites
 - Python 3.10+ (Recommended: [uv](https://github.com/astral-sh/uv))
