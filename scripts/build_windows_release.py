@@ -34,7 +34,7 @@ DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
 # Packages that load data files, plugins, or submodules dynamically, which
 # PyInstaller's static analysis would otherwise miss.
 COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext", "winpty"]
-COLLECT_SUBMODULES = ["emiliano", "uvicorn"]
+COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite"]
 COPY_METADATA = ["litellm"]
 
 
@@ -92,7 +92,7 @@ def smoke_test(exe_path: Path) -> None:
             raise RuntimeError(f"Smoke test '{' '.join(args)}' failed (exit {res.returncode}):\n{res.stdout}\n{res.stderr}")
     # These are imported lazily (on the first model call or `emiliano server`), so --help
     # and doctor would not notice if they were missing from the bundle
-    lazy = "litellm,tiktoken,emiliano.direct.client,emiliano.core.dispatcher,emiliano.server.app"
+    lazy = "litellm,tiktoken,emiliano.direct.client,emiliano.core.dispatcher,emiliano.server.app,sqlalchemy.dialects.sqlite"
     logger.info("Smoke test: importing %s", lazy)
     res = subprocess.run(
         [str(exe_path)],
