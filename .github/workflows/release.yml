@@ -53,8 +53,9 @@ jobs:
       - name: Check version matches the package
         run: |
           $pkg = python -c "import emiliano; print(emiliano.__version__)"
-          if ($pkg -ne "${{ env.VERSION }}") {
-            echo "::error::Release v${{ env.VERSION }} does not match emiliano.__version__ ($pkg). Bump packages/engine/emiliano/__init__.py and pyproject.toml first."
+          $app = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($pkg -ne "${{ env.VERSION }}" -or $app -ne "${{ env.VERSION }}") {
+            echo "::error::Release v${{ env.VERSION }} does not match emiliano.__version__ ($pkg) and tauri.conf.json ($app). Bump packages/engine/emiliano/__init__.py, pyproject.toml, apps/desktop/src-tauri/tauri.conf.json and Cargo.toml first."
             exit 1
           }
 
@@ -65,6 +66,28 @@ jobs:
         env:
           R2_CUSTOM_DOMAIN: ${{ secrets.R2_CUSTOM_DOMAIN || 'https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev' }}
         run: python scripts/build_windows_release.py --version ${{ env.VERSION }} --notes "Release v${{ env.VERSION }}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build desktop installers (Tauri app + bundled engine)
+        env:
+          R2_CUSTOM_DOMAIN: ${{ secrets.R2_CUSTOM_DOMAIN || 'https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev' }}
+        run: python scripts/build_desktop_release.py --version ${{ env.VERSION }} --reuse-cli-exe
 
       - name: Publish to Cloudflare R2 (keeps the newest 5 releases)
         env:
@@ -82,6 +105,8 @@ jobs:
           files: |
             dist/Emiliano.exe
             dist/Emiliano-v${{ env.VERSION }}-windows-x64.zip
+            dist/Emiliano-Desktop-v${{ env.VERSION }}-windows-x64-setup.exe
+            dist/Emiliano-Desktop-v${{ env.VERSION }}-windows-x64.msi
             dist/version.json
           generate_release_notes: true
           draft: false
