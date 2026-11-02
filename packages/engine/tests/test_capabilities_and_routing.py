@@ -104,7 +104,7 @@ class TestCredentialDetection(unittest.TestCase):
                     asyncio.run(
                         client.stream_completion(
                             [{"role": "user", "content": "hi"}],
-                            model_name="anthropic/claude-3-7-sonnet",
+                            model_name="anthropic/claude-opus-5-5",
                         ).__anext__()
                     )
             except Exception as e:
@@ -315,7 +315,7 @@ class TestExecutionRoutingAndFallback(unittest.TestCase):
                 models = [c[0] for c in candidates]
                 self.assertIn("ollama/qwen3.5:2b", models)
                 self.assertNotIn("deepseek/deepseek-chat", models)
-                self.assertNotIn("anthropic/claude-3-7-sonnet-20250219", models)
+                self.assertNotIn("anthropic/claude-opus-5-5", models)
 
 
 class _FakeStream:
