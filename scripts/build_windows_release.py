@@ -46,16 +46,17 @@ def compute_sha256(filepath: Path) -> str:
     return hasher.hexdigest()
 
 
-def run_pyinstaller() -> Path:
+def run_pyinstaller(name: str = PRODUCT, dist_dir: Path = DIST_DIR) -> Path:
+    """Builds the engine into a single executable named `name` in dist_dir and returns its path."""
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--console",  # Emiliano is a terminal chat, so it needs a console window
-        "--name", PRODUCT,
+        "--name", name,
         "--clean",
         "--noconfirm",
-        "--distpath", str(DIST_DIR),
-        "--workpath", str(BUILD_DIR),
+        "--distpath", str(dist_dir),
+        "--workpath", str(BUILD_DIR / name),
         "--specpath", str(BUILD_DIR),
     ]
     for pkg in COLLECT_ALL:
@@ -71,7 +72,7 @@ def run_pyinstaller() -> Path:
     if res.returncode != 0:
         raise RuntimeError(f"PyInstaller build failed with exit code {res.returncode}")
 
-    exe_path = DIST_DIR / f"{PRODUCT}.exe"
+    exe_path = dist_dir / (name + (".exe" if sys.platform == "win32" else ""))
     if not exe_path.exists():
         raise FileNotFoundError(f"Expected binary not found at: {exe_path}")
     return exe_path
