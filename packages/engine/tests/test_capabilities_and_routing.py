@@ -150,7 +150,7 @@ class TestHarnessIntegration(unittest.TestCase):
 
     def test_harness_task_execution_success_and_timeout(self):
         codex = CodexHarness()
-        codex._resolved_path = "codex"
+        codex.resolve_executable = lambda: "codex"  # Do not depend on codex being installed
 
         with patch("subprocess.Popen") as mock_popen:
             # Success case
@@ -181,7 +181,7 @@ class TestHarnessIntegration(unittest.TestCase):
 
     def test_harness_stream_json_tool_and_text_streaming(self):
         agy = AntigravityHarness()
-        agy._resolved_path = "agy"
+        agy.resolve_executable = lambda: "agy"  # Do not depend on agy being installed
 
         sample_lines = [
             '{"event":"step_update","step_update":{"step_type":"tool","state":"ACTIVE","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"Get-ChildItem"}}}}\n',
