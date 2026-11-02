@@ -119,6 +119,10 @@ yarn workspace @emiliano/desktop tauri dev  # runs the desktop app with hot relo
 
 To work on the UI against an engine you run yourself, start `emiliano server` and set `EMILIANO_EXTERNAL_ENGINE=1` before `tauri dev`. `yarn workspace @emiliano/desktop dev` serves the UI in a browser at `http://localhost:5173` without Rust.
 
+**Chat history.** Chats are saved on your machine in `~/.emiliano/history.db` (set `EMILIANO_HISTORY_DB` to use another file). In the dock, the clock button lists them, newest first: click one to reopen it, or use the trash icon (or "Clear all history") to delete. Deleted chats cannot be restored. The engine serves them at `/api/chats` and streams replies over `/api/chat`; both only answer the desktop app (requests must address `127.0.0.1`/`localhost` and come from the app's origin).
+
+**Modes.** The dropdown under the message box picks who answers: *Auto* (Emiliano decides), *Local model* (Ollama), or a specific agent (Claude Code, Codex, Antigravity, OpenCode). Plain conversation is answered directly, with the model's step-by-step reasoning turned off for speed; tasks keep reasoning and also see the project's `EMILIANO.md`/`CLAUDE.md`.
+
 ## Quick Launch (Windows)
 
 Double-click `Emiliano.bat` in the repository root to open the chat. On first run it creates `packages/engine/.venv` and installs the engine. To chat about a different project, drag that project's folder onto `Emiliano.bat`: the folder becomes the workspace.
