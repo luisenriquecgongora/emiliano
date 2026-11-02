@@ -356,6 +356,13 @@ class ExecutionDispatcher:
             "Review the changes, then re-run."
         )
 
+    async def warm_up(self) -> None:
+        """Runs discovery ahead of the first message, so that message does not wait for it."""
+        try:
+            await self._discover()
+        except Exception as e:
+            logger.warning(f"[Dispatcher] Warm-up discovery failed: {e}")
+
     async def _discover(self) -> Dict[str, Capability]:
         """Returns the capabilities, reusing a discovery from the last DISCOVERY_TTL_SECONDS."""
         now = time.monotonic()

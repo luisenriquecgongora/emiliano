@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from typing import Dict, Optional, Set
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +20,16 @@ from ..history import HistoryStore
 from ..history.api import router as history_router
 from .security import get_allowed_origins, is_origin_allowed
 
-app = FastAPI(title="Emiliano Engine IPC")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Discover models and harnesses in the background at startup, so the first message
+    # does not wait several seconds for every harness's --version
+    warm_up = asyncio.create_task(get_dispatcher().warm_up())
+    yield
+    warm_up.cancel()
+
+
+app = FastAPI(title="Emiliano Engine IPC", lifespan=lifespan)
 
 # Only accept requests addressed to this machine. Checking Host blocks DNS rebinding, where a
 # website points its own domain at 127.0.0.1 so the browser treats the engine as same-origin.
