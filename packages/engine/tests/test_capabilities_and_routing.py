@@ -377,6 +377,15 @@ class TestRoutingRegressions(unittest.TestCase):
             routes = asyncio.run(dispatcher.route_task("x", harness_override="agy"))
             self.assertEqual(routes[0].name, "antigravity")
 
+    def test_temperature_not_sent_to_anthropic_models(self):
+        client = UnifiedLLMClient()
+        for model, expect_temperature in (("anthropic/claude-opus-5-5", False), ("ollama/qwen3.5:2b", True)):
+            with self.subTest(model=model):
+                stream = _FakeStream([_delta(content="ok")])
+                with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
+                    asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model)))
+                self.assertEqual("temperature" in mock_acompletion.call_args.kwargs, expect_temperature)
+
     def test_config_keys_used_without_touching_environ(self):
         cfg = EmilianoConfig()
         cfg.models.anthropic_api_key = "sk-from-config-file-123"
