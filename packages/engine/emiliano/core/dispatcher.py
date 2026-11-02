@@ -32,6 +32,12 @@ class ExecutionAbortedError(RuntimeError):
     """A harness failed after the workspace may have changed, so no other route is attempted."""
 
 
+SYSTEM_PROMPT = (
+    "You are Emiliano, a helpful desktop coworker. Reply to conversational messages "
+    "naturally and briefly. For tasks, work step by step and be precise."
+)
+
+
 class RoutingPolicy(str, Enum):
     AUTO = "auto"
     LOCAL = "local"
@@ -224,17 +230,19 @@ class ExecutionDispatcher:
                         fallback_chain=[model_id],
                         config=self.config,
                     )
-                    task_messages = messages or [
-                        {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
-                        {"role": "user", "content": goal},
-                    ]
+                    # Conversation (e.g. "hi") gets a fast, direct reply; tasks keep the model's
+                    # reasoning and the project's context files (EMILIANO.md, CLAUDE.md)
+                    is_task = self.requires_agent_harness(goal)
+                    task_messages = list(messages) if messages else [{"role": "user", "content": goal}]
+                    if not any(m.get("role") == "system" for m in task_messages):
+                        task_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
 
                     # Apply enhanced context management if enabled (Phase 1 features)
                     if self.config.context.enabled:
                         task_messages, context_meta = await self.context_manager.manage_context(
                             task_messages,
                             model_id,
-                            include_persistent=True,
+                            include_persistent=is_task,
                         )
 
                         # Log context operations
@@ -256,6 +264,7 @@ class ExecutionDispatcher:
                         model_name=model_id,
                         timeout=timeout,
                         on_reasoning=on_reasoning,
+                        think=None if is_task else False,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:

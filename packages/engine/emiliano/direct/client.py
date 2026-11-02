@@ -121,9 +121,12 @@ class UnifiedLLMClient:
         temperature: float = 0.2,
         timeout: float = 120.0,
         on_reasoning: Optional[Callable[[str], None]] = None,
+        think: Optional[bool] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams completion tokens, trying the requested model first or cascading down viable candidates.
+        think=False turns off reasoning on local Ollama models (a greeting drops from ~45s to ~1s
+        on a small thinking model); None leaves each model's default.
         """
         # Lazy import litellm to avoid blocking CLI startup
         os.environ["LITELLM_TELEMETRY"] = "False"
@@ -159,6 +162,8 @@ class UnifiedLLMClient:
                 # Current Claude models reject sampling parameters with a 400, so only
                 # send temperature to other providers
                 sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
+                if think is not None and target_model.startswith("ollama/"):
+                    sampling["think"] = think
                 # Pass the key per call rather than via os.environ, so it never leaks
                 # into harness subprocesses (e.g. switching Claude Code to API billing)
                 response = await litellm.acompletion(
