@@ -33,7 +33,7 @@ jobs:
 
       - name: Run engine tests
         working-directory: packages/engine
-        run: python -m unittest discover -s tests
+        run: python -m pytest tests -q
 
       - name: Run release retention tests
         run: python -m unittest scripts/test_prune_r2_releases.py
