@@ -3,8 +3,13 @@ Tests for Emiliano CLI components, including SlashCommandCompleter.
 """
 
 import unittest
-from unittest.mock import MagicMock
-from emiliano.cli import SlashCommandCompleter
+from unittest.mock import MagicMock, patch
+
+from click.testing import CliRunner
+
+from emiliano.cli import SlashCommandCompleter, cli
+from emiliano.core.capabilities import Capability, ExecutionType
+from emiliano.core.dispatcher import ExecutionDispatcher
 
 
 class TestSlashCommandCompleter(unittest.TestCase):
@@ -64,6 +69,24 @@ class TestSlashCommandCompleter(unittest.TestCase):
     def test_normal_text_does_not_trigger_completions(self):
         completions = self._get_completions("write a python script to parse logs")
         self.assertEqual(completions, [])
+
+
+class TestRunCommand(unittest.TestCase):
+    def test_run_executes_goal_through_dispatcher(self):
+        cap = Capability(name="ollama", display_name="Ollama (Local)", execution_type=ExecutionType.DIRECT_MODEL)
+
+        async def fake_execute_task(**kwargs):
+            kwargs["on_route_selected"](cap)
+            kwargs["on_chunk"]("pong")
+            return cap, "pong"
+
+        with patch.object(ExecutionDispatcher, "__init__", return_value=None), \
+                patch.object(ExecutionDispatcher, "execute_task", side_effect=fake_execute_task) as mock_exec:
+            result = CliRunner().invoke(cli, ["run", "say pong", "--provider", "ollama"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("pong", result.output)
+        self.assertEqual(mock_exec.call_args.kwargs["goal"], "say pong")
 
 
 if __name__ == "__main__":
