@@ -18,6 +18,7 @@ export function isOverlayWindow(): boolean {
 export function useEngineSocket(
   onMessage: (msg: any) => void,
   onOpen?: (socket: WebSocket) => void,
+  url: string = ENGINE_WS_URL,
 ): WebSocket | null {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const handlers = useRef({ onMessage, onOpen });
@@ -29,7 +30,7 @@ export function useEngineSocket(
     let current: WebSocket | null = null;
 
     const connect = () => {
-      const ws = new WebSocket(ENGINE_WS_URL);
+      const ws = new WebSocket(url);
       current = ws;
       ws.onopen = () => {
         setSocket(ws);
@@ -54,7 +55,7 @@ export function useEngineSocket(
       clearTimeout(retry);
       current?.close();
     };
-  }, []);
+  }, [url]);
 
   return socket;
 }
