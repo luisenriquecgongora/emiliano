@@ -348,7 +348,8 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     }) if PROMPT_TOOLKIT_AVAILABLE else None
 
     prompt_session = None
-    if PROMPT_TOOLKIT_AVAILABLE:
+    # prompt_toolkit needs a real terminal; with piped input it swallows lines, so fall back to input()
+    if PROMPT_TOOLKIT_AVAILABLE and sys.stdin.isatty():
         try:
             history_dir = os.path.expanduser("~/.emiliano")
             os.makedirs(history_dir, exist_ok=True)
