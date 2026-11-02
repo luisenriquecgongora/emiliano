@@ -23,6 +23,8 @@ from .capabilities import Capability, ExecutionType
 from .config import EmilianoConfig, load_config
 from .registry import CapabilityRegistry
 from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
+from .enhanced_context_manager import EnhancedContextManager
+from .context_manager import TruncationStrategy
 from ..direct.client import UnifiedLLMClient
 
 
@@ -54,6 +56,12 @@ class ExecutionDispatcher:
     def __init__(self, config: Optional[EmilianoConfig] = None):
         self.config = config or load_config()
         self.registry = CapabilityRegistry(config=self.config)
+
+        # Initialize enhanced context manager (Phase 1 features)
+        self.context_manager = EnhancedContextManager(
+            config=self.config,
+            strategy=TruncationStrategy(self.config.context.truncation_strategy),
+        )
 
     async def route_task(
         self,
@@ -220,6 +228,28 @@ class ExecutionDispatcher:
                         {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
                         {"role": "user", "content": goal},
                     ]
+
+                    # Apply enhanced context management if enabled (Phase 1 features)
+                    if self.config.context.enabled:
+                        task_messages, context_meta = await self.context_manager.manage_context(
+                            task_messages,
+                            model_id,
+                            include_persistent=True,
+                        )
+
+                        # Log context operations
+                        if context_meta.was_summarized and self.config.context.metrics.log_summarization:
+                            logger.info(
+                                f"[{candidate.display_name}] Conversation summarized: "
+                                f"{context_meta.original_count} → {context_meta.truncated_count} messages"
+                            )
+
+                        if context_meta.was_truncated and self.config.context.metrics.log_truncation:
+                            logger.info(
+                                f"[{candidate.display_name}] Context truncated: "
+                                f"saved {context_meta.tokens_saved} tokens"
+                            )
+
                     output_parts = []
                     async for chunk in client.stream_completion(
                         messages=task_messages,
