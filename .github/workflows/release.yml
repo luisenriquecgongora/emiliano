@@ -1,0 +1,80 @@
+name: Build & Publish Release to Cloudflare R2
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version semver (e.g. 0.1.0)'
+        required: true
+
+# One release at a time, so two publishes never prune the bucket concurrently
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # Needed to create the GitHub Release
+
+jobs:
+  build-and-release:
+    name: Build Windows Release & Publish R2
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: packages/engine/pyproject.toml
+
+      - name: Install engine & build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller boto3 packaging
+          pip install -e ./packages/engine
+
+      - name: Determine version
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $ver = "${{ github.event.inputs.version }}".TrimStart("v")
+          } else {
+            $ver = "${{ github.ref_name }}".TrimStart("v")
+          }
+          echo "VERSION=$ver" >> $env:GITHUB_ENV
+          echo "Release version: $ver"
+
+      - name: Test release retention cap
+        run: python -m unittest scripts/test_prune_r2_releases.py
+
+      - name: Build Windows executable & package ZIP
+        env:
+          R2_CUSTOM_DOMAIN: ${{ secrets.R2_CUSTOM_DOMAIN || 'https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev' }}
+        run: python scripts/build_windows_release.py --version ${{ env.VERSION }} --notes "Release v${{ env.VERSION }}"
+
+      - name: Publish to Cloudflare R2 (keeps the newest 5 releases)
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME || 'plaatoos-downloads' }}
+          R2_CUSTOM_DOMAIN: ${{ secrets.R2_CUSTOM_DOMAIN || 'https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev' }}
+        run: python scripts/publish_release_to_r2.py --version ${{ env.VERSION }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/Emiliano.exe
+            dist/Emiliano-v${{ env.VERSION }}-windows-x64.zip
+            dist/version.json
+          generate_release_notes: true
+          draft: false
+          prerelease: false
