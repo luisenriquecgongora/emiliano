@@ -11,7 +11,7 @@ import asyncio
 import os
 import re
 from enum import Enum
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger

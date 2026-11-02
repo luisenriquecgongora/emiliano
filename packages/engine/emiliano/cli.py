@@ -348,7 +348,6 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     }) if PROMPT_TOOLKIT_AVAILABLE else None
 
     prompt_session = None
-    prompt_error = None
     if PROMPT_TOOLKIT_AVAILABLE:
         try:
             history_dir = os.path.expanduser("~/.emiliano")
@@ -359,9 +358,8 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                 history=FileHistory(os.path.join(history_dir, "history")),
                 style=menu_style,
             )
-        except Exception as e:
+        except Exception:
             prompt_session = None
-            prompt_error = e
 
     click.echo(click.style("╔══════════════════════════════════════════════════════════════╗", fg="cyan"))
     click.echo(click.style("║         Emiliano Autonomous Terminal Coworker (v0.1)         ║", fg="cyan", bold=True))

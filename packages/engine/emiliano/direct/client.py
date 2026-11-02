@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import AsyncGenerator, Dict, List, Optional, Tuple
+from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -186,7 +186,7 @@ class UnifiedLLMClient:
                     raise RuntimeError(f"Model {target_model} returned an empty response{detail}")
                 return
             except (KeyboardInterrupt, asyncio.CancelledError):
-                logger.info(f"[LLM] Completion cancelled by user.")
+                logger.info("[LLM] Completion cancelled by user.")
                 raise
             except Exception as e:
                 logger.warning(f"[LLM] Model {target_model} failed: {e}. Trying next viable candidate...")

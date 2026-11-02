@@ -102,7 +102,7 @@ class TestHarnessFallbackSafety(unittest.TestCase):
 
     def _run(self, claude_result, codex_result=(0, "codex did it\n", "")):
         with _chdir(self.repo), \
-                patch.object(ClaudeCodeHarness, "run_task", side_effect=claude_result) as claude, \
+                patch.object(ClaudeCodeHarness, "run_task", side_effect=claude_result), \
                 patch.object(CodexHarness, "run_task", return_value=codex_result) as codex:
             try:
                 return asyncio.run(self.dispatcher.execute_task("fix the bug")), codex
