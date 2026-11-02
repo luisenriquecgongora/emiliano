@@ -258,7 +258,7 @@ def doctor():
 
 @cli.command()
 @click.argument("goal")
-@click.option("--policy", "-p", default="auto", type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Execution routing policy")
+@click.option("--policy", "-p", default=None, type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Execution routing policy (default: execution_policy from config, else auto)")
 @click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
 @click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
 @click.option("--model", "-m", default=None, help="Override model name")
@@ -315,7 +315,7 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
 
 
 @cli.command()
-@click.option("--policy", "-p", default="auto", type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Initial execution routing policy")
+@click.option("--policy", "-p", default=None, type=click.Choice(["auto", "local", "harness", "api"], case_sensitive=False), help="Initial execution routing policy (default: execution_policy from config, else auto)")
 @click.option("--harness", default=None, help="Explicitly select an external agent harness (claude, codex, agy, opencode)")
 @click.option("--provider", default=None, help="Explicitly select a direct provider (ollama, anthropic, openai, deepseek, gemini)")
 @click.option("--model", "-m", default=None, help="Override model name")
@@ -373,7 +373,7 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
         if os.environ.get("MSYSTEM") or os.environ.get("TERM_PROGRAM") == "mintty":
             click.echo(click.style("  [Tip] In Git Bash (MinTTY), run 'winpty emiliano' to enable slash command autocomplete.", fg="yellow"))
 
-    active_policy = policy
+    active_policy = policy or dispatcher.config.execution_policy or "auto"
     active_harness = harness
     active_provider = provider
     active_model = model

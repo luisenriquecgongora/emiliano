@@ -58,7 +58,7 @@ class ExecutionDispatcher:
     async def route_task(
         self,
         goal: str,
-        policy: str = "auto",
+        policy: Optional[str] = None,
         harness_override: Optional[str] = None,
         provider_override: Optional[str] = None,
         model_override: Optional[str] = None,
@@ -93,7 +93,7 @@ class ExecutionDispatcher:
             return [target]
 
         # 3. Policy: LOCAL (only local model)
-        policy_norm = policy.lower()
+        policy_norm = self._resolve_policy(policy)
         if policy_norm == RoutingPolicy.LOCAL.value:
             ollama_cap = caps.get("ollama")
             if not ollama_cap or not ollama_cap.is_usable:
@@ -110,8 +110,7 @@ class ExecutionDispatcher:
                 # Diagnostics on why harnesses failed
                 reasons = [f"  • {c.display_name}: {c.status_message}" for c in caps.values() if c.execution_type == ExecutionType.AGENT_HARNESS]
                 raise RuntimeError("Harness policy requested, but no external harnesses are usable:\n" + "\n".join(reasons))
-            # Sort by priority
-            harnesses.sort(key=lambda c: c.priority)
+            harnesses.sort(key=self._harness_sort_key)
             return harnesses
 
         # 5. Policy: API (remote API providers)
@@ -138,7 +137,7 @@ class ExecutionDispatcher:
                 ollama_cap = ollama_cap.model_copy(update={"selected_model": model_override})
 
         usable_harnesses = [c for c in ready_caps if c.execution_type == ExecutionType.AGENT_HARNESS]
-        usable_harnesses.sort(key=lambda c: c.priority)
+        usable_harnesses.sort(key=self._harness_sort_key)
 
         usable_apis = [c for c in ready_caps if c.execution_type == ExecutionType.DIRECT_MODEL and c.name != "ollama"]
         usable_apis.sort(key=lambda c: c.priority)
@@ -178,7 +177,7 @@ class ExecutionDispatcher:
     async def execute_task(
         self,
         goal: str,
-        policy: str = "auto",
+        policy: Optional[str] = None,
         harness_override: Optional[str] = None,
         provider_override: Optional[str] = None,
         model_override: Optional[str] = None,
@@ -311,6 +310,23 @@ class ExecutionDispatcher:
             f"{len(changed)} path(s) ({shown}), and running the goal again could apply it twice. "
             "Review the changes, then re-run."
         )
+
+    def _resolve_policy(self, policy: Optional[str]) -> str:
+        """Uses the explicit policy, else the configured execution_policy, else auto."""
+        resolved = (policy or self.config.execution_policy or RoutingPolicy.AUTO.value).lower()
+        valid = [p.value for p in RoutingPolicy]
+        if resolved not in valid:
+            raise ValueError(
+                f"Unknown execution policy '{resolved}'. Use one of: {', '.join(valid)} "
+                "(check execution_policy in your Emiliano config)."
+            )
+        return resolved
+
+    def _harness_sort_key(self, cap: Capability) -> Tuple[bool, int]:
+        """Orders harnesses by priority, with the configured preferred_harness first."""
+        preferred = (self.config.preferred_harness or "").lower().replace("-", "_")
+        preferred = HARNESS_ALIASES.get(preferred, preferred)
+        return (cap.name != preferred, cap.priority)
 
     @staticmethod
     def _litellm_model_id(candidate: Capability) -> str:

@@ -117,7 +117,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     task_id = payload.get("taskId") or "task-1"
                     harness_pref = payload.get("harnessPreference", "auto")
-                    policy = payload.get("policy", "auto")
+                    policy = payload.get("policy")  # None: use execution_policy from config
                     model = payload.get("model")
 
                     # Cancel any existing task
