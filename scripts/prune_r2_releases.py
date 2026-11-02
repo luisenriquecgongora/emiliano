@@ -16,12 +16,13 @@ import os
 import re
 from typing import List, Optional, Tuple
 
+from packaging.version import InvalidVersion, Version
+
 try:
     import boto3
     from botocore.config import Config
-    from packaging.version import InvalidVersion, Version
 except ImportError:
-    boto3 = None
+    boto3 = None  # Only needed to talk to R2; the retention logic works without it
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger("r2.pruner")
@@ -33,7 +34,7 @@ PROTECTED_FOLDERS = {"latest"}
 
 def get_r2_client():
     if boto3 is None:
-        raise SystemExit("Missing 'boto3' or 'packaging'. Run: pip install boto3 packaging")
+        raise SystemExit("Missing 'boto3'. Run: pip install boto3")
 
     account_id = os.environ.get("R2_ACCOUNT_ID")
     access_key = os.environ.get("R2_ACCESS_KEY_ID")
