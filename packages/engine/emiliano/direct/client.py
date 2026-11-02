@@ -106,7 +106,7 @@ class UnifiedLLMClient:
             if self.cred_mgr.get_deepseek_key():
                 candidates.append(("deepseek/deepseek-chat", None))
             if self.cred_mgr.get_anthropic_key():
-                candidates.append(("anthropic/claude-3-7-sonnet-20250219", None))
+                candidates.append(("anthropic/claude-opus-5-5", None))
             if self.cred_mgr.get_openai_key():
                 candidates.append(("openai/gpt-4o", None))
             if self.cred_mgr.get_gemini_key():

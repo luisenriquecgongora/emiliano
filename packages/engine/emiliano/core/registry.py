@@ -126,7 +126,7 @@ class CapabilityRegistry:
     def _discover_api_providers(self) -> List[Capability]:
         results: List[Capability] = []
         providers = [
-            ("anthropic", "Anthropic (Claude)", self.cred_mgr.get_anthropic_key, "claude-3-7-sonnet-20250219", "ANTHROPIC_API_KEY", 20),
+            ("anthropic", "Anthropic (Claude)", self.cred_mgr.get_anthropic_key, "claude-opus-5-5", "ANTHROPIC_API_KEY", 20),
             ("openai", "OpenAI (GPT)", self.cred_mgr.get_openai_key, "gpt-4o", "OPENAI_API_KEY", 25),
             ("deepseek", "DeepSeek", self.cred_mgr.get_deepseek_key, "deepseek-chat", "DEEPSEEK_API_KEY", 30),
             ("gemini", "Google Gemini", self.cred_mgr.get_gemini_key, "gemini-2.5-pro", "GEMINI_API_KEY", 35),

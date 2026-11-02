@@ -10,13 +10,13 @@ models:
 
   # Default model names
   local_model: "qwen2.5-coder:32b"
-  remote_model: "claude-3-7-sonnet-20250219"
+  remote_model: "claude-opus-5-5"
 
   # Automated fallback chain: tried top to bottom
   fallback_chain:
     - "ollama/qwen2.5-coder:32b"
     - "deepseek/deepseek-chat"
-    - "anthropic/claude-3-7-sonnet-20250219"
+    - "anthropic/claude-opus-5-5"
 
 harnesses:
   # Binary or command names for external harnesses
