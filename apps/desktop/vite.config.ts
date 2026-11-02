@@ -1,35 +1,20 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import electron from 'vite-plugin-electron';
-import renderer from 'vite-plugin-electron-renderer';
 import path from 'path';
 
+// Tauri loads the renderer from devUrl in development and from dist/ in builds
 export default defineConfig({
-  plugins: [
-    react(),
-    electron([
-      {
-        entry: 'src/main/index.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron/main',
-          },
-        },
-      },
-      {
-        entry: 'src/preload/index.ts',
-        onstart(options) {
-          options.reload();
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron/preload',
-          },
-        },
-      },
-    ]),
-    renderer(),
-  ],
+  plugins: [react()],
+  clearScreen: false,
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  envPrefix: ['VITE_', 'TAURI_ENV_'],
+  build: {
+    outDir: 'dist',
+    target: 'es2021',
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
