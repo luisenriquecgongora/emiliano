@@ -550,5 +550,55 @@ class TestHarnessPromptSafety(unittest.TestCase):
             self.assertEqual(routes_conceptual[1].name, "codex")
 
 
+class TestConfiguredRouting(unittest.TestCase):
+    CAPS = {
+        "ollama": Capability(name="ollama", display_name="Ollama (Local)", execution_type=ExecutionType.DIRECT_MODEL,
+                             status=CapabilityStatus.READY, selected_model="qwen3.5:2b", priority=10),
+        "claude_code": Capability(name="claude_code", display_name="Claude Code", execution_type=ExecutionType.AGENT_HARNESS,
+                                  status=CapabilityStatus.READY, priority=15),
+        "codex": Capability(name="codex", display_name="Codex", execution_type=ExecutionType.AGENT_HARNESS,
+                            status=CapabilityStatus.READY, priority=16),
+    }
+
+    def _route(self, goal="Explain repo", policy=None, **config):
+        cfg = EmilianoConfig(**config)
+        dispatcher = ExecutionDispatcher(config=cfg)
+        with patch.object(dispatcher.registry, "discover_all", new_callable=AsyncMock, return_value=self.CAPS):
+            return [c.name for c in asyncio.run(dispatcher.route_task(goal, policy=policy))]
+
+    def test_configured_execution_policy_is_used_by_default(self):
+        self.assertEqual(self._route(execution_policy="harness"), ["claude_code", "codex"])
+        self.assertEqual(self._route(execution_policy="local"), ["ollama"])
+
+    def test_explicit_policy_overrides_config(self):
+        self.assertEqual(self._route(policy="local", execution_policy="harness"), ["ollama"])
+
+    def test_invalid_configured_policy_is_reported(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._route(execution_policy="fastest")
+        self.assertIn("execution_policy", str(ctx.exception))
+
+    def test_preferred_harness_goes_first(self):
+        self.assertEqual(self._route(policy="harness", preferred_harness="codex"), ["codex", "claude_code"])
+        # Aliases work too, and auto routing for coding tasks honors the preference
+        routes = self._route(goal="fix the failing tests in this repo", policy="auto", preferred_harness="codex")
+        self.assertEqual(routes[:2], ["codex", "claude_code"])
+
+    def test_cli_policy_defaults_to_config(self):
+        from click.testing import CliRunner
+        from emiliano.cli import run
+
+        seen = {}
+
+        async def fake_execute_task(**kwargs):
+            seen.update(kwargs)
+            return self.CAPS["ollama"], "ok"
+
+        with patch.object(ExecutionDispatcher, "execute_task", side_effect=fake_execute_task):
+            result = CliRunner().invoke(run, ["hello"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIsNone(seen["policy"])  # Resolved from config inside the dispatcher
+
+
 if __name__ == "__main__":
     unittest.main()
