@@ -196,6 +196,14 @@ class TestWebSocketOriginCheck(unittest.TestCase):
                 self._ping("http://localhost:5173")
 
 
+class TestStartup(unittest.TestCase):
+    def test_discovery_warms_up_at_startup(self):
+        with patch.object(get_dispatcher(), "warm_up", new_callable=AsyncMock) as warm_up:
+            with TestClient(app, base_url="http://127.0.0.1") as client:  # "with" runs startup
+                client.get("/health")
+        warm_up.assert_awaited_once()
+
+
 class TestHttpRequestChecks(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app, base_url="http://127.0.0.1")
