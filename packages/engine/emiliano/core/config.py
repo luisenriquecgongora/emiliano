@@ -11,6 +11,43 @@ import yaml
 from pydantic import BaseModel, Field
 
 
+class SummarizationConfig(BaseModel):
+    """Configuration for conversation summarization (Phase 1)."""
+    enabled: bool = True  # Enable LLM-based summarization (vs simple truncation)
+    strategy: str = "recursive"  # "recursive" | "simple"
+    threshold_tokens: int = 8000  # Summarize when history exceeds this
+    max_summary_tokens: int = 500  # Maximum tokens in generated summary
+
+
+class PersistentContextConfig(BaseModel):
+    """Configuration for persistent context files (Phase 1)."""
+    enabled: bool = True  # Load persistent context files
+    filenames: List[str] = Field(
+        default_factory=lambda: ["EMILIANO.md", "CLAUDE.md", ".emiliano/context.md"]
+    )  # Filenames to check for persistent context
+
+
+class MetricsConfig(BaseModel):
+    """Configuration for context metrics and logging (Phase 1)."""
+    enabled: bool = True  # Collect context usage metrics
+    log_truncation: bool = True  # Log when truncation occurs
+    log_summarization: bool = True  # Log when summarization occurs
+
+
+class ContextConfig(BaseModel):
+    """Configuration for conversation context window management."""
+    enabled: bool = True  # Enable automatic context management
+    max_tokens: Optional[int] = None  # Override model's default limit (None = use model default)
+    truncation_strategy: str = "sliding_window"  # "sliding_window" | "drop_middle"
+    safety_margin: float = 0.85  # Use 85% of context window (0.0-1.0)
+    reserve_tokens: int = 2000  # Tokens reserved for model response
+
+    # Phase 1 features
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
+    persistent: PersistentContextConfig = Field(default_factory=PersistentContextConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+
+
 class ModelConfig(BaseModel):
     default_provider: str = "ollama"  # "ollama" | "anthropic" | "openai" | "deepseek" | "gemini"
     ollama_base_url: str = "http://localhost:11434"
@@ -50,6 +87,7 @@ class EmilianoConfig(BaseModel):
     models: ModelConfig = Field(default_factory=ModelConfig)
     harnesses: HarnessPathsConfig = Field(default_factory=HarnessPathsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
 
 def get_default_config_path() -> Path:
