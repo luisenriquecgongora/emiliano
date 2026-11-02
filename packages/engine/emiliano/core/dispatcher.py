@@ -8,6 +8,7 @@ Handles fallback and error classification.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from enum import Enum
 from typing import Callable, List, Optional, Tuple
@@ -21,7 +22,12 @@ except ImportError:
 from .capabilities import Capability, ExecutionType
 from .config import EmilianoConfig, load_config
 from .registry import CapabilityRegistry
+from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
 from ..direct.client import UnifiedLLMClient
+
+
+class ExecutionAbortedError(RuntimeError):
+    """A harness failed after the workspace may have changed, so no other route is attempted."""
 
 
 class RoutingPolicy(str, Enum):
@@ -236,6 +242,10 @@ class ExecutionDispatcher:
                     if not harness:
                         raise RuntimeError(f"Harness adapter '{candidate.name}' not found.")
 
+                    # Snapshot the workspace so a failure can be checked for partial changes
+                    workspace = os.getcwd()
+                    before = await asyncio.to_thread(workspace_snapshot, workspace)
+
                     code, stdout, stderr = await asyncio.to_thread(
                         harness.run_task,
                         prompt=goal,
@@ -255,11 +265,16 @@ class ExecutionDispatcher:
                         return candidate, stdout
                     elif code == 0:
                         detail = f": {stderr.strip()}" if stderr.strip() else ""
-                        raise RuntimeError(f"Harness '{candidate.display_name}' exited successfully but produced no output{detail}")
+                        failure = f"Harness '{candidate.display_name}' exited successfully but produced no output{detail}"
                     else:
                         err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {code}"
-                        raise RuntimeError(f"Harness '{candidate.display_name}' failed: {err_msg}")
+                        failure = f"Harness '{candidate.display_name}' failed: {err_msg}"
 
+                    after = await asyncio.to_thread(workspace_snapshot, workspace)
+                    self._raise_harness_failure(candidate, failure, workspace, before, after)
+
+            except ExecutionAbortedError:
+                raise
             except (KeyboardInterrupt, asyncio.CancelledError):
                 logger.info("[Dispatcher] Execution interrupted by user.")
                 raise
@@ -268,6 +283,34 @@ class ExecutionDispatcher:
                 last_error = e
 
         raise RuntimeError(f"All execution routes failed. Last error: {last_error}")
+
+    @staticmethod
+    def _raise_harness_failure(
+        candidate: Capability,
+        failure: str,
+        workspace: str,
+        before: Optional[WorkspaceSnapshot],
+        after: Optional[WorkspaceSnapshot],
+    ) -> None:
+        """
+        Raises a RuntimeError (the next route is tried) when the failed harness left the
+        workspace untouched. Raises ExecutionAbortedError when it changed files, or when
+        changes cannot be detected, because running the goal again could apply it twice.
+        """
+        if before is None or after is None:
+            raise ExecutionAbortedError(
+                f"{failure}\nNot retrying with another route: {workspace} is not a git repository, "
+                "so Emiliano cannot tell whether the task was partly applied. Check the folder, then re-run."
+            )
+        changed = changed_paths(before, after)
+        if not changed:
+            raise RuntimeError(failure)
+        shown = ", ".join(changed[:5]) + (f" and {len(changed) - 5} more" if len(changed) > 5 else "")
+        raise ExecutionAbortedError(
+            f"{failure}\nNot retrying with another route: {candidate.display_name} already changed "
+            f"{len(changed)} path(s) ({shown}), and running the goal again could apply it twice. "
+            "Review the changes, then re-run."
+        )
 
     @staticmethod
     def _litellm_model_id(candidate: Capability) -> str:
