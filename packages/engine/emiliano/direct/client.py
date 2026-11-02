@@ -156,16 +156,19 @@ class UnifiedLLMClient:
         for target_model, api_base in candidates:
             logger.info(f"[LLM] Attempting completion with model: {target_model} (api_base={api_base})")
             try:
+                # Current Claude models reject sampling parameters with a 400, so only
+                # send temperature to other providers
+                sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
                 # Pass the key per call rather than via os.environ, so it never leaks
                 # into harness subprocesses (e.g. switching Claude Code to API billing)
                 response = await litellm.acompletion(
                     model=target_model,
                     messages=messages,
                     stream=True,
-                    temperature=temperature,
                     api_base=api_base,
                     api_key=self._provider_key(target_model),
                     timeout=timeout,
+                    **sampling,
                 )
                 produced_content = False
                 reasoning_chars = 0
@@ -194,6 +197,11 @@ class UnifiedLLMClient:
 
         if last_error:
             raise RuntimeError(f"All viable models failed. Last error: {last_error}")
+
+    @staticmethod
+    def _is_anthropic_model(model_name: str) -> bool:
+        m = model_name.lower()
+        return not m.startswith("ollama/") and ("anthropic" in m or "claude" in m)
 
     def _provider_key(self, model_name: str) -> Optional[str]:
         """Returns the API key for the model's provider (env or config), or None for local models."""
