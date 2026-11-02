@@ -8,13 +8,37 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Dict, Optional, Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from ..core.dispatcher import ExecutionDispatcher
-from .security import is_origin_allowed
+from .security import get_allowed_origins, is_origin_allowed
 
 app = FastAPI(title="Emiliano Engine IPC")
+
+# Only accept requests addressed to this machine. Checking Host blocks DNS rebinding, where a
+# website points its own domain at 127.0.0.1 so the browser treats the engine as same-origin.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+
+
+@app.middleware("http")
+async def reject_foreign_origins(request: Request, call_next):
+    # Browsers attach Origin to cross-site requests: refuse pages other than the desktop app
+    if not is_origin_allowed(request.headers.get("origin")):
+        return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+    return await call_next(request)
+
+
+# The desktop app's pages are served from their own origin, so its REST calls need CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=sorted(get_allowed_origins()),
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["content-type"],
+)
 
 # Connected UI clients (usually the desktop dock and HUD overlay windows)
 active_connections: Set[WebSocket] = set()

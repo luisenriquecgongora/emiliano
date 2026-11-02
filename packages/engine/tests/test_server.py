@@ -18,7 +18,7 @@ from emiliano.server.app import app, get_dispatcher
 
 class TestServerIPC(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, base_url="http://127.0.0.1")
 
     def test_health_endpoint(self):
         resp = self.client.get("/health")
@@ -45,7 +45,7 @@ class TestServerIPC(unittest.TestCase):
             self.assertEqual(data["models"][0]["name"], "ollama")
 
     def test_websocket_ping_pong(self):
-        with self.client.websocket_connect("/ws") as ws:
+        with self.client.websocket_connect("ws://127.0.0.1/ws") as ws:
             ws.send_text(json.dumps({"type": "PING"}))
             msg = json.loads(ws.receive_text())
             self.assertEqual(msg["type"], "PONG")
@@ -60,7 +60,7 @@ class TestServerIPC(unittest.TestCase):
         dispatcher = get_dispatcher()
         with patch.object(dispatcher.registry, "discover_all", new_callable=AsyncMock) as mock_disc:
             mock_disc.return_value = {"agy": mock_cap}
-            with self.client.websocket_connect("/ws") as ws:
+            with self.client.websocket_connect("ws://127.0.0.1/ws") as ws:
                 ws.send_text(json.dumps({"type": "GET_CAPABILITIES"}))
                 msg = json.loads(ws.receive_text())
                 self.assertEqual(msg["type"], "CAPABILITIES_RESPONSE")
@@ -89,7 +89,7 @@ class TestServerIPC(unittest.TestCase):
             return mock_cap, "Task result completed"
 
         with patch.object(dispatcher, "execute_task", side_effect=fake_execute_task):
-            with self.client.websocket_connect("/ws") as ws:
+            with self.client.websocket_connect("ws://127.0.0.1/ws") as ws:
                 ws.send_text(json.dumps({
                     "type": "TASK_START",
                     "payload": {
@@ -126,7 +126,7 @@ class TestServerIPC(unittest.TestCase):
             return MagicMock(), "Never reached"
 
         with patch.object(dispatcher, "execute_task", side_effect=slow_execute_task):
-            with self.client.websocket_connect("/ws") as ws:
+            with self.client.websocket_connect("ws://127.0.0.1/ws") as ws:
                 ws.send_text(json.dumps({
                     "type": "TASK_START",
                     "payload": {
@@ -162,11 +162,11 @@ class TestServerIPC(unittest.TestCase):
 
 class TestWebSocketOriginCheck(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
+        self.client = TestClient(app, base_url="http://127.0.0.1")
 
     def _ping(self, origin):
         headers = {"origin": origin} if origin is not None else {}
-        with self.client.websocket_connect("/ws", headers=headers) as ws:
+        with self.client.websocket_connect("ws://127.0.0.1/ws", headers=headers) as ws:
             ws.send_text(json.dumps({"type": "PING"}))
             return json.loads(ws.receive_text())["type"]
 
@@ -185,7 +185,7 @@ class TestWebSocketOriginCheck(unittest.TestCase):
         dispatcher = get_dispatcher()
         with patch.object(dispatcher, "execute_task", new_callable=AsyncMock) as mock_exec:
             with self.assertRaises(WebSocketDisconnect):
-                with self.client.websocket_connect("/ws", headers={"origin": "https://evil.example"}) as ws:
+                with self.client.websocket_connect("ws://127.0.0.1/ws", headers={"origin": "https://evil.example"}) as ws:
                     ws.send_text(json.dumps({"type": "TASK_START", "payload": {"goal": "rm -rf ~"}}))
             mock_exec.assert_not_called()
 
