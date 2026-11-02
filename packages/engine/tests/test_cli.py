@@ -71,6 +71,15 @@ class TestSlashCommandCompleter(unittest.TestCase):
         self.assertEqual(completions, [])
 
 
+class TestVersionFlag(unittest.TestCase):
+    def test_version_flag_prints_package_version(self):
+        from emiliano import __version__
+
+        result = CliRunner().invoke(cli, ["--version"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(result.output.strip(), f"emiliano, version {__version__}")
+
+
 class TestRunCommand(unittest.TestCase):
     def test_run_executes_goal_through_dispatcher(self):
         cap = Capability(name="ollama", display_name="Ollama (Local)", execution_type=ExecutionType.DIRECT_MODEL)
