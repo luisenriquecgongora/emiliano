@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Placeholder app icon: regenerate the icon set with `yarn workspace @emiliano/desktop tauri icon app-icon.svg` -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#020617"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)" stroke="#0e7490" stroke-width="24"/>
+  <path d="M352 272h336v96H464v96h192v96H464v96h224v96H352z" fill="#22d3ee"/>
+</svg>
