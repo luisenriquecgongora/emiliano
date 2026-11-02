@@ -129,7 +129,7 @@ emiliano run "Explain what this repository does"
   - `api`: Uses direct remote API models (Anthropic, OpenAI, DeepSeek, Gemini).
 - `--harness`: Explicitly override the agent harness (e.g. `--harness codex`, `--harness claude`).
 - `--provider`: Explicitly override the direct provider (e.g. `--provider ollama`, `--provider anthropic`).
-- `--model, -m`: Explicitly override the model name (e.g. `-m qwen3.5:2b`, `-m claude-3-7-sonnet-20250219`).
+- `--model, -m`: Explicitly override the model name (e.g. `-m qwen3.5:2b`, `-m anthropic/claude-opus-5-5`).
 - `--timeout`: Set task timeout in seconds (default: `180.0`).
 
 #### Examples:
