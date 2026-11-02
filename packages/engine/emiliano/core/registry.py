@@ -170,6 +170,18 @@ class CapabilityRegistry:
             "opencode": 18,
         }
 
+        # Each usability check runs the harness's --version (often seconds), so run them all at
+        # once in worker threads instead of one after another
+        usability = {}
+        if test_usability:
+            loop = asyncio.get_running_loop()
+            checks = {
+                h_id: loop.run_in_executor(None, harness.check_usability)
+                for h_id, harness in harnesses.items()
+                if harness.resolve_executable()
+            }
+            usability = dict(zip(checks, await asyncio.gather(*checks.values())))
+
         for h_id, harness in harnesses.items():
             exe = harness.resolve_executable()
             prio = prio_map.get(h_id, 50)
@@ -190,9 +202,7 @@ class CapabilityRegistry:
             version = None
             err = None
             if test_usability:
-                # Run in executor to avoid blocking event loop
-                loop = asyncio.get_running_loop()
-                usable, version, err = await loop.run_in_executor(None, harness.check_usability)
+                usable, version, err = usability[h_id]
 
             if not usable:
                 results.append(Capability(
