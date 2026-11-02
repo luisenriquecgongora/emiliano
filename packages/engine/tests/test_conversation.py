@@ -6,7 +6,7 @@ the project's context files.
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from emiliano.core.capabilities import Capability, CapabilityStatus, ExecutionType
 from emiliano.core.dispatcher import SYSTEM_PROMPT, ExecutionDispatcher
@@ -78,6 +78,20 @@ class TestThinkOption(unittest.TestCase):
                     asyncio.run(_drain(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model, think=False)))
                 kwargs = mock.call_args.kwargs
                 self.assertEqual({k: kwargs[k] for k in ("think",) if k in kwargs}, expected)
+
+
+class TestDiscoveryCache(unittest.TestCase):
+    def test_discovery_is_reused_then_refreshed(self):
+        dispatcher = ExecutionDispatcher()
+        clock = MagicMock()
+        clock.monotonic.side_effect = [1000.0, 1030.0, 1061.0]
+        # Patch only the dispatcher's clock: asyncio's event loop reads time.monotonic too
+        with patch.object(dispatcher.registry, "discover_all", new_callable=AsyncMock, return_value={"ollama": OLLAMA}) as discover, \
+                patch("emiliano.core.dispatcher.time", clock):
+            for _ in range(3):
+                asyncio.run(dispatcher.route_task("hi", policy="local"))
+        # Second call is within 60s of the first and reuses it; the third is past it
+        self.assertEqual(discover.await_count, 2)
 
 
 if __name__ == "__main__":
