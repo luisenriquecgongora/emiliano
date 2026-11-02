@@ -196,5 +196,28 @@ class TestWebSocketOriginCheck(unittest.TestCase):
                 self._ping("http://localhost:5173")
 
 
+class TestHttpRequestChecks(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app, base_url="http://127.0.0.1")
+
+    def test_rebinding_host_is_rejected(self):
+        # A DNS-rebinding page reaches 127.0.0.1 but sends its own domain as Host
+        resp = self.client.get("/health", headers={"host": "evil.example:8765"})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.client.get("/health", headers={"host": "localhost:8765"}).status_code, 200)
+
+    def test_foreign_origin_is_rejected(self):
+        self.assertEqual(self.client.get("/health", headers={"origin": "https://evil.example"}).status_code, 403)
+        self.assertEqual(self.client.get("/health", headers={"origin": "http://tauri.localhost"}).status_code, 200)
+
+    def test_desktop_app_cors_preflight(self):
+        resp = self.client.options("/health", headers={
+            "origin": "http://tauri.localhost",
+            "access-control-request-method": "DELETE",
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://tauri.localhost")
+
+
 if __name__ == "__main__":
     unittest.main()
