@@ -422,6 +422,8 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             click.echo("  • /doctor          : Run diagnostic check")
             click.echo("  • /models          : List available models and providers")
             click.echo("  • /harnesses       : List external agent harnesses")
+            click.echo("  • /context         : Show context window usage (Phase 1)")
+            click.echo("  • /compact         : Compact conversation history (Phase 1)")
             click.echo("  • /exit, exit      : Exit interactive session\n")
             continue
 
@@ -435,6 +437,46 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
         if cmd_lower in ("/history", "history"):
             turns = [m for m in conversation_history if m["role"] != "system"]
             click.echo(click.style(f"Conversation history has {len(turns)} turns ({len(conversation_history)} messages total).", fg="cyan"))
+            continue
+
+        if cmd_lower in ("/context", "context"):
+            # Display context usage metrics
+            try:
+                # Get the current model being used (from active settings)
+                model_id = active_model or dispatcher.config.models.remote_model
+                if active_provider:
+                    model_id = f"{active_provider}/{model_id.split('/')[-1]}"
+
+                # Collect metrics
+                metrics = dispatcher.context_manager.get_metrics(
+                    messages=conversation_history,
+                    model_id=model_id,
+                )
+
+                # Format and display
+                formatted = dispatcher.context_manager.metrics_collector.format_metrics(
+                    metrics,
+                    model_name=model_id,
+                )
+                click.echo(formatted)
+            except Exception as e:
+                click.echo(click.style(f"Error displaying context: {e}", fg="red"))
+            continue
+
+        if cmd_lower in ("/compact", "compact"):
+            # Manually trigger conversation summarization
+            click.echo(click.style("⚙️  Compacting conversation history...", fg="cyan"))
+            try:
+                import asyncio
+                compacted, summary = asyncio.run(
+                    dispatcher.context_manager.compact_conversation(conversation_history)
+                )
+                conversation_history = compacted
+                click.echo(click.style(f"✓ Conversation compacted: {len(conversation_history)} messages remaining", fg="green"))
+                click.echo(click.style("\nSummary of previous conversation:", fg="cyan", bold=True))
+                click.echo(summary[:500] + ("..." if len(summary) > 500 else ""))
+            except Exception as e:
+                click.echo(click.style(f"Error compacting conversation: {e}", fg="red"))
             continue
 
         if cmd_lower.startswith("/policy") or cmd_lower.startswith("policy"):
