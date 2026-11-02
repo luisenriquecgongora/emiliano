@@ -50,6 +50,14 @@ jobs:
           echo "VERSION=$ver" >> $env:GITHUB_ENV
           echo "Release version: $ver"
 
+      - name: Check version matches the package
+        run: |
+          $pkg = python -c "import emiliano; print(emiliano.__version__)"
+          if ($pkg -ne "${{ env.VERSION }}") {
+            echo "::error::Release v${{ env.VERSION }} does not match emiliano.__version__ ($pkg). Bump packages/engine/emiliano/__init__.py and pyproject.toml first."
+            exit 1
+          }
+
       - name: Test release retention cap
         run: python -m unittest scripts/test_prune_r2_releases.py
 
