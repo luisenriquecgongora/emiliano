@@ -13,6 +13,7 @@ import sys
 import time
 from typing import Optional
 import click
+from . import __version__
 from .core.config import load_config
 from .core.single_instance import SingleInstanceGuard
 
@@ -117,6 +118,7 @@ class SlashCommandCompleter(Completer):
 
 
 @click.group(invoke_without_command=True)
+@click.version_option(__version__, prog_name="emiliano")
 @click.pass_context
 def cli(ctx: click.Context):
     """Emiliano: Unified Meta-Harness & Desktop Cowork Platform."""
