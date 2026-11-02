@@ -41,6 +41,15 @@ class HarnessInvocation:
     temp_files: List[str] = field(default_factory=list)
 
 
+def _read_json(path: Path) -> dict:
+    """Reads a JSON object from path; returns {} if it is missing, unreadable or not an object."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 class BaseHarness(ABC):
     def __init__(self, name: str, command: str, display_name: str = ""):
         self.name = name
@@ -324,25 +333,24 @@ class ClaudeCodeHarness(BaseHarness):
         super().__init__(name="claude_code", command=command, display_name="Claude Code")
 
     def check_authentication(self) -> Tuple[bool, str]:
-        # 1. Direct API key
+        # 1. API key or long-lived OAuth token (from `claude setup-token`)
         if os.environ.get("ANTHROPIC_API_KEY"):
             return True, "API Key configured via ANTHROPIC_API_KEY"
+        if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            return True, "OAuth token configured via CLAUDE_CODE_OAUTH_TOKEN"
 
-        # 2. Claude Code account in ~/.claude.json
-        claude_json = Path.home() / ".claude.json"
-        if claude_json.exists():
-            try:
-                data = json.loads(claude_json.read_text(encoding="utf-8"))
-                if data.get("oauthAccount") or data.get("sessionKey") or data.get("primaryApiKey"):
-                    return True, "OAuth / Session authenticated via ~/.claude.json"
-            except Exception:
-                pass
+        # 2. Logged-in account recorded in ~/.claude.json
+        data = _read_json(Path.home() / ".claude.json")
+        if data.get("oauthAccount") or data.get("primaryApiKey"):
+            return True, "Logged in (account in ~/.claude.json)"
 
-        # 3. Claude profile directory
-        if (Path.home() / ".claude").is_dir():
-            return True, "Profile directory exists (~/.claude)"
+        # 3. Stored OAuth credentials (Windows/Linux; macOS keeps them in the Keychain)
+        config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+        if _read_json(config_dir / ".credentials.json").get("claudeAiOauth"):
+            return True, f"Logged in (credentials in {config_dir})"
 
-        return False, "Not authenticated (run 'claude login' or set ANTHROPIC_API_KEY)"
+        # A bare ~/.claude folder only means Claude Code was launched once, not that it is logged in
+        return False, "Not authenticated (run 'claude' and log in, or set ANTHROPIC_API_KEY)"
 
     def build_task_command(self, prompt: str) -> List[str]:
         exe = self.resolve_executable() or self.command
@@ -364,20 +372,13 @@ class CodexHarness(BaseHarness):
         if os.environ.get("CODEX_API_KEY") or os.environ.get("OPENAI_API_KEY"):
             return True, "API Key configured via environment"
 
-        # 2. Stored auth in ~/.codex/auth.json
-        auth_file = Path.home() / ".codex" / "auth.json"
-        if auth_file.exists():
-            try:
-                data = json.loads(auth_file.read_text(encoding="utf-8"))
-                if data.get("tokens") or data.get("api_key") or data.get("auth_mode"):
-                    return True, "Authenticated via ~/.codex/auth.json"
-            except Exception:
-                pass
+        # 2. Stored ChatGPT login or API key in $CODEX_HOME/auth.json (default ~/.codex)
+        codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+        data = _read_json(codex_home / "auth.json")
+        if data.get("tokens") or data.get("OPENAI_API_KEY") or data.get("api_key"):
+            return True, f"Logged in (credentials in {codex_home / 'auth.json'})"
 
-        # 3. Check ~/.codex config
-        if (Path.home() / ".codex").is_dir():
-            return True, "Codex home configured (~/.codex)"
-
+        # A bare ~/.codex folder only means Codex was launched once, not that it is logged in
         return False, "Not authenticated (run 'codex login')"
 
     def build_task_command(self, prompt: str) -> List[str]:
