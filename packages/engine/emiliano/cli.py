@@ -273,6 +273,8 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
     except ImportError:
         pass
 
+    dispatcher = ExecutionDispatcher()
+
     click.echo(click.style(f"Goal: {goal}", bold=True))
 
     def _on_route(cap):
