@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, AlertTriangle, Cpu, Terminal, Compass, Zap, ShieldAlert } from 'lucide-react';
-import type { HarnessType, HUDHighlightMessage, ServerMessageType } from '@emiliano/protocol';
+import { Play, Pause, Compass, ShieldAlert, X } from 'lucide-react';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import type { HarnessType, HUDHighlightMessage } from '@emiliano/protocol';
+import { isOverlayWindow, useEngineSocket } from './engine';
 
 export default function App() {
-  const isOverlay = window.location.hash === '#overlay';
-
-  if (isOverlay) {
+  if (isOverlayWindow()) {
     return <HUDOverlayView />;
   }
 
@@ -18,23 +20,14 @@ export default function App() {
 function HUDOverlayView() {
   const [highlight, setHighlight] = useState<HUDHighlightMessage['payload'] | null>(null);
 
-  useEffect(() => {
-    const ws = new WebSocket('ws://127.0.0.1:8765/ws');
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'HUD_HIGHLIGHT') {
-          setHighlight(msg.payload);
-          setTimeout(() => setHighlight(null), msg.payload.durationMs || 2500);
-        } else if (msg.type === 'HUD_CLEAR') {
-          setHighlight(null);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    };
-    return () => ws.close();
-  }, []);
+  useEngineSocket((msg) => {
+    if (msg.type === 'HUD_HIGHLIGHT') {
+      setHighlight(msg.payload);
+      setTimeout(() => setHighlight(null), msg.payload.durationMs || 2500);
+    } else if (msg.type === 'HUD_CLEAR') {
+      setHighlight(null);
+    }
+  });
 
   if (!highlight) return null;
 
@@ -70,49 +63,48 @@ function FloatingDockView() {
   const [harness, setHarness] = useState<HarnessType>('auto');
   const [isRunning, setIsRunning] = useState(false);
   const [thoughts, setThoughts] = useState<string[]>([]);
-  const [ws, setWs] = useState<WebSocket | null>(null);
   const logEndRef = React.useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [thoughts]);
 
-  useEffect(() => {
-    const socket = new WebSocket('ws://127.0.0.1:8765/ws');
-    socket.onopen = () => {
-      console.log('Connected to Engine daemon.');
-      socket.send(JSON.stringify({ type: 'GET_CAPABILITIES', payload: {} }));
-    };
-    socket.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'THOUGHT_STREAM') {
-          setThoughts((prev) => [...prev, msg.payload.chunk]);
-        } else if (msg.type === 'DAG_UPDATE') {
-          const status = msg.payload?.status;
-          if (status === 'completed' || status === 'failed' || status === 'paused') {
-            setIsRunning(false);
-          }
+  const ws = useEngineSocket(
+    (msg) => {
+      if (msg.type === 'THOUGHT_STREAM') {
+        setThoughts((prev) => [...prev, msg.payload.chunk]);
+      } else if (msg.type === 'DAG_UPDATE') {
+        const status = msg.payload?.status;
+        if (status === 'completed' || status === 'failed' || status === 'paused') {
+          setIsRunning(false);
         }
-      } catch (e) {
-        console.error(e);
       }
-    };
-    setWs(socket);
+    },
+    (socket) => socket.send(JSON.stringify({ type: 'GET_CAPABILITIES', payload: {} })),
+  );
 
-    // Listen for Escape key from electron
-    (window as any).emilianoApi?.onEmergencyStop(() => {
+  // Emergency kill switch: the desktop shell sends this when Esc is pressed anywhere
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen('emergency-stop', () => {
       setIsRunning(false);
       try {
-        socket.send(JSON.stringify({ type: 'TASK_CANCEL', payload: {} }));
+        ws?.send(JSON.stringify({ type: 'TASK_CANCEL', payload: {} }));
       } catch (e) {
         // Socket may already be closed
       }
       setThoughts((prev) => [...prev, '\n[STOP] Emergency stop triggered by User (Esc)\n']);
     });
+    return () => {
+      unlisten.then((stop) => stop());
+    };
+  }, [ws]);
 
-    return () => socket.close();
-  }, []);
+  // Only capture Esc system-wide while a task runs, so it keeps working in other apps otherwise
+  useEffect(() => {
+    if (!isTauri()) return;
+    invoke('set_kill_switch', { enabled: isRunning }).catch((e) => console.error('Kill switch:', e));
+  }, [isRunning]);
 
   const handleStart = () => {
     if (!goal.trim()) return;
@@ -138,14 +130,26 @@ function FloatingDockView() {
     <div className="w-full h-full p-3 flex flex-col justify-between">
       <div className="glass-panel rounded-2xl p-4 flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-700/60">
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full bg-cyan-400 animate-ping" />
-            <h1 className="text-base font-bold tracking-wide text-white">EMILIANO</h1>
+        {/* data-tauri-drag-region: the window is frameless, so the header moves it */}
+        <div data-tauri-drag-region className="flex items-center justify-between pb-3 border-b border-slate-700/60 cursor-move">
+          <div data-tauri-drag-region className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${ws ? 'bg-cyan-400 animate-ping' : 'bg-amber-400'}`} />
+            <h1 data-tauri-drag-region className="text-base font-bold tracking-wide text-white">EMILIANO</h1>
           </div>
-          <span className="text-[11px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded-full font-mono">
-            COWORK v0.1
-          </span>
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded-full font-mono">
+              {ws ? 'COWORK v0.1' : 'Starting engine…'}
+            </span>
+            {isTauri() && (
+              <button
+                onClick={() => getCurrentWindow().close()}
+                title="Quit Emiliano"
+                className="text-slate-400 hover:text-white hover:bg-slate-700 rounded-md p-1 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Harness Selector */}
@@ -176,11 +180,8 @@ function FloatingDockView() {
               <span>Ready to assist. Set a goal to delegate or execute directly.</span>
             </div>
           ) : (
-            thoughts.map((t, idx) => (
-              <div key={idx} className="whitespace-pre-wrap leading-relaxed">
-                {t}
-              </div>
-            ))
+            // Chunks are streamed tokens, so they join into one continuous text
+            <div className="whitespace-pre-wrap leading-relaxed">{thoughts.join('')}</div>
           )}
           <div ref={logEndRef} />
         </div>
@@ -201,7 +202,8 @@ function FloatingDockView() {
             {!isRunning ? (
               <button
                 onClick={handleStart}
-                className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all shadow-md"
+                disabled={!ws}
+                className="flex-1 py-2 px-4 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-semibold rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all shadow-md"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Execute Objective</span>
