@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -31,6 +32,10 @@ from ..direct.client import UnifiedLLMClient
 class ExecutionAbortedError(RuntimeError):
     """A harness failed after the workspace may have changed, so no other route is attempted."""
 
+
+# Discovery runs every harness's --version (several seconds in total), so routing reuses
+# its result for a while instead of paying that on every message
+DISCOVERY_TTL_SECONDS = 60.0
 
 SYSTEM_PROMPT = (
     "You are Emiliano, a helpful desktop coworker. Reply to conversational messages "
@@ -62,6 +67,7 @@ class ExecutionDispatcher:
     def __init__(self, config: Optional[EmilianoConfig] = None):
         self.config = config or load_config()
         self.registry = CapabilityRegistry(config=self.config)
+        self._discovered: Optional[Tuple[float, Dict[str, Capability]]] = None
 
         # Initialize enhanced context manager (Phase 1 features)
         self.context_manager = EnhancedContextManager(
@@ -81,7 +87,7 @@ class ExecutionDispatcher:
         Determines the ordered list of candidate capabilities to attempt.
         Filters out unconfigured, uninstalled, and unauthenticated options.
         """
-        caps = await self.registry.discover_all(test_harness_usability=True)
+        caps = await self._discover()
         ready_caps = [c for c in caps.values() if c.is_usable]
 
         # 1. Explicit Harness Override
@@ -349,6 +355,15 @@ class ExecutionDispatcher:
             f"{len(changed)} path(s) ({shown}), and running the goal again could apply it twice. "
             "Review the changes, then re-run."
         )
+
+    async def _discover(self) -> Dict[str, Capability]:
+        """Returns the capabilities, reusing a discovery from the last DISCOVERY_TTL_SECONDS."""
+        now = time.monotonic()
+        if self._discovered and now - self._discovered[0] < DISCOVERY_TTL_SECONDS:
+            return self._discovered[1]
+        caps = await self.registry.discover_all(test_harness_usability=True)
+        self._discovered = (now, caps)
+        return caps
 
     def _resolve_policy(self, policy: Optional[str]) -> str:
         """Uses the explicit policy, else the configured execution_policy, else auto."""
