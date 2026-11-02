@@ -171,12 +171,12 @@ class TestWebSocketOriginCheck(unittest.TestCase):
             return json.loads(ws.receive_text())["type"]
 
     def test_desktop_origins_and_local_clients_allowed(self):
-        for origin in ("file://", "http://localhost:5173", "http://127.0.0.1:5173/", None):
+        for origin in ("http://tauri.localhost", "tauri://localhost", "http://localhost:5173", "http://127.0.0.1:5173/", None):
             with self.subTest(origin=origin):
                 self.assertEqual(self._ping(origin), "PONG")
 
     def test_foreign_and_null_origins_rejected(self):
-        for origin in ("https://evil.example", "http://localhost:3000", "null"):
+        for origin in ("https://evil.example", "http://localhost:3000", "null", "file://"):
             with self.subTest(origin=origin):
                 with self.assertRaises(WebSocketDisconnect):
                     self._ping(origin)

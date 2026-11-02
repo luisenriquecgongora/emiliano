@@ -1,6 +1,6 @@
 """
 FastAPI & WebSocket IPC Server for Emiliano Engine.
-Bridges the Python core to the Electron desktop Cowork UI.
+Bridges the Python core to the Tauri desktop Cowork UI.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from ..core.dispatcher import ExecutionDispatcher
 
 app = FastAPI(title="Emiliano Engine IPC")
 
-# Connected UI clients (usually 1 desktop Electron client)
+# Connected UI clients (usually the desktop dock and HUD overlay windows)
 active_connections: Set[WebSocket] = set()
 
 # Global dispatcher instance (lazily initialized or created on startup)
@@ -26,12 +26,19 @@ _dispatcher: Optional[ExecutionDispatcher] = None
 active_tasks: Dict[str, asyncio.Task] = {}
 
 
-# Origins allowed to open the IPC WebSocket: the Electron renderer (file:// in builds,
-# the Vite dev server in development). Browsers always send Origin on a WebSocket
-# handshake and pages cannot forge it, so this stops any website from driving the
-# daemon (WebSockets are not covered by CORS). Requests without an Origin header come
-# from local non-browser clients. Override with EMILIANO_ALLOWED_ORIGINS (comma-separated).
-DEFAULT_ALLOWED_ORIGINS = ("file://", "http://localhost:5173", "http://127.0.0.1:5173")
+# Origins allowed to open the IPC WebSocket: the Tauri desktop app (http(s)://tauri.localhost
+# on Windows, tauri://localhost on macOS/Linux) and the Vite dev server in development.
+# Browsers always send Origin on a WebSocket handshake and pages cannot forge it, so this
+# stops any website or local HTML file from driving the daemon (WebSockets are not covered
+# by CORS). Requests without an Origin header come from local non-browser clients.
+# Override with EMILIANO_ALLOWED_ORIGINS (comma-separated).
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+)
 
 
 def get_allowed_origins() -> Set[str]:
