@@ -10,7 +10,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@emiliano/protocol": "0.1.0",
+    "@emiliano/protocol": "*",
     "@tauri-apps/api": "^2.12.4",
     "clsx": "^2.1.1",
     "lucide-react": "^0.475.0",
