@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-from verify import python_interpreter  # noqa: E402  (single source for interpreter lookup)
+from verify import python_interpreter, ruff_command  # noqa: E402  (single source for tool lookup)
 
 
 def main() -> int:
@@ -26,14 +26,17 @@ def main() -> int:
     if not file_path.endswith(".py") or not Path(file_path).exists():
         return 0
 
+    ruff = ruff_command(python_interpreter())
+    if ruff is None:
+        return 0
     try:
         result = subprocess.run(
-            [python_interpreter(), "-m", "ruff", "check", "--quiet", file_path],
+            [*ruff, "check", "--quiet", file_path],
             cwd=ROOT, capture_output=True, text=True, timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):
         return 0
-    if result.returncode == 0 or "No module named ruff" in result.stderr:
+    if result.returncode == 0:
         return 0
 
     print(f"ruff found issues in {file_path}:\n{result.stdout}{result.stderr}", file=sys.stderr)

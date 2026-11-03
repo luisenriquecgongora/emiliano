@@ -22,10 +22,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # --- Repo-specific configuration --------------------------------------------
 VENV = ROOT / "packages/engine/.venv"
-# (group, name, working directory relative to ROOT, command). "{py}" is the Python
-# interpreter, "{yarn}" is yarn. A check whose directory is missing is skipped.
+# (group, name, working directory relative to ROOT, command). Tokens: "{py}" is the
+# Python interpreter, "{ruff}", "{yarn}". A check whose tool or directory is missing
+# is skipped and reported.
 CHECKS: list[tuple[str, str, str, list[str]]] = [
-    ("python", "ruff", ".", ["{py}", "-m", "ruff", "check", "packages/engine", "scripts"]),
+    ("python", "ruff", ".", ["{ruff}", "check", "packages/engine", "scripts"]),
     ("python", "engine tests", "packages/engine", ["{py}", "-m", "pytest", "tests", "-q"]),
     ("python", "release retention tests", ".", ["{py}", "-m", "unittest", "scripts/test_prune_r2_releases.py"]),
     ("python", "cli sanity", ".", ["{py}", "-m", "emiliano.cli", "--help"]),
@@ -43,6 +44,15 @@ def python_interpreter() -> str:
     return sys.executable
 
 
+def ruff_command(py: str) -> list[str] | None:
+    """ruff from the project interpreter if installed there, else from PATH."""
+    probe = subprocess.run([py, "-m", "ruff", "--version"], capture_output=True)
+    if probe.returncode == 0:
+        return [py, "-m", "ruff"]
+    on_path = shutil.which("ruff")
+    return [on_path] if on_path else None
+
+
 def secret_scan() -> list[tuple[str, str, str, list[str]]]:
     # "{gitleaks}" resolves to None when it is not installed; CI always runs it.
     return [("secrets", "secret scan", ".", ["{gitleaks}", "git", "--no-banner", "--redact", "."])]
@@ -54,7 +64,13 @@ def main() -> int:
     parser.add_argument("--only", choices=groups)
     args = parser.parse_args()
 
-    tools = {"{py}": python_interpreter(), "{yarn}": shutil.which("yarn") or "yarn", "{gitleaks}": shutil.which("gitleaks")}
+    py = python_interpreter()
+    tools = {
+        "{py}": [py],
+        "{yarn}": [shutil.which("yarn") or "yarn"],
+        "{ruff}": ruff_command(py),
+        "{gitleaks}": [shutil.which("gitleaks")] if shutil.which("gitleaks") else None,
+    }
     skipped: list[str] = []
     for group, name, cwd, cmd in CHECKS + secret_scan():
         if args.only and group != args.only:
@@ -65,14 +81,14 @@ def main() -> int:
             reason = f"{cwd} not found"
         elif "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
             reason = f"run `yarn install` in {cwd} first"
-        elif "{gitleaks}" in cmd and not tools["{gitleaks}"]:
-            reason = "gitleaks not installed"
+        elif any(tools.get(part, True) is None for part in cmd):
+            reason = f"{next(p for p in cmd if tools.get(p, True) is None).strip('{}')} not installed"
         if reason:
             print(f"-- {name}: SKIPPED ({reason})")
             skipped.append(name)
             continue
         print(f"-- {name}", flush=True)
-        argv = [tools.get(part, part) for part in cmd]
+        argv = [arg for part in cmd for arg in tools.get(part, [part])]
         if subprocess.run(argv, cwd=workdir).returncode != 0:
             print(f"FAILED: {name}", file=sys.stderr)
             return 1
