@@ -58,11 +58,43 @@ def secret_scan() -> list[tuple[str, str, str, list[str]]]:
     return [("secrets", "secret scan", ".", ["{gitleaks}", "git", "--no-banner", "--redact", "."])]
 
 
+def skill_problems() -> list[str]:
+    """Agent skills live once in .agents/skills (read by Codex, OpenCode, Cursor, ...).
+    Claude Code only reads .claude/skills, so each skill needs a symlink there."""
+    shared = ROOT / ".agents" / "skills"
+    problems: list[str] = []
+    for skill in sorted(p for p in shared.glob("*") if p.is_dir()):
+        md = skill / "SKILL.md"
+        text = md.read_text(encoding="utf-8") if md.is_file() else ""
+        parts = text.split("---", 2) if text.startswith("---") else []
+        front = parts[1] if len(parts) == 3 else ""
+        fields = dict(line.split(":", 1) for line in front.splitlines() if ":" in line)
+        if fields.get("name", "").strip() != skill.name:
+            problems.append(f"{md.relative_to(ROOT)}: frontmatter needs name: {skill.name}")
+        if not fields.get("description", "").strip():
+            problems.append(f"{md.relative_to(ROOT)}: frontmatter needs a description")
+        link = ROOT / ".claude" / "skills" / skill.name
+        if not (link / "SKILL.md").is_file() or link.resolve() != skill.resolve():
+            problems.append(
+                f".claude/skills/{skill.name}: must be a symlink to .agents/skills/{skill.name} "
+                "(on Windows: enable Developer Mode, set core.symlinks=true, re-checkout)"
+            )
+    return problems
+
+
 def main() -> int:
-    groups = sorted({group for group, *_ in CHECKS} | {"secrets"})
+    groups = sorted({group for group, *_ in CHECKS} | {"secrets", "skills"})
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--only", choices=groups)
     args = parser.parse_args()
+
+    if args.only in (None, "skills"):
+        print("-- agent skills", flush=True)
+        problems = skill_problems()
+        if problems:
+            print("\n".join(problems), file=sys.stderr)
+            print("FAILED: agent skills", file=sys.stderr)
+            return 1
 
     py = python_interpreter()
     tools = {
