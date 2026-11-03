@@ -9,15 +9,17 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from typing import Dict, Optional, Set
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from loguru import logger
 
 from ..core.dispatcher import ExecutionDispatcher
 from ..history import HistoryStore
 from ..history.api import router as history_router
+from ..cowork import WindowPinManager, ScreenPerceiver, ActionSynthesizer, SafetyInterruptedError
 from .security import get_allowed_origins, is_origin_allowed
 
 @asynccontextmanager
@@ -106,6 +108,68 @@ async def list_models():
             "availableModels": cap.available_models,
         })
     return {"models": results}
+
+
+# Cowork singletons
+pin_manager = WindowPinManager()
+screen_perceiver = ScreenPerceiver(pin_manager=pin_manager)
+action_synthesizer = ActionSynthesizer(pin_manager=pin_manager)
+
+
+class PinPayload(BaseModel):
+    hwnd: int
+    title: Optional[str] = None
+
+
+class ClickPayload(BaseModel):
+    x: float
+    y: float
+    button: str = "left"
+    clicks: int = 1
+
+
+class TypePayload(BaseModel):
+    text: str
+
+
+@app.get("/api/cowork/windows")
+async def get_windows():
+    return {"windows": screen_perceiver.list_windows()}
+
+
+@app.post("/api/cowork/pin")
+async def pin_window(payload: PinPayload):
+    pin_manager.pin(payload.hwnd, payload.title)
+    return {"status": "pinned", "hwnd": pin_manager.pinned_hwnd, "title": pin_manager.pinned_title}
+
+
+@app.post("/api/cowork/unpin")
+async def unpin_window():
+    pin_manager.unpin()
+    return {"status": "unpinned"}
+
+
+@app.get("/api/cowork/elements")
+async def get_elements(hwnd: Optional[int] = None):
+    return {"elements": screen_perceiver.get_ui_elements(hwnd=hwnd)}
+
+
+@app.post("/api/cowork/click")
+async def click_element(payload: ClickPayload):
+    try:
+        action_synthesizer.click(x=payload.x, y=payload.y, button=payload.button, clicks=payload.clicks)
+        return {"status": "ok", "x": payload.x, "y": payload.y}
+    except SafetyInterruptedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/cowork/type")
+async def type_text(payload: TypePayload):
+    try:
+        action_synthesizer.type_text(payload.text)
+        return {"status": "ok"}
+    except SafetyInterruptedError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.websocket("/ws")
