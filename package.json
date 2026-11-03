@@ -10,6 +10,7 @@
   "scripts": {
     "dev:desktop": "yarn workspace @emiliano/desktop dev",
     "build:desktop": "yarn workspace @emiliano/desktop build",
+    "verify": "python scripts/verify.py",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,py}\""
   },
