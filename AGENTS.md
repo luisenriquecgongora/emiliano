@@ -53,6 +53,7 @@ All commits must follow:
 | `packages/protocol/` | Wire contract: `types.ts` and `models.py` are hand-mirrored; change both together |
 | `apps/desktop/` | Tauri 2 + React 19 UI; spawns the engine sidecar on port 8765 |
 | `scripts/` | Release build, R2 publish/prune, `verify.py` |
+| `.agents/skills/` | Task playbooks for any coding agent (`SKILL.md` format): `add-harness-adapter`, `change-protocol`, `review-change`. Read the matching one before starting such a task. Add new skills here only; `.claude/skills/<name>` is a symlink to each (Claude Code reads only that folder), and `verify.py` checks the links. |
 
 ### 7. Commands
 - Engine setup: `cd packages/engine && uv venv && uv pip install -e ".[dev]"`
