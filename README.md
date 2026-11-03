@@ -22,7 +22,7 @@
 | **Automated Fallback Cascades**<br>*(Local $\to$ Cloud on failure)* | **Yes** | No | No | No | No | No | No | Partial |
 | **Primary Interaction UI** | **Floating Dock + HUD + CLI** | Desktop Sidebar | Terminal CLI | Terminal CLI & IDE | Web Dashboard | Terminal CLI | Desktop App / CLI | Python SDK / CLI |
 | **Safety Interruption** | **Global Hotkey (<kbd>Esc</kbd>)** | In-app Pause | <kbd>Ctrl+C</kbd> | <kbd>Ctrl+C</kbd> | Web Button | <kbd>Ctrl+C</kbd> | In-app Cancel | CLI interrupt |
-| **Open Source License** | **Open Source (MIT)** | Proprietary | Proprietary | Open/Platform | Open Source (Apache 2.0) | Open Source (Apache 2.0) | Open Source (Apache 2.0) | Open Source |
+| **License** | **PolyForm Shield 1.0.0** | Proprietary | Proprietary | Open/Platform | Open Source (Apache 2.0) | Open Source (Apache 2.0) | Open Source (Apache 2.0) | Open Source |
 
 ---
 
