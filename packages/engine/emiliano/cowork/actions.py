@@ -9,13 +9,19 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 from loguru import logger
-import pyautogui
 
 from .pinning import WindowPinManager, SafetyInterruptedError
 
-# Set safety settings for pyautogui
-pyautogui.FAILSAFE = True  # Moving cursor to any screen corner triggers FailSafeException
-pyautogui.PAUSE = 0.05     # 50ms pause between actions
+
+def _pyautogui():
+    """Import pyautogui on first use: it needs a display, so a module-level
+    import breaks the engine (and its tests) on headless machines."""
+    import pyautogui
+
+    # Set safety settings for pyautogui
+    pyautogui.FAILSAFE = True  # Moving cursor to any screen corner triggers FailSafeException
+    pyautogui.PAUSE = 0.05     # 50ms pause between actions
+    return pyautogui
 
 
 class ActionSynthesizer:
@@ -79,8 +85,8 @@ class ActionSynthesizer:
 
         logger.info(f"[Action] Clicking at ({x}, {y}) button={button} clicks={clicks}")
         # Smoothly move to target before clicking for human-like visual tracking
-        pyautogui.moveTo(x, y, duration=0.15)
-        pyautogui.click(x=x, y=y, button=button, clicks=clicks)
+        _pyautogui().moveTo(x, y, duration=0.15)
+        _pyautogui().click(x=x, y=y, button=button, clicks=clicks)
 
     def type_text(self, text: str, interval: float = 0.02) -> None:
         """Types text safely into the pinned active window."""
@@ -94,7 +100,7 @@ class ActionSynthesizer:
             raise SafetyInterruptedError(msg)
 
         logger.info(f"[Action] Typing: {text[:20]}... (length={len(text)})")
-        pyautogui.typewrite(text, interval=interval)
+        _pyautogui().typewrite(text, interval=interval)
 
     def press_key(self, key: str) -> None:
         """Presses a single key."""
@@ -103,7 +109,7 @@ class ActionSynthesizer:
         if not self.pin_manager.verify_active(auto_focus=True):
             raise SafetyInterruptedError("Target window lost focus before key press")
         logger.info(f"[Action] Pressing key: {key}")
-        pyautogui.press(key)
+        _pyautogui().press(key)
 
     def hotkey(self, *keys: str) -> None:
         """Executes a key combination (e.g. Ctrl+C)."""
@@ -112,4 +118,4 @@ class ActionSynthesizer:
         if not self.pin_manager.verify_active(auto_focus=True):
             raise SafetyInterruptedError("Target window lost focus before hotkey")
         logger.info(f"[Action] Hotkey: {keys}")
-        pyautogui.hotkey(*keys)
+        _pyautogui().hotkey(*keys)
