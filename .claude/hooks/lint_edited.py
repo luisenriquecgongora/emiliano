@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-from verify import engine_python  # noqa: E402  (single source for interpreter lookup)
+from verify import python_interpreter  # noqa: E402  (single source for interpreter lookup)
 
 
 def main() -> int:
@@ -28,7 +28,7 @@ def main() -> int:
 
     try:
         result = subprocess.run(
-            [engine_python(), "-m", "ruff", "check", "--quiet", file_path],
+            [python_interpreter(), "-m", "ruff", "check", "--quiet", file_path],
             cwd=ROOT, capture_output=True, text=True, timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired):

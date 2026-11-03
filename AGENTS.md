@@ -34,7 +34,7 @@ All commits must follow:
 ### 5. Definition of Done
 - Run `python scripts/verify.py` (or `yarn verify`) before reporting a task complete. It runs exactly what CI runs: ruff, engine tests, release-retention tests, CLI sanity, desktop typecheck, and a secret scan when `gitleaks` is installed.
 - Narrow it while iterating: `--only python`, `--only desktop`, `--only secrets`.
-- In a git worktree there is no virtualenv: set `EMILIANO_PYTHON` to the main checkout's `packages/engine/.venv/Scripts/python.exe` (Windows) or `.venv/bin/python`.
+- In a git worktree there is no virtualenv: set `VERIFY_PYTHON` to the main checkout's `packages/engine/.venv/Scripts/python.exe` (Windows) or `.venv/bin/python`.
 - A task that changes behavior adds or updates a test in `packages/engine/tests/`.
 
 ### 6. Repository Map

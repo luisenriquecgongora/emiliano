@@ -1,13 +1,12 @@
 """Run every check CI runs, in one command. This is the definition of done.
 
 Usage:
-    python scripts/verify.py              # everything
-    python scripts/verify.py --only python
-    python scripts/verify.py --only desktop
+    python scripts/verify.py                 # everything
+    python scripts/verify.py --only <group>  # one group, see CHECKS below
 
-Uses the engine's virtualenv (packages/engine/.venv) when it exists, so nothing has
-to be activated first; set EMILIANO_PYTHON to use another interpreter. Exits non-zero
-on the first failing check.
+Uses the project virtualenv (VENV below) when it exists, so nothing has to be
+activated first; set VERIFY_PYTHON to use another interpreter (e.g. from a git
+worktree, which has no virtualenv of its own). Exits non-zero on the first failure.
 """
 
 from __future__ import annotations
@@ -20,56 +19,60 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ENGINE = ROOT / "packages" / "engine"
+
+# --- Repo-specific configuration --------------------------------------------
+VENV = ROOT / "packages/engine/.venv"
+# (group, name, working directory relative to ROOT, command). "{py}" is the Python
+# interpreter, "{yarn}" is yarn. A check whose directory is missing is skipped.
+CHECKS: list[tuple[str, str, str, list[str]]] = [
+    ("python", "ruff", ".", ["{py}", "-m", "ruff", "check", "packages/engine", "scripts"]),
+    ("python", "engine tests", "packages/engine", ["{py}", "-m", "pytest", "tests", "-q"]),
+    ("python", "release retention tests", ".", ["{py}", "-m", "unittest", "scripts/test_prune_r2_releases.py"]),
+    ("python", "cli sanity", ".", ["{py}", "-m", "emiliano.cli", "--help"]),
+    ("desktop", "desktop typecheck", ".", ["{yarn}", "workspace", "@emiliano/desktop", "tsc", "--noEmit"]),
+]
+# -----------------------------------------------------------------------------
 
 
-def engine_python() -> str:
-    # Worktrees have no virtualenv of their own: point EMILIANO_PYTHON at the main checkout's.
-    if os.environ.get("EMILIANO_PYTHON"):
-        return os.environ["EMILIANO_PYTHON"]
-    for candidate in (ENGINE / ".venv" / "Scripts" / "python.exe", ENGINE / ".venv" / "bin" / "python"):
+def python_interpreter() -> str:
+    if os.environ.get("VERIFY_PYTHON"):
+        return os.environ["VERIFY_PYTHON"]
+    for candidate in (VENV / "Scripts" / "python.exe", VENV / "bin" / "python"):
         if candidate.exists():
             return str(candidate)
     return sys.executable
 
 
-def python_checks() -> list[tuple[str, list[str], Path]]:
-    py = engine_python()
-    return [
-        ("ruff", [py, "-m", "ruff", "check", "packages/engine", "scripts"], ROOT),
-        ("engine tests", [py, "-m", "pytest", "tests", "-q"], ENGINE),
-        ("release retention tests", [py, "-m", "unittest", "scripts/test_prune_r2_releases.py"], ROOT),
-        ("cli sanity", [py, "-m", "emiliano.cli", "--help"], ROOT),
-    ]
-
-
-def desktop_checks() -> list[tuple[str, list[str], Path]]:
-    yarn = shutil.which("yarn") or "yarn"
-    return [("desktop typecheck", [yarn, "workspace", "@emiliano/desktop", "tsc", "--noEmit"], ROOT)]
-
-
-def secret_checks() -> list[tuple[str, list[str], Path]]:
+def secret_scan() -> list[tuple[str, str, str, list[str]]]:
     gitleaks = shutil.which("gitleaks")
     if not gitleaks:
         print("-- gitleaks not installed; skipping secret scan (CI still runs it)")
         return []
-    return [("secret scan", [gitleaks, "git", "--no-banner", "--redact", "."], ROOT)]
+    return [("secrets", "secret scan", ".", [gitleaks, "git", "--no-banner", "--redact", "."])]
 
 
 def main() -> int:
+    groups = sorted({group for group, *_ in CHECKS} | {"secrets"})
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--only", choices=["python", "desktop", "secrets"])
+    parser.add_argument("--only", choices=groups)
     args = parser.parse_args()
 
-    groups = {"python": python_checks, "desktop": desktop_checks, "secrets": secret_checks}
-    selected = [groups[args.only]] if args.only else list(groups.values())
-
-    for group in selected:
-        for name, cmd, cwd in group():
-            print(f"-- {name}", flush=True)
-            if subprocess.run(cmd, cwd=cwd).returncode != 0:
-                print(f"FAILED: {name}", file=sys.stderr)
-                return 1
+    tools = {"{py}": python_interpreter(), "{yarn}": shutil.which("yarn") or "yarn"}
+    for group, name, cwd, cmd in CHECKS + secret_scan():
+        if args.only and group != args.only:
+            continue
+        workdir = ROOT / cwd
+        if not workdir.exists():
+            print(f"-- {name}: skipped ({cwd} not found)")
+            continue
+        if "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
+            print(f"-- {name}: SKIPPED, run `yarn install` in {cwd} first")
+            continue
+        print(f"-- {name}", flush=True)
+        argv = [tools.get(part, part) for part in cmd]
+        if subprocess.run(argv, cwd=workdir).returncode != 0:
+            print(f"FAILED: {name}", file=sys.stderr)
+            return 1
     print("verify: all checks passed")
     return 0
 
