@@ -1,0 +1,42 @@
+name: Task spec
+description: A unit of work written so that a person or any coding agent can pick it up and finish it without asking.
+labels: ["task"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this is done, and why it matters. One or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable checks, one per line. Each should be testable.
+      placeholder: |
+        - [ ] `emiliano run --harness opencode "..."` streams output in the desktop dock
+        - [ ] A test in packages/engine/tests covers the new path
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Where to look
+      description: Files, functions, skills (`.agents/skills/`), issues or logs that give the needed context.
+      placeholder: |
+        - packages/engine/emiliano/harnesses/base.py (OpenCodeHarness)
+        - skill: add-harness-adapter
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What must not change, or what is deliberately left for later.
+  - type: textarea
+    id: verify
+    attributes:
+      label: How to verify
+      description: Commands or manual steps beyond the default.
+      value: "python scripts/verify.py"
+    validations:
+      required: true
