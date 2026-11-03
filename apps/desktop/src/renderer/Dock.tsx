@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Compass, History, Plus, Send, ShieldAlert, Square, Trash2, X } from 'lucide-react';
+import { ChevronDown, Compass, History, Plus, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -8,6 +8,7 @@ import {
   CHAT_WS_URL,
   ChatMessage,
   ChatSummary,
+  ContextMetrics,
   MODES,
   Mode,
   chatsApi,
@@ -27,6 +28,8 @@ export default function Dock() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [metrics, setMetrics] = useState<ContextMetrics | null>(null);
+  const [compacting, setCompacting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,6 +39,10 @@ export default function Dock() {
 
   const refreshChats = useCallback(() => {
     chatsApi.list().then(setChats).catch((e) => setError(String(e)));
+  }, []);
+
+  const refreshMetrics = useCallback((chatId: string) => {
+    chatsApi.getContext(chatId).then(setMetrics).catch(() => setMetrics(null));
   }, []);
 
   // Updates the reply that is streaming in (the last, pending assistant message)
@@ -57,6 +64,7 @@ export default function Dock() {
         case 'done':
           updatePending((m) => ({ ...event.message, reasoning: m.reasoning, route: m.route }));
           setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
+          if (event.chat?.id) refreshMetrics(event.chat.id);
           setBusy(false);
           break;
         case 'cancelled':
@@ -80,6 +88,7 @@ export default function Dock() {
     setActiveId(id);
     try {
       setMessages((await chatsApi.get(id)).messages);
+      refreshMetrics(id);
     } catch (e) {
       setError(String(e));
     }
@@ -88,12 +97,28 @@ export default function Dock() {
   const clearConversation = () => {
     setActiveId(null);
     setMessages([]);
+    setMetrics(null);
     setError(null);
   };
 
   const newChat = () => {
     setShowHistory(false);
     clearConversation();
+  };
+
+  const handleCompact = async () => {
+    if (!activeId || compacting) return;
+    setCompacting(true);
+    try {
+      const res = await chatsApi.compact(activeId);
+      if (res.status === 'compacted') {
+        await openChat(activeId);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCompacting(false);
+    }
   };
 
   // Deleting keeps the history panel open, so several chats can be removed in a row
@@ -158,6 +183,42 @@ export default function Dock() {
           onNewChat={newChat}
           busy={busy}
         />
+
+        {activeId && metrics && messages.length > 0 && (
+          <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between text-[11px]">
+            <div className="flex items-center space-x-2">
+              <span className="text-slate-400 font-mono text-[10px]">
+                {metrics.total_tokens.toLocaleString()} / {(metrics.max_tokens / 1000).toFixed(0)}k
+              </span>
+              <div className="w-16 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    metrics.status === 'CRITICAL'
+                      ? 'bg-rose-500'
+                      : metrics.status === 'HIGH'
+                        ? 'bg-amber-500'
+                        : metrics.status === 'MODERATE'
+                          ? 'bg-yellow-400'
+                          : 'bg-cyan-400'
+                  }`}
+                  style={{ width: `${Math.min(100, Math.max(3, metrics.usage_percentage))}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-slate-500">{metrics.usage_percentage}%</span>
+            </div>
+            {messages.length >= 4 && (
+              <button
+                onClick={handleCompact}
+                disabled={compacting || busy}
+                title="Summarize older messages to free context tokens"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white transition-colors disabled:opacity-40 text-[10px]"
+              >
+                <Sparkles className="w-3 h-3 text-cyan-400" />
+                <span>{compacting ? 'Compacting…' : 'Compact'}</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {showHistory && (
           <HistoryPanel

@@ -26,6 +26,27 @@ export interface ChatDetail extends ChatSummary {
   messages: ChatMessage[];
 }
 
+export interface ContextMetrics {
+  chat_id: string;
+  total_tokens: number;
+  history_tokens: number;
+  system_tokens: number;
+  persistent_tokens: number;
+  available_tokens: number;
+  max_tokens: number;
+  usage_percentage: number;
+  message_count: number;
+  status: 'GOOD' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+}
+
+export interface CompactResult {
+  status: 'compacted' | 'noop';
+  tokens_saved?: number;
+  message_count?: number;
+  summary?: string;
+  message?: string;
+}
+
 /** The dock's mode dropdown; values match the engine's resolve_mode(). */
 export const MODES = [
   { value: 'auto', label: 'Auto' },
@@ -53,6 +74,10 @@ export const chatsApi = {
   create: () => request<ChatSummary>('/api/chats', { method: 'POST', body: '{}' }),
   remove: (id: string) => request<void>(`/api/chats/${id}`, { method: 'DELETE' }),
   removeAll: () => request<{ deleted: number }>('/api/chats', { method: 'DELETE' }),
+  getContext: (id: string, modelId?: string) =>
+    request<ContextMetrics>(`/api/chats/${id}/context${modelId ? `?model_id=${encodeURIComponent(modelId)}` : ''}`),
+  compact: (id: string) =>
+    request<CompactResult>(`/api/chats/${id}/compact`, { method: 'POST' }),
 };
 
 /** "2m", "3h", "Yesterday", "Oct 12" — compact enough for the 420px dock. */
