@@ -6,7 +6,7 @@ import asyncio
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
@@ -76,12 +76,18 @@ class TestChatsApi(HistoryTestCase):
         for i in range(6):
             role = "user" if i % 2 == 0 else "assistant"
             self.store.add_message(chat["id"], role, f"Message turn {i} with some content to summarize")
-        resp = self.client.post(f"/api/chats/{chat['id']}/compact")
+        # Stub the summarizer: the real one calls an LLM, which made this test take minutes
+        summary = {"role": "system", "content": "Summary of earlier turns"}
+        summarizer = get_dispatcher().context_manager.summarizer
+        with patch.object(summarizer, "summarize", new_callable=AsyncMock, return_value=summary) as summarize:
+            resp = self.client.post(f"/api/chats/{chat['id']}/compact")
+        summarize.assert_awaited_once()
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["status"], "compacted")
         self.assertEqual(data["message_count"], 5)  # 1 summary + 4 retained messages
         self.assertGreaterEqual(data["tokens_saved"], 0)
+        self.assertEqual(data["summary"], "Summary of earlier turns")
 
 
 class TestChatSocket(HistoryTestCase):
