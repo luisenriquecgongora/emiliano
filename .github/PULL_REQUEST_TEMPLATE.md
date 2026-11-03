@@ -19,6 +19,7 @@
 - [ ] Tested locally with `python -m emiliano.cli harnesses`
 - [ ] Emergency stop (<kbd>Esc</kbd>) remains functional
 - [ ] Code formatted and typechecked
+- [ ] `python scripts/verify.py` passes (any skipped checks are listed below)
 
 ## Checklist
 - [ ] I have read the [CONTRIBUTING.md](CONTRIBUTING.md) guide.
