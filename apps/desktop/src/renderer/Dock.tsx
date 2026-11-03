@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Compass, History, Plus, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ChevronDown, Compass, Crosshair, History, Monitor, Pin, PinOff, Plus, RefreshCw, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -14,6 +14,7 @@ import {
   chatsApi,
   relativeTime,
 } from './chats';
+import { DesktopWindow, UIElement, coworkApi } from './cowork';
 
 const PENDING_ID = 'pending';
 
@@ -28,6 +29,13 @@ export default function Dock() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [pinnedWindow, setPinnedWindow] = useState<{ hwnd: number; title: string } | null>(null);
+  const [showWindows, setShowWindows] = useState(false);
+  const [windows, setWindows] = useState<DesktopWindow[]>([]);
+  const [elements, setElements] = useState<UIElement[]>([]);
+  const [showElements, setShowElements] = useState(false);
+  const [loadingWindows, setLoadingWindows] = useState(false);
+  const [loadingElements, setLoadingElements] = useState(false);
   const [metrics, setMetrics] = useState<ContextMetrics | null>(null);
   const [compacting, setCompacting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +48,71 @@ export default function Dock() {
   const refreshChats = useCallback(() => {
     chatsApi.list().then(setChats).catch((e) => setError(String(e)));
   }, []);
+
+  const refreshWindows = useCallback(async () => {
+    setLoadingWindows(true);
+    try {
+      const list = await coworkApi.listWindows();
+      setWindows(list);
+      const pinned = list.find((w) => w.is_pinned);
+      if (pinned) {
+        setPinnedWindow({ hwnd: pinned.hwnd, title: pinned.title });
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingWindows(false);
+    }
+  }, []);
+
+  const handlePin = async (w: DesktopWindow) => {
+    try {
+      await coworkApi.pin(w.hwnd, w.title);
+      setPinnedWindow({ hwnd: w.hwnd, title: w.title });
+      setShowWindows(false);
+      setShowElements(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleUnpin = async () => {
+    try {
+      await coworkApi.unpin();
+      setPinnedWindow(null);
+      setShowElements(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleToggleElements = async () => {
+    if (!pinnedWindow) return;
+    if (showElements) {
+      setShowElements(false);
+      return;
+    }
+    setLoadingElements(true);
+    setShowElements(true);
+    try {
+      const els = await coworkApi.getElements(pinnedWindow.hwnd);
+      setElements(els);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingElements(false);
+    }
+  };
+
+  const handleTestClick = async (el: UIElement) => {
+    try {
+      const targetX = el.bounds.x + Math.floor(el.bounds.width / 2);
+      const targetY = el.bounds.y + Math.floor(el.bounds.height / 2);
+      await coworkApi.click(targetX, targetY);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const refreshMetrics = useCallback((chatId: string) => {
     chatsApi.getContext(chatId).then(setMetrics).catch(() => setMetrics(null));
@@ -179,10 +252,69 @@ export default function Dock() {
         <Header
           connected={!!ws}
           historyOpen={showHistory}
-          onToggleHistory={() => setShowHistory((open) => !open)}
-          onNewChat={newChat}
+          windowsOpen={showWindows}
+          pinnedTitle={pinnedWindow?.title}
           busy={busy}
+          onToggleHistory={() => {
+            setShowHistory((open) => !open);
+            setShowWindows(false);
+          }}
+          onToggleWindows={() => {
+            setShowWindows((open) => {
+              if (!open) refreshWindows();
+              return !open;
+            });
+            setShowHistory(false);
+          }}
+          onNewChat={newChat}
         />
+
+        {pinnedWindow && (
+          <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-800/50 flex items-center justify-between text-[11px] text-cyan-300">
+            <div className="flex items-center space-x-1.5 truncate">
+              <Crosshair className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="font-semibold text-white truncate max-w-[210px]">{pinnedWindow.title}</span>
+              <span className="text-[10px] text-cyan-500 font-mono">HWND:{pinnedWindow.hwnd}</span>
+            </div>
+            <div className="flex items-center space-x-1 shrink-0">
+              <button
+                onClick={handleToggleElements}
+                title="Inspect UI controls of this window"
+                className="px-1.5 py-0.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-[10px] text-cyan-200"
+              >
+                {showElements ? 'Hide UI' : 'Inspect UI'}
+              </button>
+              <button
+                onClick={handleUnpin}
+                title="Unpin window"
+                className="p-1 hover:text-white text-cyan-400"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showWindows && (
+          <WindowsPanel
+            windows={windows}
+            loading={loadingWindows}
+            pinnedHwnd={pinnedWindow?.hwnd}
+            onRefresh={refreshWindows}
+            onPin={handlePin}
+            onUnpin={handleUnpin}
+            onClose={() => setShowWindows(false)}
+          />
+        )}
+
+        {showElements && (
+          <ElementsPanel
+            elements={elements}
+            loading={loadingElements}
+            onTestClick={handleTestClick}
+            onClose={() => setShowElements(false)}
+          />
+        )}
 
         {activeId && metrics && messages.length > 0 && (
           <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-slate-900/60 border border-slate-800 flex items-center justify-between text-[11px]">
@@ -270,8 +402,11 @@ export default function Dock() {
 function Header(props: {
   connected: boolean;
   historyOpen: boolean;
+  windowsOpen: boolean;
+  pinnedTitle?: string;
   busy: boolean;
   onToggleHistory: () => void;
+  onToggleWindows: () => void;
   onNewChat: () => void;
 }) {
   const iconButton = 'text-slate-400 hover:text-white hover:bg-slate-700 rounded-md p-1 transition-colors disabled:opacity-40';
@@ -284,6 +419,13 @@ function Header(props: {
         {!props.connected && <span className="text-[10px] text-amber-300">Starting engine…</span>}
       </div>
       <div className="flex items-center space-x-1">
+        <button
+          title={props.pinnedTitle ? `Pinned to: ${props.pinnedTitle}` : "Pin to target desktop window"}
+          onClick={props.onToggleWindows}
+          className={`${iconButton} ${props.pinnedTitle ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60' : props.windowsOpen ? 'bg-slate-700 text-white' : ''}`}
+        >
+          {props.pinnedTitle ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+        </button>
         <button title="Chat history" onClick={props.onToggleHistory} className={`${iconButton} ${props.historyOpen ? 'bg-slate-700 text-white' : ''}`}>
           <History className="w-4 h-4" />
         </button>
@@ -295,6 +437,134 @@ function Header(props: {
             <X className="w-4 h-4" />
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function WindowsPanel(props: {
+  windows: DesktopWindow[];
+  loading: boolean;
+  pinnedHwnd?: number;
+  onRefresh: () => void;
+  onPin: (w: DesktopWindow) => void;
+  onUnpin: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-x-3 top-14 bottom-3 z-10 bg-slate-950 border border-slate-700 rounded-xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center space-x-1.5">
+          <Monitor className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Desktop Windows</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          {props.pinnedHwnd && (
+            <button
+              onClick={props.onUnpin}
+              className="text-[10px] text-rose-400 hover:text-rose-300 transition-colors"
+            >
+              Unpin
+            </button>
+          )}
+          <button
+            onClick={props.onRefresh}
+            disabled={props.loading}
+            title="Refresh windows"
+            className="text-slate-400 hover:text-white"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${props.loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={props.onClose} className="text-slate-400 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+        {props.windows.length === 0 && (
+          <div className="p-4 text-xs text-slate-500 text-center">
+            {props.loading ? 'Scanning desktop windows…' : 'No desktop windows detected.'}
+          </div>
+        )}
+        {props.windows.map((win) => {
+          const isPinned = props.pinnedHwnd === win.hwnd;
+          return (
+            <div
+              key={win.hwnd}
+              onClick={() => props.onPin(win)}
+              className={`p-2.5 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition-colors ${
+                isPinned ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : ''
+              }`}
+            >
+              <div className="min-w-0 pr-2">
+                <div className="text-xs text-slate-200 truncate font-medium">{win.title}</div>
+                <div className="text-[10px] text-slate-500 font-mono">
+                  HWND: {win.hwnd} • {win.bounds.width}×{win.bounds.height}
+                </div>
+              </div>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded font-mono shrink-0 ${
+                  isPinned
+                    ? 'bg-cyan-400 text-slate-950 font-bold'
+                    : 'bg-slate-800 text-slate-400 hover:text-cyan-300'
+                }`}
+              >
+                {isPinned ? 'PINNED' : 'PIN'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ElementsPanel(props: {
+  elements: UIElement[];
+  loading: boolean;
+  onTestClick: (el: UIElement) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute inset-x-3 top-24 bottom-3 z-10 bg-slate-950/95 backdrop-blur-md border border-cyan-800/60 rounded-xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="px-3 py-2 text-[11px] font-semibold text-cyan-400 border-b border-slate-800 flex items-center justify-between bg-cyan-950/30">
+        <div className="flex items-center space-x-1.5">
+          <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Detected UI Elements (Win32)</span>
+        </div>
+        <button onClick={props.onClose} className="text-slate-400 hover:text-white">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60">
+        {props.elements.length === 0 && (
+          <div className="p-4 text-xs text-slate-500 text-center">
+            {props.loading ? 'Extracting UI accessibility tree…' : 'No child controls detected.'}
+          </div>
+        )}
+        {props.elements.map((el, i) => (
+          <div key={i} className="p-2 flex items-center justify-between hover:bg-slate-900/80 transition-colors">
+            <div className="min-w-0 pr-2">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono">
+                  {el.role}
+                </span>
+                <span className="text-xs text-slate-200 truncate">{el.name}</span>
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                {el.class} • ({el.bounds.x}, {el.bounds.y}) {el.bounds.width}×{el.bounds.height}
+              </div>
+            </div>
+            {el.action === 'click' && (
+              <button
+                onClick={() => props.onTestClick(el)}
+                className="px-2 py-0.5 text-[10px] rounded bg-cyan-900/60 hover:bg-cyan-700 text-cyan-200 shrink-0 font-mono"
+              >
+                Safe Click
+              </button>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
