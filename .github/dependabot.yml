@@ -1,0 +1,44 @@
+# Weekly dependency updates. Minor and patch bumps are grouped into one PR per
+# ecosystem; major bumps get their own PR so breaking changes stay reviewable.
+# Dependabot reads this file from the default branch (main); PRs target dev.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directory: /packages/engine
+    target-branch: dev
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: build, include: scope }
+    groups:
+      engine:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: dev
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: build, include: scope }
+    groups:
+      node:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    target-branch: dev
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    commit-message: { prefix: build, include: scope }
+    groups:
+      tauri:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule: { interval: monthly }
+    commit-message: { prefix: ci }
+    groups:
+      actions:
+        patterns: ["*"]
