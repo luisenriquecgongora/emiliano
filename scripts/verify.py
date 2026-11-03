@@ -44,11 +44,8 @@ def python_interpreter() -> str:
 
 
 def secret_scan() -> list[tuple[str, str, str, list[str]]]:
-    gitleaks = shutil.which("gitleaks")
-    if not gitleaks:
-        print("-- gitleaks not installed; skipping secret scan (CI still runs it)")
-        return []
-    return [("secrets", "secret scan", ".", [gitleaks, "git", "--no-banner", "--redact", "."])]
+    # "{gitleaks}" resolves to None when it is not installed; CI always runs it.
+    return [("secrets", "secret scan", ".", ["{gitleaks}", "git", "--no-banner", "--redact", "."])]
 
 
 def main() -> int:
@@ -57,23 +54,32 @@ def main() -> int:
     parser.add_argument("--only", choices=groups)
     args = parser.parse_args()
 
-    tools = {"{py}": python_interpreter(), "{yarn}": shutil.which("yarn") or "yarn"}
+    tools = {"{py}": python_interpreter(), "{yarn}": shutil.which("yarn") or "yarn", "{gitleaks}": shutil.which("gitleaks")}
+    skipped: list[str] = []
     for group, name, cwd, cmd in CHECKS + secret_scan():
         if args.only and group != args.only:
             continue
         workdir = ROOT / cwd
+        reason = None
         if not workdir.exists():
-            print(f"-- {name}: skipped ({cwd} not found)")
-            continue
-        if "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
-            print(f"-- {name}: SKIPPED, run `yarn install` in {cwd} first")
+            reason = f"{cwd} not found"
+        elif "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
+            reason = f"run `yarn install` in {cwd} first"
+        elif "{gitleaks}" in cmd and not tools["{gitleaks}"]:
+            reason = "gitleaks not installed"
+        if reason:
+            print(f"-- {name}: SKIPPED ({reason})")
+            skipped.append(name)
             continue
         print(f"-- {name}", flush=True)
         argv = [tools.get(part, part) for part in cmd]
         if subprocess.run(argv, cwd=workdir).returncode != 0:
             print(f"FAILED: {name}", file=sys.stderr)
             return 1
-    print("verify: all checks passed")
+    if skipped:
+        print(f"verify: passed, but NOT COMPLETE. Skipped: {', '.join(skipped)}")
+    else:
+        print("verify: all checks passed")
     return 0
 
 
