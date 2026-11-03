@@ -85,6 +85,72 @@ async def delete_all_chats(request: Request):
     return {"deleted": _store(request.app).delete_all()}
 
 
+@router.get("/chats/{chat_id}/context")
+async def get_chat_context(request: Request, chat_id: str, model_id: Optional[str] = None):
+    chat = _store(request.app).get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    dispatcher = request.app.state.get_dispatcher()
+    msgs = [{"role": m["role"], "content": m["content"]} for m in chat["messages"]]
+    metrics = dispatcher.context_manager.get_metrics(
+        messages=msgs,
+        model_id=model_id or "claude-3-7-sonnet",
+    )
+    if metrics.usage_percentage > 90:
+        status = "CRITICAL"
+    elif metrics.usage_percentage > 75:
+        status = "HIGH"
+    elif metrics.usage_percentage > 50:
+        status = "MODERATE"
+    else:
+        status = "GOOD"
+
+    return {
+        "chat_id": chat_id,
+        "total_tokens": metrics.total_tokens,
+        "history_tokens": metrics.history_tokens,
+        "system_tokens": metrics.system_tokens,
+        "persistent_tokens": metrics.persistent_tokens,
+        "available_tokens": metrics.available_tokens,
+        "max_tokens": metrics.max_tokens,
+        "usage_percentage": round(metrics.usage_percentage, 1),
+        "message_count": metrics.message_count,
+        "status": status,
+    }
+
+
+@router.post("/chats/{chat_id}/compact")
+async def compact_chat(request: Request, chat_id: str):
+    store = _store(request.app)
+    chat = store.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    msgs = [{"role": m["role"], "content": m["content"]} for m in chat["messages"]]
+    if len(msgs) < 4:
+        return {"status": "noop", "message": "Chat history is too short to compact"}
+
+    dispatcher = request.app.state.get_dispatcher()
+    before_tokens = dispatcher.context_manager.count_messages_tokens(msgs)
+
+    # Summarize older messages, keep the most recent 2 turns (4 messages)
+    older = msgs[:-4]
+    recent = msgs[-4:]
+
+    summary_msg = await dispatcher.context_manager.summarizer.summarize(older)
+    new_msgs = [summary_msg] + recent
+    after_tokens = dispatcher.context_manager.count_messages_tokens(new_msgs)
+
+    store.replace_messages(chat_id, new_msgs)
+    return {
+        "status": "compacted",
+        "tokens_saved": max(0, before_tokens - after_tokens),
+        "message_count": len(new_msgs),
+        "summary": summary_msg.get("content", ""),
+    }
+
+
 @router.websocket("/chat")
 async def chat_socket(websocket: WebSocket):
     if not is_origin_allowed(websocket.headers.get("origin")):

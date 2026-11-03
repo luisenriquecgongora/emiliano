@@ -148,3 +148,16 @@ class HistoryStore:
         with self._session() as db:
             chat = db.get(Chat, chat_id)
             return [{"role": m.role, "content": m.content} for m in chat.messages] if chat else []
+
+    def replace_messages(self, chat_id: str, new_messages: List[Dict[str, str]]) -> bool:
+        """Replaces all messages in a chat (used by conversation compaction)."""
+        with self._session.begin() as db:
+            chat = db.get(Chat, chat_id)
+            if chat is None:
+                return False
+            chat.messages.clear()
+            for m in new_messages:
+                chat.messages.append(Message(chat_id=chat_id, role=m.get("role", "system"), content=m.get("content", "")))
+            chat.message_count = len(new_messages)
+            chat.updated_at = _now()
+            return True

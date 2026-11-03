@@ -59,6 +59,30 @@ class TestChatsApi(HistoryTestCase):
         resp = self.client.get("/api/chats", headers={"origin": "https://evil.example"})
         self.assertEqual(resp.status_code, 403)
 
+    def test_chat_context_metrics(self):
+        chat = self.client.post("/api/chats", json={"title": "Context Test"}).json()
+        self.store.add_message(chat["id"], "user", "Hello assistant!")
+        self.store.add_message(chat["id"], "assistant", "Hello! How can I help you today?")
+        resp = self.client.get(f"/api/chats/{chat['id']}/context")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["chat_id"], chat["id"])
+        self.assertGreater(data["total_tokens"], 0)
+        self.assertIn(data["status"], ["GOOD", "MODERATE", "HIGH", "CRITICAL"])
+        self.assertEqual(data["message_count"], 2)
+
+    def test_chat_compact(self):
+        chat = self.client.post("/api/chats", json={"title": "Compact Test"}).json()
+        for i in range(6):
+            role = "user" if i % 2 == 0 else "assistant"
+            self.store.add_message(chat["id"], role, f"Message turn {i} with some content to summarize")
+        resp = self.client.post(f"/api/chats/{chat['id']}/compact")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "compacted")
+        self.assertEqual(data["message_count"], 5)  # 1 summary + 4 retained messages
+        self.assertGreaterEqual(data["tokens_saved"], 0)
+
 
 class TestChatSocket(HistoryTestCase):
     def _receive_until(self, ws, final_types):
