@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 import ctypes
 from ctypes import wintypes
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from loguru import logger
 
 IS_WINDOWS = sys.platform == "win32"

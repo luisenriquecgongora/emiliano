@@ -4,10 +4,10 @@ Window pinning, action synthesis guardrails, and screen perception.
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
-from emiliano.cowork import WindowPinManager, ActionSynthesizer, ScreenPerceiver, SafetyInterruptedError
+from emiliano.cowork import WindowPinManager, ActionSynthesizer, SafetyInterruptedError
 from emiliano.server.app import app
 
 
