@@ -64,14 +64,13 @@ class TestActionSynthesizer(unittest.TestCase):
             with self.assertRaises(SafetyInterruptedError):
                 self.synth.click(50, 50)
 
-    @patch("pyautogui.click")
-    @patch("pyautogui.moveTo")
-    def test_safe_click_executed(self, mock_move, mock_click):
+    @patch("emiliano.cowork.actions._pyautogui")
+    def test_safe_click_executed(self, mock_gui):
         with patch.object(self.pin_mgr, "verify_active", return_value=True):
             with patch.object(self.pin_mgr, "is_point_within_pinned_window", return_value=True):
                 self.synth.click(200, 300, button="left")
-                mock_move.assert_called_once_with(200, 300, duration=0.15)
-                mock_click.assert_called_once_with(x=200, y=300, button="left", clicks=1)
+                mock_gui.return_value.moveTo.assert_called_once_with(200, 300, duration=0.15)
+                mock_gui.return_value.click.assert_called_once_with(x=200, y=300, button="left", clicks=1)
 
 
 class TestCoworkApi(unittest.TestCase):
