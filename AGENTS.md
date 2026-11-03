@@ -60,6 +60,7 @@ All commits must follow:
 - Desktop UI in a browser, no Rust: `yarn workspace @emiliano/desktop dev` (http://localhost:5173)
 - Desktop app against your own engine: start `emiliano server`, set `EMILIANO_EXTERNAL_ENGINE=1`, then `yarn workspace @emiliano/desktop tauri dev`
 - Rebuild the bundled engine after engine changes: `python scripts/build_engine_sidecar.py`
+- Release: merging `dev` into `main` updates the "chore: release vX.Y.Z" PR (version bumps + `CHANGELOG.md`, from commit types: `feat` = minor, `fix` = patch while below 1.0). Merging that PR tags the release and runs `release.yml`. Do not bump versions or tag by hand.
 
 ### 8. Gotchas
 - The engine port `8765` is hard-coded in six places: `renderer/engine.ts`, `renderer/chats.ts`, `src-tauri/src/main.rs`, the CSP in `src-tauri/tauri.conf.json`, the `--port` default in `cli.py`, and `ServerConfig.port` in `core/config.py`. Change all of them together (`grep -rn 8765`).
