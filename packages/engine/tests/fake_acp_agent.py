@@ -3,6 +3,7 @@ Minimal ACP agent used by test_acp.py. Speaks newline-delimited JSON-RPC on stdi
 Behavior is picked by the prompt text:
 - "edit": asks permission for an edit, then reports which option the client chose
 - "hang": never answers session/prompt until cancelled
+- "stubborn": ignores session/cancel and never answers (the client must kill it)
 - anything else: streams two text chunks and ends the turn
 Every message it receives is appended to the file named by FAKE_ACP_LOG, if set.
 """
@@ -53,6 +54,9 @@ def main():
         elif method == "session/prompt":
             sid = params["sessionId"]
             text = params["prompt"][0]["text"]
+            if text == "stubborn":
+                while True:
+                    read()
             if text == "hang":
                 while read().get("method") != "session/cancel":
                     pass
