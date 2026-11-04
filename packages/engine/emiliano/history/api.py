@@ -11,7 +11,11 @@ REST:
 WebSocket /api/chat:
     client -> {"type": "send", "chat_id": "...", "content": "...", "mode": "auto" | "direct" | <harness>}
               {"type": "cancel"}
+              {"type": "permission_response", "request_id": "...", "option_id": "..." | null}   null = reject
     server -> {"type": "user_message", "message": {...}}
+              {"type": "permission_request", "request_id": "...", "title": "...", "kind": "...",
+               "options": [{"optionId", "name", "kind"}]}   an agent asks before running a tool;
+               unanswered requests are rejected after PERMISSION_TIMEOUT_S
               {"type": "route", "name": "...", "display_name": "..."}
               {"type": "reasoning", "content": "..."}     model reasoning, shown collapsed
               {"type": "chunk", "content": "..."}         answer text
@@ -22,7 +26,9 @@ WebSocket /api/chat:
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Tuple
+import concurrent.futures
+import itertools
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -151,6 +157,9 @@ async def compact_chat(request: Request, chat_id: str):
     }
 
 
+PERMISSION_TIMEOUT_S = 120.0
+
+
 @router.websocket("/chat")
 async def chat_socket(websocket: WebSocket):
     if not is_origin_allowed(websocket.headers.get("origin")):
@@ -162,10 +171,39 @@ async def chat_socket(websocket: WebSocket):
     loop = asyncio.get_running_loop()
     outbox: asyncio.Queue = asyncio.Queue()
     running: Optional[asyncio.Task] = None
+    # Permission requests waiting for the user, by request_id; answered from the receive loop
+    pending: Dict[str, concurrent.futures.Future] = {}
+    request_ids = itertools.count(1)
 
     def emit(event: dict) -> None:
         # Dispatcher callbacks can run on a worker thread (harness runs), so hop to the loop
         loop.call_soon_threadsafe(outbox.put_nowait, event)
+
+    def ask_permission(tool_call: dict, options: List[dict]) -> Optional[str]:
+        """Runs on the harness worker thread: shows the request in the dock and waits for the answer."""
+        request_id = f"perm-{next(request_ids)}"
+        answer: concurrent.futures.Future = concurrent.futures.Future()
+        pending[request_id] = answer
+        emit({
+            "type": "permission_request",
+            "request_id": request_id,
+            "title": tool_call.get("title") or "Run a tool",
+            "kind": tool_call.get("kind") or "other",
+            "options": [{k: o.get(k) for k in ("optionId", "name", "kind")} for o in options],
+        })
+        try:
+            return answer.result(timeout=PERMISSION_TIMEOUT_S)
+        except concurrent.futures.TimeoutError:
+            logger.info(f"[History] Permission {request_id} unanswered; rejecting")
+            emit({"type": "permission_closed", "request_id": request_id})
+            return None
+        finally:
+            pending.pop(request_id, None)
+
+    def reject_pending() -> None:
+        for answer in list(pending.values()):
+            if not answer.done():
+                answer.set_result(None)
 
     async def sender() -> None:
         while True:
@@ -188,6 +226,7 @@ async def chat_socket(websocket: WebSocket):
                 on_chunk=on_chunk,
                 on_reasoning=lambda text: emit({"type": "reasoning", "content": text}),
                 on_route_selected=lambda c: emit({"type": "route", "name": c.name, "display_name": c.display_name}),
+                on_permission=ask_permission,
             )
             saved = store.add_message(chat_id, "assistant", full)
             emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id)})
@@ -206,8 +245,15 @@ async def chat_socket(websocket: WebSocket):
             data = await websocket.receive_json()
             kind = data.get("type")
             if kind == "cancel":
+                reject_pending()
                 if running and not running.done():
                     running.cancel()
+                continue
+            if kind == "permission_response":
+                answer = pending.get(str(data.get("request_id")))
+                if answer and not answer.done():
+                    option = data.get("option_id")
+                    answer.set_result(str(option) if option else None)
                 continue
             if kind != "send":
                 emit({"type": "error", "message": f"Unknown message type: {kind}", "code": "INVALID_TYPE"})
@@ -229,6 +275,7 @@ async def chat_socket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        reject_pending()
         if running and not running.done():
             running.cancel()
         sending.cancel()

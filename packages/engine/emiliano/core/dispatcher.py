@@ -206,9 +206,11 @@ class ExecutionDispatcher:
         on_reasoning: Optional[Callable[[str], None]] = None,
         on_route_selected: Optional[Callable[[Capability], None]] = None,
         timeout: float = 300.0,
+        on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]] = None,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
+        on_permission answers ACP permission requests (tool_call, options) -> optionId or None.
         Returns: (successful_capability, full_output_text)
         """
         candidates = await self.route_task(
@@ -290,11 +292,13 @@ class ExecutionDispatcher:
                     workspace = os.getcwd()
                     before = await asyncio.to_thread(workspace_snapshot, workspace)
 
+                    extra = {"permission_handler": on_permission} if on_permission else {}
                     code, stdout, stderr = await asyncio.to_thread(
                         harness.run_task,
                         prompt=goal,
                         on_chunk=on_chunk,
                         timeout=timeout,
+                        **extra,
                     )
                     if code == 0 and stdout.strip():
                         lower_out = stdout.lower()
