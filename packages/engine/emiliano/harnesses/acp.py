@@ -23,6 +23,8 @@ except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
 
+from .. import __version__
+
 PROTOCOL_VERSION = 1
 METHOD_NOT_FOUND = -32601
 
@@ -205,7 +207,8 @@ class AcpSession:
             init = self._request("initialize", {
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
-                "clientInfo": {"name": "emiliano", "title": "Emiliano"},
+                # version is required: OpenCode rejects initialize without it ("Invalid params")
+                "clientInfo": {"name": "emiliano", "title": "Emiliano", "version": __version__},
             }, deadline)
             if init.get("protocolVersion") != PROTOCOL_VERSION:
                 raise AcpError(f"Unsupported ACP protocol version {init.get('protocolVersion')}")
