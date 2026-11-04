@@ -29,7 +29,7 @@ flowchart LR
         ui["Chats, Dock, HUD overlay<br/>src/renderer"]
     end
     desktop -.->|starts the engine as a sidecar process| engine
-    desktop <-->|"WebSocket ws://127.0.0.1:8765/ws<br/>messages typed by packages/protocol"| server
+    desktop <-->|"WebSockets on 127.0.0.1:8765<br/>/api/chat: chats, permission prompts<br/>/ws: tasks, typed by packages/protocol"| server
     subgraph engine["Engine · packages/engine · Python"]
         direction TB
         server["Server<br/>emiliano/server · FastAPI"]
@@ -102,10 +102,13 @@ A failure is not retried elsewhere when that could repeat work, for example afte
 
 ## How a coding agent runs
 
-Claude Code, Codex and OpenCode run over the **Agent Client Protocol** (ACP): Emiliano starts the agent's ACP
-command and talks to it in structured messages. When the agent asks to use a tool, the request is relayed to
-the desktop app, and **you approve or reject it** in the Dock. Agents without ACP run in a terminal session
-(`pty_mgr.py`).
+Claude Code and Codex run over the **Agent Client Protocol** (ACP) when their ACP adapter is installed
+(`claude-agent-acp`, `codex-acp`); OpenCode does when `opencode_acp_cmd: "opencode acp"` is set. Emiliano starts
+the agent's ACP command and talks to it in structured messages (JSON-RPC over stdin/stdout). When the agent asks
+to use a tool, the request is relayed over the chat WebSocket (`/api/chat`) to the Dock, and **you approve or
+reject it**. No answer within 120 s counts as a rejection. Agents without ACP run as a plain CLI process whose
+text output is streamed (`BaseHarness.run_task`); they get the `--dangerously-*` flags unless
+`unattended_fallback: false`. Why ACP: [ADR 0001](adr/0001-use-acp-for-harnesses.md).
 
 ```mermaid
 sequenceDiagram
@@ -125,6 +128,34 @@ sequenceDiagram
     H->>Agent: decision
     Agent-->>H: result
     H-->>App: done
+```
+
+**Stopping.** Stop in the Dock (or Esc anywhere while a task runs) cancels the task, and the dispatcher then
+calls `harness.cancel()` so the agent process stops too, not only the chat. Cancelling the wait alone would leave
+the agent running in its worker thread.
+
+```mermaid
+flowchart LR
+    stop["⛔ Stop / Esc"] --> srv["Server cancels the task<br/>pending permission requests → rejected"]
+    srv --> disp["Dispatcher: harness.cancel()"]
+    disp --> isacp{"Over ACP?"}
+    isacp -->|yes| ask["send session/cancel"]
+    ask --> grace{"Stopped within 3 s?"}
+    grace -->|yes| ended["✅ agent ended cleanly"]
+    grace -->|no| kill["kill the process tree"]
+    isacp -->|"no (plain CLI)"| kill
+    kill --> ended2["✅ agent ended"]
+
+    classDef input fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef ours fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    class stop input
+    class isacp,grace gate
+    class srv,disp,ask ours
+    class kill risk
+    class ended,ended2 output
 ```
 
 ## Cowork: operating other windows
@@ -157,7 +188,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models`, cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
 | Dispatcher and registry | `packages/engine/emiliano/core` | Routing policy, capability registry, configuration, workspace and context | Direct, harnesses |
 | Direct models | `packages/engine/emiliano/direct` | Unified client (litellm), Ollama manager, credentials | Ollama, cloud APIs |
-| Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client; terminal sessions | Agent CLIs |
+| Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
 | Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception, mouse and keyboard actions | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
