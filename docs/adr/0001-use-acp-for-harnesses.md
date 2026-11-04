@@ -1,6 +1,6 @@
 # 0001. Use the Agent Client Protocol for harness integration
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Source:** [2026-11-04 gap analysis](../analysis/2026-11-04-sota-gap-analysis.md), P0 items 3 and 4
 
