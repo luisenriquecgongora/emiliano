@@ -73,7 +73,12 @@ class HarnessPathsConfig(BaseModel):
     claude_code_acp_cmd: Optional[str] = "claude-agent-acp"  # ACP adapter; None or missing binary = plain CLI mode
     antigravity_cmd: str = "agy"
     opencode_cmd: str = "opencode"
+    opencode_acp_cmd: Optional[str] = None  # set to "opencode acp" to run OpenCode over ACP
     codex_cmd: str = "codex"
+    codex_acp_cmd: Optional[str] = "codex-acp"
+    # Non-ACP runs pass --dangerously-* flags so the CLI never waits for an approval nobody can give.
+    # Set false to keep each CLI's own approval/sandbox defaults instead.
+    unattended_fallback: bool = True
 
 
 class ServerConfig(BaseModel):

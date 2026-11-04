@@ -41,15 +41,16 @@ class CapabilityRegistry:
         self._capabilities: Dict[str, Capability] = {}
 
     def get_harness_instances(self) -> Dict[str, BaseHarness]:
-        return {
-            "claude_code": ClaudeCodeHarness(
-                command=self.config.harnesses.claude_code_cmd,
-                acp_command=self.config.harnesses.claude_code_acp_cmd,
-            ),
-            "codex": CodexHarness(command=self.config.harnesses.codex_cmd),
-            "antigravity": AntigravityHarness(command=self.config.harnesses.antigravity_cmd),
-            "opencode": OpenCodeHarness(command=self.config.harnesses.opencode_cmd),
+        paths = self.config.harnesses
+        harnesses: Dict[str, BaseHarness] = {
+            "claude_code": ClaudeCodeHarness(command=paths.claude_code_cmd, acp_command=paths.claude_code_acp_cmd),
+            "codex": CodexHarness(command=paths.codex_cmd, acp_command=paths.codex_acp_cmd),
+            "antigravity": AntigravityHarness(command=paths.antigravity_cmd),
+            "opencode": OpenCodeHarness(command=paths.opencode_cmd, acp_command=paths.opencode_acp_cmd),
         }
+        for harness in harnesses.values():
+            harness.unattended = paths.unattended_fallback
+        return harnesses
 
     async def discover_all(self, test_harness_usability: bool = True) -> Dict[str, Capability]:
         """Discovers all providers and harnesses and returns a dictionary of capabilities."""

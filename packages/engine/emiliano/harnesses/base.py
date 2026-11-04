@@ -56,9 +56,11 @@ class BaseHarness(ABC):
         self.name = name
         self.command = command
         self.display_name = display_name or name
-        # ACP agent binary; when it resolves, run_task talks ACP instead of reading stdout
+        # ACP agent command line ("binary [args]"); when the binary resolves, run_task talks ACP
         self.acp_command = acp_command
         self.permission_handler: Optional[PermissionHandler] = None
+        # Fallback (non-ACP) runs pass the CLI's skip-approval flag, since nobody can answer prompts
+        self.unattended = True
         self.session: Optional[SubprocessPTYSession] = None
         self._resolved_path: Optional[str] = None
 
@@ -100,13 +102,14 @@ class BaseHarness(ABC):
 
     def resolve_acp_executable(self) -> Optional[str]:
         """Resolves the ACP agent binary on PATH, or None when this harness has none."""
-        if not self.acp_command:
+        if not self.acp_command or not self.acp_command.split():
             return None
-        found = shutil.which(self.acp_command)
+        binary = self.acp_command.split()[0]
+        found = shutil.which(binary)
         if found:
             return found
         if sys.platform == "win32" and os.environ.get("APPDATA"):
-            shim = Path(os.environ["APPDATA"]) / "npm" / f"{self.acp_command}.cmd"
+            shim = Path(os.environ["APPDATA"]) / "npm" / f"{binary}.cmd"
             if shim.is_file():
                 return str(shim)
         return None
@@ -175,6 +178,7 @@ class BaseHarness(ABC):
         cwd: Optional[str] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
         timeout: float = 180.0,
+        permission_handler: Optional[PermissionHandler] = None,
     ) -> Tuple[int, str, str]:
         """
         Executes a task non-interactively, capturing stdout/stderr and streaming chunks safely.
@@ -186,10 +190,10 @@ class BaseHarness(ABC):
         if acp_exe:
             logger.info(f"[Harness] Running {self.name} over ACP: {acp_exe}")
             return AcpSession(
-                args=[acp_exe],
+                args=[acp_exe, *self.acp_command.split()[1:]],
                 cwd=cwd or os.getcwd(),
                 on_chunk=on_chunk,
-                permission_handler=self.permission_handler,
+                permission_handler=permission_handler or self.permission_handler,
                 shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
             ).run(prompt, timeout=timeout)
 
@@ -394,8 +398,8 @@ class ClaudeCodeHarness(BaseHarness):
 
 
 class CodexHarness(BaseHarness):
-    def __init__(self, command: str = "codex"):
-        super().__init__(name="codex", command=command, display_name="Codex")
+    def __init__(self, command: str = "codex", acp_command: Optional[str] = "codex-acp"):
+        super().__init__(name="codex", command=command, display_name="Codex", acp_command=acp_command)
 
     def check_authentication(self) -> Tuple[bool, str]:
         # 1. API key in env
@@ -419,8 +423,9 @@ class CodexHarness(BaseHarness):
     def build_invocation(self, prompt: str) -> HarnessInvocation:
         # `codex exec -` reads the prompt from stdin
         exe = self.resolve_executable() or self.command
+        skip = ["--dangerously-bypass-approvals-and-sandbox"] if self.unattended else []
         return HarnessInvocation(
-            args=[exe, "exec", "--color", "always", "--dangerously-bypass-approvals-and-sandbox", "-"],
+            args=[exe, "exec", "--color", "always", *skip, "-"],
             stdin_text=prompt
         )
 
@@ -443,12 +448,13 @@ class AntigravityHarness(BaseHarness):
 
     def build_task_command(self, prompt: str) -> List[str]:
         exe = self.resolve_executable() or self.command
-        return [exe, "--dangerously-skip-permissions", "--output-format", "stream-json", "-p", prompt]
+        skip = ["--dangerously-skip-permissions"] if self.unattended else []
+        return [exe, *skip, "--output-format", "stream-json", "-p", prompt]
 
 
 class OpenCodeHarness(BaseHarness):
-    def __init__(self, command: str = "opencode"):
-        super().__init__(name="opencode", command=command, display_name="OpenCode")
+    def __init__(self, command: str = "opencode", acp_command: Optional[str] = None):
+        super().__init__(name="opencode", command=command, display_name="OpenCode", acp_command=acp_command)
 
     def get_version_command(self) -> List[str]:
         exe = self.resolve_executable() or self.command
