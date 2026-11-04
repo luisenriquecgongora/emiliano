@@ -61,6 +61,10 @@ class BaseHarness(ABC):
         self.permission_handler: Optional[PermissionHandler] = None
         # Fallback (non-ACP) runs pass the CLI's skip-approval flag, since nobody can answer prompts
         self.unattended = True
+        # The task run_task is executing, so cancel() can stop it from another thread
+        self._active_proc: Optional[subprocess.Popen] = None
+        self._active_acp: Optional[AcpSession] = None
+        self._cancel_requested = threading.Event()
         self.session: Optional[SubprocessPTYSession] = None
         self._resolved_path: Optional[str] = None
 
@@ -186,16 +190,22 @@ class BaseHarness(ABC):
         Uses ACP when the harness's ACP agent is installed, so tool calls and permission
         requests arrive as structured messages.
         """
+        self._cancel_requested.clear()
         acp_exe = self.resolve_acp_executable()
         if acp_exe:
             logger.info(f"[Harness] Running {self.name} over ACP: {acp_exe}")
-            return AcpSession(
+            session = AcpSession(
                 args=[acp_exe, *self.acp_command.split()[1:]],
                 cwd=cwd or os.getcwd(),
                 on_chunk=on_chunk,
                 permission_handler=permission_handler or self.permission_handler,
                 shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
-            ).run(prompt, timeout=timeout)
+            )
+            self._active_acp = session
+            try:
+                return session.run(prompt, timeout=timeout)
+            finally:
+                self._active_acp = None
 
         exe = self.resolve_executable()
         if not exe:
@@ -235,6 +245,9 @@ class BaseHarness(ABC):
                 bufsize=1,
                 env=env,
             )
+            self._active_proc = proc
+            if self._cancel_requested.is_set():  # cancel() ran before the process existed
+                self._kill_process_tree(proc)
 
             final_response: List[str] = []
             agent_text_parts: List[str] = []
@@ -303,6 +316,8 @@ class BaseHarness(ABC):
             proc.wait(timeout=timeout)
             for w in workers:
                 w.join(timeout=5)
+            if self._cancel_requested.is_set():
+                return 130, "".join(stdout_chunks), "Task stopped by user."
             full_output = "".join(final_response) if final_response else ("".join(agent_text_parts) if agent_text_parts else "".join(stdout_chunks))
             return proc.returncode, full_output, "".join(stderr_chunks)
 
@@ -318,11 +333,23 @@ class BaseHarness(ABC):
                 self._kill_process_tree(proc)
             return 1, "".join(stdout_chunks), str(e)
         finally:
+            self._active_proc = None
             for path in inv.temp_files:
                 try:
                     os.remove(path)
                 except OSError:
                     pass
+
+    def cancel(self) -> None:
+        """Stops the task run_task is executing. Safe to call from any thread, and when nothing runs."""
+        self._cancel_requested.set()
+        session = self._active_acp
+        if session:
+            session.cancel()
+        proc = self._active_proc
+        if proc and proc.poll() is None:
+            logger.info(f"[Harness] Stopping {self.name} (pid {proc.pid})")
+            self._kill_process_tree(proc)
 
     @staticmethod
     def _kill_process_tree(proc: Optional[subprocess.Popen]) -> None:

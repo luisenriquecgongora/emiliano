@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import threading
 import time
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
@@ -293,13 +294,19 @@ class ExecutionDispatcher:
                     before = await asyncio.to_thread(workspace_snapshot, workspace)
 
                     extra = {"permission_handler": on_permission} if on_permission else {}
-                    code, stdout, stderr = await asyncio.to_thread(
-                        harness.run_task,
-                        prompt=goal,
-                        on_chunk=on_chunk,
-                        timeout=timeout,
-                        **extra,
-                    )
+                    try:
+                        code, stdout, stderr = await asyncio.to_thread(
+                            harness.run_task,
+                            prompt=goal,
+                            on_chunk=on_chunk,
+                            timeout=timeout,
+                            **extra,
+                        )
+                    except asyncio.CancelledError:
+                        # Cancelling the await does not stop the worker thread: stop the agent itself.
+                        # cancel() may wait on taskkill, so keep it off the event loop.
+                        threading.Thread(target=harness.cancel, daemon=True).start()
+                        raise
                     if code == 0 and stdout.strip():
                         lower_out = stdout.lower()
                         if any(phrase in lower_out for phrase in [

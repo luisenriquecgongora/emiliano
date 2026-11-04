@@ -27,6 +27,8 @@ from .. import __version__
 
 PROTOCOL_VERSION = 1
 METHOD_NOT_FOUND = -32601
+# After session/cancel the agent gets this long to stop on its own before it is killed
+CANCEL_GRACE_S = 3.0
 
 # (tool_call, options) -> chosen optionId, or None to reject
 PermissionHandler = Callable[[Dict[str, Any], List[Dict[str, Any]]], Optional[str]]
@@ -76,6 +78,7 @@ class AcpSession:
         self._write_lock = threading.Lock()
         self._text: List[str] = []
         self._stderr: List[str] = []
+        self._cancelled = threading.Event()
 
     # --- transport -------------------------------------------------------------------------
 
@@ -144,6 +147,8 @@ class AcpSession:
             self._send({"id": msg["id"], "error": {"code": METHOD_NOT_FOUND, "message": f"Unsupported method: {method}"}})
 
     def _decide_permission(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if self._cancelled.is_set():
+            return {"outcome": "cancelled"}  # the spec's answer for requests during cancellation
         tool_call = params.get("toolCall") or {}
         options = params.get("options") or []
         try:
@@ -155,7 +160,7 @@ class AcpSession:
             choice = _pick_reject(options)
         valid = {opt.get("optionId") for opt in options}
         title = tool_call.get("title") or tool_call.get("toolCallId") or "tool call"
-        if choice not in valid:
+        if self._cancelled.is_set() or choice not in valid:
             logger.info(f"[ACP] Permission cancelled: {title}")
             return {"outcome": "cancelled"}
         logger.info(f"[ACP] Permission '{choice}' for: {title}")
@@ -223,6 +228,8 @@ class AcpSession:
             }, deadline)
             stop = result.get("stopReason", "end_turn")
             text = "".join(self._text)
+            if self._cancelled.is_set():
+                return 130, text, "Task stopped by user."
             if stop in ("end_turn", "max_tokens", "max_turn_requests"):
                 return 0, text, ""
             return 1, text, f"Agent stopped: {stop}"
@@ -230,12 +237,31 @@ class AcpSession:
             self._cancel()
             return 124, "".join(self._text), f"Task timed out after {timeout} seconds."
         except (AcpError, OSError) as e:
+            if self._cancelled.is_set():
+                return 130, "".join(self._text), "Task stopped by user."
             # OSError: the agent exited and closed its stdin before we could write to it
             if isinstance(e, OSError):
                 e = AcpError(f"Agent exited during startup: {e}")
             return 1, "".join(self._text), f"{e}\n{''.join(self._stderr)}".strip()
         finally:
             self._shutdown(readers)
+
+    def cancel(self) -> None:
+        """Stops the turn from another thread: asks the agent to cancel, then kills it if it does not stop."""
+        if self._cancelled.is_set():
+            return
+        self._cancelled.set()
+        logger.info("[ACP] Cancelling task")
+        self._cancel()
+        timer = threading.Timer(CANCEL_GRACE_S, self._force_kill)
+        timer.daemon = True
+        timer.start()
+
+    def _force_kill(self) -> None:
+        proc = self.proc
+        if proc and proc.poll() is None:
+            logger.info("[ACP] Agent ignored cancel; killing it")
+            _kill_tree(proc)
 
     def _cancel(self) -> None:
         if self.session_id and self.proc and self.proc.poll() is None:
@@ -254,8 +280,19 @@ class AcpSession:
         try:
             self.proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
-            if sys.platform == "win32":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=5)
-            self.proc.kill()
+            _kill_tree(self.proc)
         for r in readers:
             r.join(timeout=2)
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kills the process and its children (on Windows an npm .cmd shim leaves node running otherwise)."""
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
