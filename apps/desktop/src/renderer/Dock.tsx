@@ -11,6 +11,7 @@ import {
   ContextMetrics,
   MODES,
   Mode,
+  PermissionRequest,
   chatsApi,
   relativeTime,
 } from './chats';
@@ -39,6 +40,7 @@ export default function Dock() {
   const [metrics, setMetrics] = useState<ContextMetrics | null>(null);
   const [compacting, setCompacting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [permission, setPermission] = useState<PermissionRequest | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -134,17 +136,26 @@ export default function Dock() {
         case 'chunk':
           updatePending((m) => ({ ...m, content: m.content + event.content }));
           break;
+        case 'permission_request':
+          setPermission(event as PermissionRequest);
+          break;
+        case 'permission_closed':
+          setPermission((p) => (p?.request_id === event.request_id ? null : p));
+          break;
         case 'done':
+          setPermission(null);
           updatePending((m) => ({ ...event.message, reasoning: m.reasoning, route: m.route }));
           setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
           if (event.chat?.id) refreshMetrics(event.chat.id);
           setBusy(false);
           break;
         case 'cancelled':
+          setPermission(null);
           updatePending((m) => ({ ...m, id: `stopped-${Date.now()}`, pending: false, content: `${m.content}\n\n[stopped]` }));
           setBusy(false);
           break;
         case 'error':
+          setPermission(null);
           setMessages((prev) => prev.filter((m) => m.id !== PENDING_ID));
           setError(event.message);
           setBusy(false);
@@ -230,6 +241,13 @@ export default function Dock() {
   };
 
   const stop = () => ws?.send(JSON.stringify({ type: 'cancel' }));
+
+  // optionId null rejects the request
+  const answerPermission = (optionId: string | null) => {
+    if (!permission) return;
+    ws?.send(JSON.stringify({ type: 'permission_response', request_id: permission.request_id, option_id: optionId }));
+    setPermission(null);
+  };
 
   // Emergency kill switch: the desktop shell sends this when Esc is pressed anywhere
   useEffect(() => {
@@ -383,6 +401,8 @@ export default function Dock() {
             </button>
           </div>
         )}
+
+        {permission && <PermissionCard request={permission} onAnswer={answerPermission} />}
 
         <Composer
           draft={draft}
@@ -670,6 +690,41 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         ) : (
           <div className="whitespace-pre-wrap leading-relaxed select-text">{message.content}</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onAnswer: (optionId: string | null) => void }) {
+  const allows = request.options.filter((o) => o.kind.startsWith('allow'));
+  const rejects = request.options.filter((o) => o.kind.startsWith('reject'));
+  return (
+    <div className="mt-2 rounded-lg border border-amber-700/60 bg-amber-950/50 px-2.5 py-2 text-[11px]">
+      <div className="flex items-center space-x-1.5 text-amber-300">
+        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+        <span className="font-semibold">Agent asks permission</span>
+        <span className="text-[10px] font-mono text-amber-500">{request.kind}</span>
+      </div>
+      <div className="mt-1 text-slate-100 break-words">{request.title}</div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {allows.map((o) => (
+          <button
+            key={o.optionId}
+            onClick={() => onAnswer(o.optionId)}
+            className="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+          >
+            {o.name}
+          </button>
+        ))}
+        {(rejects.length ? rejects : [null]).map((o) => (
+          <button
+            key={o?.optionId ?? 'reject'}
+            onClick={() => onAnswer(o ? o.optionId : null)}
+            className="px-2 py-0.5 rounded bg-slate-700 hover:bg-rose-700 text-slate-100"
+          >
+            {o?.name ?? 'Deny'}
+          </button>
+        ))}
       </div>
     </div>
   );

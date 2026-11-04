@@ -26,6 +26,20 @@ export interface ChatDetail extends ChatSummary {
   messages: ChatMessage[];
 }
 
+/** An agent asks before running a tool (ACP session/request_permission, relayed by the engine). */
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always';
+}
+
+export interface PermissionRequest {
+  request_id: string;
+  title: string;
+  kind: string;
+  options: PermissionOption[];
+}
+
 export interface ContextMetrics {
   chat_id: string;
   total_tokens: number;
