@@ -7,7 +7,7 @@ Before executing code modifications touching more than one file, output a compac
 | :--- | :--- | :--- |
 | `path/to/file` | `[refactor / feat / fix / rename]` | `None / Exposes new method / Renames prop` |
 
-Do not output narrative summaries, conversational setups, or ad-hoc diagrams.
+Keep the manifest itself to the table: no narrative summary or conversational setup around it. Diagrams belong in the docs and the pull request (section 11).
 
 ### 2. Diff Noise & Spurious Edit Invariants
 - **No Unsolicited Formatting:** Do NOT reformat, re-indent, or adjust comments on lines unrelated to your assigned task. Leave untouched code exactly as it is.
