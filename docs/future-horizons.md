@@ -75,3 +75,22 @@
 ### Horizon 3: Ambient Voice & Audio Awareness
 - Low-latency local speech-to-text (Whisper.cpp) and audio synthesis.
 - Allows conversational voice coworking: *"Emiliano, pause for a moment while I enter my password"* or *"Go ahead and push that branch to GitHub"*.
+
+---
+
+## 5. Next Steps from the 2026-11-04 Gap Analysis
+
+> Findings and reasoning: [analysis/2026-11-04-sota-gap-analysis.md](analysis/2026-11-04-sota-gap-analysis.md)
+
+**P0**
+- [ ] ACP adapters for harnesses, with permission requests shown in the dock (replaces stdout scraping; `pyte` becomes the fallback).
+- [ ] Remove default `--dangerously-*` flags; add confirmation before irreversible actions, screenshot secret redaction, and an action audit log.
+- [ ] Hybrid perception: UIA first, vision parser for custom controls (supersedes 1A).
+- [ ] Computer-use agent loop: observe → plan → act → verify.
+
+**P1**
+- [ ] Evaluation suite (golden tasks + Windows Agent Arena / OSWorld subset + routing evals).
+- [ ] Model-based routing to replace keyword matching in `core/dispatcher.py`.
+- [ ] MCP server exposing cowork actions; MCP client in direct mode.
+- [ ] OpenTelemetry traces, per-task cost budgets, prompt caching.
+- [ ] One git worktree per harness for parallel runs.
