@@ -25,6 +25,17 @@ harnesses:
   opencode_cmd: "opencode"
   codex_cmd: "codex"
 
+  # Agent Client Protocol (ACP) adapters. When the binary is installed, the harness runs over ACP:
+  # tool calls stream to the dock and permission requests show Approve/Deny buttons there.
+  # Set to null to keep plain CLI mode.
+  claude_code_acp_cmd: "claude-agent-acp"   # npm install -g @agentclientprotocol/claude-agent-acp
+  codex_acp_cmd: "codex-acp"
+  opencode_acp_cmd: null                    # "opencode acp" to enable
+
+  # Plain CLI runs (no ACP) pass --dangerously-* flags so they never wait for an approval.
+  # false keeps each CLI's own approval and sandbox defaults.
+  unattended_fallback: true
+
 server:
   host: "127.0.0.1"
   port: 8765

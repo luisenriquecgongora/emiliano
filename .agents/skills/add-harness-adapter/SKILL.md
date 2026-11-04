@@ -45,6 +45,10 @@ class ExampleHarness(BaseHarness):
         return HarnessInvocation(args=[exe, "run", "-"], stdin_text=prompt)
 ```
 
+## ACP (preferred when the agent supports it)
+
+If the agent has an Agent Client Protocol server (an adapter binary like `codex-acp`, or a subcommand like `opencode acp`), pass `acp_command="<binary> [args]"` to `super().__init__` and add a `<name>_acp_cmd` setting in `HarnessPathsConfig`, wired in `registry.py`. When the binary resolves, `run_task` uses `harnesses/acp.py` (structured tool calls, dock permission prompts) instead of the CLI path. Check the handshake against the real agent before enabling it by default: some agents reject requests the spec marks optional (OpenCode requires `clientInfo.version`).
+
 ## Rules
 
 - **Prompt never on argv** when the CLI can avoid it: use `stdin_text` (Claude Code, Codex) or a temp file listed in `temp_files` (OpenCode). npm CLIs are `.cmd` shims on Windows, where `CMD_METACHARS` in the prompt would be interpreted by cmd.exe; `run_task` refuses those for argv prompts.
