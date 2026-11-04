@@ -44,8 +44,15 @@ SKILL_MIRRORS = [".claude/skills"]
 
 
 def python_interpreter() -> str:
-    if os.environ.get("VERIFY_PYTHON"):
-        return os.environ["VERIFY_PYTHON"]
+    override = os.environ.get("VERIFY_PYTHON")
+    if override:
+        found = shutil.which(override)
+        if not found:
+            raise SystemExit(
+                f"verify: VERIFY_PYTHON is set to {override}, which is not a program that exists. "
+                "Point it at a Python interpreter, or unset it to use the project virtualenv."
+            )
+        return found
     for candidate in (VENV / "Scripts" / "python.exe", VENV / "bin" / "python"):
         if candidate.exists():
             return str(candidate)

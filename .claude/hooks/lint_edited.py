@@ -31,7 +31,10 @@ def main() -> int:
     if not command or not Path(file_path).exists():
         return 0
 
-    tokens = verify.tool_tokens(verify.python_interpreter())
+    try:
+        tokens = verify.tool_tokens(verify.python_interpreter())
+    except SystemExit:  # e.g. VERIFY_PYTHON points nowhere; verify.py itself reports that
+        return 0
     parts = [[file_path] if part == "{file}" else verify.resolve(part, tokens) for part in command]
     if None in parts:
         return 0
