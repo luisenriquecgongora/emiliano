@@ -6,6 +6,17 @@
 1. **The Meta-Harness & Direct Execution Engine (`packages/engine`)**: A supervisor that controls and delegates work to external agent harnesses (Claude Code, Antigravity, OpenCode, Codex, MCP) or directly executes tasks via local models (Ollama, vLLM) and remote frontier APIs (Claude 3.7, GPT-4.5, DeepSeek, Gemini).
 2. **The Desktop Cowork UI (`apps/desktop`)**: A Tauri-based desktop coworker (the Python engine ships inside it) inspired by Anthropic's Claude Cowork, featuring a collapsible floating dock, non-blocking click-through transparent HUD overlay, and hybrid screen perception (Windows UI Automation + Multimodal Vision).
 
+## Try It Now (Windows)
+
+Clone the repository, then double-click one of these launchers in its root:
+
+| Launcher | Opens | Needs |
+| :--- | :--- | :--- |
+| [**`Emiliano.bat`**](Emiliano.bat) | Terminal chat | Python 3.10+ |
+| [**`Emiliano-Desktop.bat`**](Emiliano-Desktop.bat) | Desktop app: floating dock + HUD overlay, with Approve/Deny prompts when an agent asks permission | Python 3.10+, Node with yarn, [Rust](https://rustup.rs) |
+
+Both run the code in your checkout, so they are the quickest way to test changes. Drag a project folder onto either one to use it as the workspace. See [Quick Launch](#quick-launch-windows) for details.
+
 ---
 
 ## Comparison Matrix: Emiliano vs. Other Harnesses
@@ -125,7 +136,10 @@ To work on the UI against an engine you run yourself, start `emiliano server` an
 
 ## Quick Launch (Windows)
 
-Double-click `Emiliano.bat` in the repository root to open the chat. On first run it creates `packages/engine/.venv` and installs the engine. To chat about a different project, drag that project's folder onto `Emiliano.bat`: the folder becomes the workspace.
+- **[`Emiliano.bat`](Emiliano.bat)**: double-click to open the terminal chat. On first run it creates `packages/engine/.venv` and installs the engine. To chat about a different project, drag that project's folder onto `Emiliano.bat`: the folder becomes the workspace.
+- **[`Emiliano-Desktop.bat`](Emiliano-Desktop.bat)**: double-click to open the desktop app (dock + HUD overlay) on the code in this checkout. It starts the engine in its own window (close that window to stop the engine), then runs `tauri dev`. On first run it also installs the desktop dependencies and builds the bundled engine binary, and the first Rust build takes a few minutes. Close the installed Emiliano app first: both use port 8765. Drag a folder onto it to use that folder as the workspace.
+
+Agent permission requests appear in the dock only. The terminal chat approves them automatically, as before.
 
 ## Releases
 
