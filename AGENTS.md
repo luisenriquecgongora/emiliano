@@ -73,3 +73,12 @@ All commits must follow:
 - Never read, print or commit `.env` files, API keys, or files under `credentials/`.
 - Never force-push, rewrite published history, or commit directly to `main` or `prod`.
 - Never commit `dist/`, `build/`, `src-tauri/target/` or `src-tauri/binaries/`.
+
+### 10. Supporting another coding agent
+Instructions live only in this file and skills only in `.agents/skills/`; every agent tool gets them from there.
+- **Tool reads `AGENTS.md` and `.agents/skills/`** (Codex, OpenCode, Cursor, Copilot, Antigravity): nothing to do.
+- **Tool reads only its own files** (like Claude Code: `CLAUDE.md`, `.claude/skills/`):
+  1. Add a one-line pointer file to `AGENTS.md` in the tool's format (see `CLAUDE.md`).
+  2. Add its skills folder to `SKILL_MIRRORS` in `scripts/verify.py`, then run `python scripts/verify.py --only skills --fix` to create the symlinks.
+  3. Confirm the tool sees the skills: ask it to list its available skills (e.g. `opencode debug skill`, `codex exec`, `claude -p`, `agy -p`).
+- Never copy a skill into a tool's folder; link it, so there is one copy to keep current.
