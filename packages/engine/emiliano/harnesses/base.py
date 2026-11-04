@@ -26,6 +26,7 @@ except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
 
+from .acp import AcpSession, PermissionHandler
 from .pty_mgr import SubprocessPTYSession
 
 # Characters cmd.exe interprets even inside list2cmdline quoting. npm-installed CLIs are
@@ -51,10 +52,13 @@ def _read_json(path: Path) -> dict:
 
 
 class BaseHarness(ABC):
-    def __init__(self, name: str, command: str, display_name: str = ""):
+    def __init__(self, name: str, command: str, display_name: str = "", acp_command: Optional[str] = None):
         self.name = name
         self.command = command
         self.display_name = display_name or name
+        # ACP agent binary; when it resolves, run_task talks ACP instead of reading stdout
+        self.acp_command = acp_command
+        self.permission_handler: Optional[PermissionHandler] = None
         self.session: Optional[SubprocessPTYSession] = None
         self._resolved_path: Optional[str] = None
 
@@ -92,6 +96,19 @@ class BaseHarness(ABC):
                 self._resolved_path = str(c)
                 return str(c)
 
+        return None
+
+    def resolve_acp_executable(self) -> Optional[str]:
+        """Resolves the ACP agent binary on PATH, or None when this harness has none."""
+        if not self.acp_command:
+            return None
+        found = shutil.which(self.acp_command)
+        if found:
+            return found
+        if sys.platform == "win32" and os.environ.get("APPDATA"):
+            shim = Path(os.environ["APPDATA"]) / "npm" / f"{self.acp_command}.cmd"
+            if shim.is_file():
+                return str(shim)
         return None
 
     def check_usability(self, timeout: float = 10.0) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -162,7 +179,20 @@ class BaseHarness(ABC):
         """
         Executes a task non-interactively, capturing stdout/stderr and streaming chunks safely.
         Both pipes are drained on background threads so the timeout is always enforced.
+        Uses ACP when the harness's ACP agent is installed, so tool calls and permission
+        requests arrive as structured messages.
         """
+        acp_exe = self.resolve_acp_executable()
+        if acp_exe:
+            logger.info(f"[Harness] Running {self.name} over ACP: {acp_exe}")
+            return AcpSession(
+                args=[acp_exe],
+                cwd=cwd or os.getcwd(),
+                on_chunk=on_chunk,
+                permission_handler=self.permission_handler,
+                shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
+            ).run(prompt, timeout=timeout)
+
         exe = self.resolve_executable()
         if not exe:
             return 1, "", f"Harness executable '{self.command}' not found."
@@ -329,8 +359,8 @@ class BaseHarness(ABC):
 
 
 class ClaudeCodeHarness(BaseHarness):
-    def __init__(self, command: str = "claude"):
-        super().__init__(name="claude_code", command=command, display_name="Claude Code")
+    def __init__(self, command: str = "claude", acp_command: Optional[str] = "claude-agent-acp"):
+        super().__init__(name="claude_code", command=command, display_name="Claude Code", acp_command=acp_command)
 
     def check_authentication(self) -> Tuple[bool, str]:
         # 1. API key or long-lived OAuth token (from `claude setup-token`)

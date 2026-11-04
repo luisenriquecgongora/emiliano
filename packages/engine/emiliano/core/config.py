@@ -70,6 +70,7 @@ class ModelConfig(BaseModel):
 
 class HarnessPathsConfig(BaseModel):
     claude_code_cmd: str = "claude"
+    claude_code_acp_cmd: Optional[str] = "claude-agent-acp"  # ACP adapter; None or missing binary = plain CLI mode
     antigravity_cmd: str = "agy"
     opencode_cmd: str = "opencode"
     codex_cmd: str = "codex"

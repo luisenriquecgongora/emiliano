@@ -42,7 +42,10 @@ class CapabilityRegistry:
 
     def get_harness_instances(self) -> Dict[str, BaseHarness]:
         return {
-            "claude_code": ClaudeCodeHarness(command=self.config.harnesses.claude_code_cmd),
+            "claude_code": ClaudeCodeHarness(
+                command=self.config.harnesses.claude_code_cmd,
+                acp_command=self.config.harnesses.claude_code_acp_cmd,
+            ),
             "codex": CodexHarness(command=self.config.harnesses.codex_cmd),
             "antigravity": AntigravityHarness(command=self.config.harnesses.antigravity_cmd),
             "opencode": OpenCodeHarness(command=self.config.harnesses.opencode_cmd),
