@@ -72,7 +72,7 @@ fi
 
 # 2. Check staged file count limit. Lockfiles, docs, git config, tests,
 #    migrations and locale files don't count.
-EXCLUDED='(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock)$|\.md$|^\.gitattributes$|^\.editorconfig$'
+EXCLUDED='(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$|\.md$|^\.gitattributes$|^\.editorconfig$'
 EXCLUDED="$EXCLUDED"'|\.(test|spec)\.[^/]+$|[Mm]igration|\.sql$|(^|/)(locales|i18n)/.*\.json$'
 COUNTED=$(git diff --cached --name-only | { grep -Ev "$EXCLUDED" || true; })
 STAGED_FILES=$(printf '%s\n' "$COUNTED" | grep -c . || true)

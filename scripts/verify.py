@@ -32,6 +32,11 @@ CHECKS: list[tuple[str, str, str, list[str]]] = [
     ("python", "cli sanity", ".", ["{py}", "-m", "emiliano.cli", "--help"]),
     ("desktop", "desktop typecheck", ".", ["{yarn}", "workspace", "@emiliano/desktop", "tsc", "--noEmit"]),
 ]
+# Linter run on each file an agent edits, by file extension ("{file}" is the file);
+# findings go back to the agent. Lint only, never formatters.
+EDIT_LINTERS: dict[str, list[str]] = {
+    ".py": ["{ruff}", "check", "--quiet", "{file}"],
+}
 # Skill folders of harnesses that do not read the shared .agents/skills: each needs a
 # symlink to every shared skill. Add a folder here when adding such a harness.
 SKILL_MIRRORS = [".claude/skills"]
@@ -54,6 +59,27 @@ def ruff_command(py: str) -> list[str] | None:
         return [py, "-m", "ruff"]
     on_path = shutil.which("ruff")
     return [on_path] if on_path else None
+
+
+def tool_tokens(py: str) -> dict[str, list[str] | None]:
+    """What the special command tokens run; None means not installed."""
+    gitleaks = shutil.which("gitleaks")
+    return {
+        "{py}": [py],
+        "{yarn}": [shutil.which("yarn") or "yarn"],
+        "{ruff}": ruff_command(py),
+        "{gitleaks}": [gitleaks] if gitleaks else None,
+    }
+
+
+def resolve(part: str, tokens: dict[str, list[str] | None]) -> list[str] | None:
+    """One command part: a special token, any other "{tool}" from PATH (None if missing), or itself."""
+    if part in tokens:
+        return tokens[part]
+    if part.startswith("{") and part.endswith("}"):
+        found = shutil.which(part[1:-1])
+        return [found] if found else None
+    return [part]
 
 
 def secret_scan() -> list[tuple[str, str, str, list[str]]]:
@@ -105,31 +131,26 @@ def main() -> int:
             print("FAILED: agent skills", file=sys.stderr)
             return 1
 
-    py = python_interpreter()
-    tools = {
-        "{py}": [py],
-        "{yarn}": [shutil.which("yarn") or "yarn"],
-        "{ruff}": ruff_command(py),
-        "{gitleaks}": [shutil.which("gitleaks")] if shutil.which("gitleaks") else None,
-    }
+    tokens = tool_tokens(python_interpreter())
     skipped: list[str] = []
     for group, name, cwd, cmd in CHECKS + secret_scan():
         if args.only and group != args.only:
             continue
         workdir = ROOT / cwd
+        parts = [resolve(part, tokens) for part in cmd]
         reason = None
         if not workdir.exists():
             reason = f"{cwd} not found"
         elif "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
             reason = f"run `yarn install` in {cwd} first"
-        elif any(tools.get(part, True) is None for part in cmd):
-            reason = f"{next(p for p in cmd if tools.get(p, True) is None).strip('{}')} not installed"
+        elif None in parts:
+            reason = f"{cmd[parts.index(None)].strip('{}')} not installed"
         if reason:
             print(f"-- {name}: SKIPPED ({reason})")
             skipped.append(name)
             continue
         print(f"-- {name}", flush=True)
-        argv = [arg for part in cmd for arg in tools.get(part, [part])]
+        argv = [arg for part in parts for arg in part]
         if subprocess.run(argv, cwd=workdir).returncode != 0:
             print(f"FAILED: {name}", file=sys.stderr)
             return 1
