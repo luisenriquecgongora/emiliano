@@ -45,6 +45,7 @@ class TestAcpSession(unittest.TestCase):
         init, new = self._received()[0]["params"], self._received()[1]["params"]
         self.assertEqual(init["protocolVersion"], 1)
         self.assertFalse(init["clientCapabilities"]["terminal"])
+        self.assertTrue(init["clientInfo"]["version"])
         self.assertTrue(os.path.isabs(new["cwd"]))
         self.assertNotIn("secret prompt", " ".join(AGENT_ARGS))
 
