@@ -21,6 +21,7 @@ for a check the change touches. Quote failures exactly.
 
 ## 3. Correctness
 
+- Does a change to the parts or a flow (routing, harnesses, protocol, Cowork) update `docs/ARCHITECTURE.md` and its diagrams (`AGENTS.md`, section 11)?
 - Does every behavior change come with a test in `packages/engine/tests/` that fails without it?
 - Error paths: subprocess failures, timeouts, missing executables, empty output.
 - Windows: paths, `.cmd` shims (`CMD_METACHARS`), CRLF.

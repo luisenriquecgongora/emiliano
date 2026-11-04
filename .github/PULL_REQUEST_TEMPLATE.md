@@ -14,6 +14,10 @@
 - [ ] `apps/desktop` (Tauri Cowork UI & HUD Overlay)
 - [ ] CI/CD or Repository tooling
 
+## Diagram
+<!-- If this changes a structure or a flow: a small colored Mermaid diagram of the new shape, and the
+     updated docs/ARCHITECTURE.md. Delete this section otherwise. -->
+
 ## Verification & Testing
 <!-- Describe how you verified your changes (e.g. CLI run, desktop app smoke test, unit tests). -->
 - [ ] Tested locally with `python -m emiliano.cli harnesses`
