@@ -3,8 +3,8 @@
 > *An autonomous desktop coworker and meta-harness for intelligent multi-agent orchestration.*
 
 `emiliano` combines two complementary systems into a unified platform:
-1. **The Meta-Harness & Direct Execution Engine (`packages/engine`)**: A supervisor that controls and delegates work to external agent harnesses (Claude Code, Antigravity, OpenCode, Codex, MCP) or directly executes tasks via local models (Ollama, vLLM) and remote frontier APIs (Claude 3.7, GPT-4.5, DeepSeek, Gemini).
-2. **The Desktop Cowork UI (`apps/desktop`)**: A Tauri-based desktop coworker (the Python engine ships inside it) inspired by Anthropic's Claude Cowork, featuring a collapsible floating dock, non-blocking click-through transparent HUD overlay, and hybrid screen perception (Windows UI Automation + Multimodal Vision).
+1. **The Meta-Harness & Direct Execution Engine (`packages/engine`)**: A supervisor that delegates work to external agent harnesses (Claude Code, Antigravity, OpenCode, Codex) or answers directly with local models (Ollama) and remote APIs (Claude, GPT, DeepSeek, Gemini through LiteLLM). Local models come first: it works offline.
+2. **The Desktop Cowork UI (`apps/desktop`)**: A Tauri-based desktop coworker (the Python engine ships inside it) inspired by Anthropic's Claude Cowork, featuring a collapsible floating dock, non-blocking click-through transparent HUD overlay, and screen perception through Windows UI Automation (a vision fallback is planned).
 
 ## Try It Now (Windows)
 
@@ -21,15 +21,17 @@ Both run the code in your checkout, so they are the quickest way to test changes
 
 ## Comparison Matrix: Emiliano vs. Other Harnesses
 
+As of November 2026. Rows describe what Emiliano does today; see [Planned](#planned-not-built-yet) for what it does not do yet.
+
 | Capability / Dimension | **Emiliano** | **Claude Cowork** | **Claude Code** | **Antigravity (AGY)** | **OpenHands** | **Aider** | **Goose** | **Raven** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Harness Architecture** | **Meta-Harness + Direct Engine** | Single Agent Coworker | Single CLI Agent | Single CLI & IDE Agent | Sandbox Web Agent | Git Pair Programmer | Extensible Desktop Agent | Meta-Harness (DAG RSI) |
+| **Harness Architecture** | **Meta-Harness + Direct Engine** | Single Agent Coworker | CLI Agent (+ subagents) | Agent Manager, CLI & IDE (parallel subagents) | Sandbox Web Agent | Git Pair Programmer | Extensible Desktop Agent | Meta-Harness (DAG RSI) |
 | **Multi-Harness Orchestration**<br>*(Controls external CLI/API agents)* | **Yes**<br>*(Claude, AGY, OpenCode, Codex)* | No | No | No | No | No | No | **Yes**<br>*(Internal sub-agents)* |
 | **OS Screen & GUI Manipulation**<br>*(Controls arbitrary desktop apps)* | **Yes**<br>*(Mouse, Keys, Windows)* | **Yes**<br>*(Virtual sandbox / local)* | No | No | Limited<br>*(Docker browser)* | No | No | No |
-| **Screen Perception Engine** | **Hybrid**<br>*(OS Accessibility + VLM)* | **Pure Vision**<br>*(Screenshots only)* | N/A | N/A | DOM / VNC | AST & Grep | Context / MCP | Text / Context |
+| **Screen Perception Engine** | **OS Accessibility**<br>*(UI Automation; vision fallback planned)* | **Pure Vision**<br>*(Screenshots only)* | N/A | N/A | DOM / VNC | AST & Grep | Context / MCP | Text / Context |
 | **Transparent Desktop HUD**<br>*(Click-through target boxes)* | **Yes**<br>*(Win32 / Tauri)* | No<br>*(In-app only)* | No | No | No | No | No | No |
 | **Local Model Support**<br>*(Ollama, vLLM, llama.cpp)* | **Native & Offline** | No | No | No | Yes | Yes | Yes | Limited |
-| **Frontier Cloud Models**<br>*(Anthropic, OpenAI, DeepSeek)* | **Any Provider**<br>*(LiteLLM unified)* | Anthropic Only | Anthropic Only | Google Gemini / DeepMind | Any Provider | Any Provider | Any Provider | Any Provider |
+| **Frontier Cloud Models**<br>*(Anthropic, OpenAI, DeepSeek)* | **Any Provider**<br>*(LiteLLM unified)* | Anthropic Only | Anthropic Only | Gemini and Claude | Any Provider | Any Provider | Any Provider | Any Provider |
 | **Automated Fallback Cascades**<br>*(Local $\to$ Cloud on failure)* | **Yes** | No | No | No | No | No | No | Partial |
 | **Primary Interaction UI** | **Floating Dock + HUD + CLI** | Desktop Sidebar | Terminal CLI | Terminal CLI & IDE | Web Dashboard | Terminal CLI | Desktop App / CLI | Python SDK / CLI |
 | **Safety Interruption** | **Global Hotkey (<kbd>Esc</kbd>)** | In-app Pause | <kbd>Ctrl+C</kbd> | <kbd>Ctrl+C</kbd> | Web Button | <kbd>Ctrl+C</kbd> | In-app Cancel | CLI interrupt |
@@ -41,7 +43,7 @@ Both run the code in your checkout, so they are the quickest way to test changes
 
 1. **You Don't Have to Choose One Tool**: Instead of locking you into a single paradigm, Emiliano treats your existing tools (**Claude Code**, **Antigravity**, **OpenCode**, **Codex**, **Aider**) as specialized workers in a unified orchestrator.
 2. **True Coworking with Non-Intrusive HUD**: Unlike web-only sandboxes or terminal-only agents, Emiliano works directly on your physical operating system. Its transparent HUD overlay draws visual crosshairs and bounding boxes on what it plans to click before acting.
-3. **Local-First with Cloud Scale**: Start tasks completely offline using **Ollama** (`qwen2.5-coder`, `llama3.3`, `deepseek-r1`). If a task requires deep frontier reasoning, Emiliano smoothly cascades to Claude 3.7 Sonnet or GPT-4.5 with unified billing and key management.
+3. **Local-First with Cloud Scale**: Run completely offline with any **Ollama** model (`qwen3.5`, `qwen2.5-coder`, `llama3.3`, ...). When a local model fails, Emiliano falls back to the cloud providers you have keys for (Claude, GPT, DeepSeek, Gemini), with keys kept out of agent processes. See [Local models](#local-models).
 4. **Instant Physical Safety**: Pressing <kbd>Esc</kbd> from any window immediately halts all mouse, keyboard, and sub-agent processes.
 
 ---
@@ -60,11 +62,29 @@ emiliano/
 
 ## Features
 
-- **Harness of Harnesses**: Orchestrates CLI-based agents (`claude-code`, `antigravity`, `opencode`, `codex`) via virtual pseudo-terminals (PTY) and standard MCP servers.
-- **Direct Multi-Model Engine**: Direct execution loop supporting Ollama, vLLM, Anthropic, OpenAI, DeepSeek, with automated model fallback cascades.
-- **Hybrid Screen Perception**: High-speed Windows UI Automation (UIA) tree inspection coupled with Set-of-Marks visual grounding for canvas/web views.
-- **Transparent HUD Overlay**: Draws real-time visual bounding boxes and cursor trajectories over target elements before clicking.
+- **Harness of Harnesses**: Runs coding agents (`claude-code`, `codex`, `opencode`, `antigravity`) over the Agent Client Protocol (ACP) where an adapter is installed, with each permission request shown in the dock for you to approve; otherwise as a plain CLI process.
+- **Direct Multi-Model Engine**: Answers with Ollama, Anthropic, OpenAI, DeepSeek or Gemini models, with automatic fallback between them.
+- **Screen Perception**: Reads other apps' controls through Windows UI Automation (UIA), including browsers and Electron apps such as VS Code; falls back to Win32 child windows.
+- **Transparent HUD Overlay**: Draws bounding boxes over target elements before clicking.
 - **Safety Kill-Switch**: Global hotkey (`Esc`) to instantly pause actions and release OS input controls.
+- **Task Traces**: Every task records its route, fallbacks, time to first output, duration and tokens/s on your machine (`emiliano traces`).
+
+### Planned (not built yet)
+
+Vision fallback (Set-of-Marks) for custom-drawn controls, acting through UIA without moving the cursor, an MCP server for cowork actions, parallel agents in git worktrees, and an evaluation suite. Order and status: [Future Horizons](docs/future-horizons.md).
+
+## Local models
+
+Emiliano is built to work well with models on your own machine through [Ollama](https://ollama.com):
+
+```bash
+ollama pull qwen3.5:2b        # small and fast; pick a bigger model if you have the memory
+emiliano run "Explain what a context window is" --provider ollama
+emiliano traces               # time to first output and tokens/s for each task
+```
+
+- **Context window.** Emiliano asks Ollama for `models.ollama_num_ctx` tokens (default 8192) and fits conversations into that same size. Ollama's own default is small and silently drops the start of longer prompts. A larger window needs more memory: try 16384–32768 with 16 GB or more of VRAM.
+- **Offline.** No internet is needed: token counting uses an encoding bundled with the engine, and traces stay in `~/.emiliano/traces.db` (set `traces: false` in the config to turn them off).
 
 ## Development Setup
 
@@ -115,6 +135,7 @@ emiliano doctor
 > - `emiliano doctor`: Full health check of models, credentials, and harnesses
 > - `emiliano harnesses`: Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
 > - `emiliano models`: Detected local Ollama models and remote API providers
+> - `emiliano traces`: Recent tasks with their route, time to first output, duration and tokens/s
 > - `emiliano run "Your task"`: Direct execution with automatic intent-aware provider/harness routing
 > - `emiliano server`: Background WebSocket daemon for Desktop Cowork UI
 
