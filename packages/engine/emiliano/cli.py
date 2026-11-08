@@ -218,6 +218,42 @@ def models():
 
 
 @cli.command()
+@click.option("--last", "-n", default=20, type=int, help="How many recent tasks to show")
+@click.option("--json", "as_json", is_flag=True, help="Print full trace records as JSON")
+def traces(last: int, as_json: bool):
+    """Show recent task traces: route, time to first output, duration, tokens/s."""
+    import json
+
+    from .core.traces import TraceStore
+
+    rows = TraceStore().recent(last)
+    if as_json:
+        click.echo(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        click.echo("No traces yet. Run a task first (traces are on unless 'traces: false' is set in the config).")
+        return
+
+    def fmt(value, suffix=""):
+        return "-" if value is None else f"{value}{suffix}"
+
+    colors = {"succeeded": "green", "failed": "red", "cancelled": "yellow"}
+    click.echo(click.style(f"{'when':<17} {'outcome':<10} {'route':<24} {'first':>7} {'total':>8} {'tok/s':>7}  goal",
+                           bold=True))
+    for r in rows:
+        route = r["model"] or r["route"] or "-"
+        tried = len(r["attempts"])
+        if tried > 1:
+            route += f" (+{tried - 1} failed)"
+        click.echo(
+            f"{r['started_at'][:16].replace('T', ' '):<17} "
+            f"{click.style(r['outcome'].ljust(10), fg=colors.get(r['outcome']))} "
+            f"{route[:24]:<24} {fmt(r['first_output_s'], 's'):>7} {fmt(r['duration_s'], 's'):>8} "
+            f"{fmt(r['tokens_per_second']):>7}  {r['goal'][:50].replace(chr(10), ' ')}"
+        )
+
+
+@cli.command()
 def doctor():
     """Comprehensive system diagnosis for models, harnesses, and credentials."""
     from .core.registry import CapabilityRegistry
