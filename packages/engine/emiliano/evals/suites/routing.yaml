@@ -1,0 +1,30 @@
+# Does the dispatcher send each goal to the right place? "direct" = answer with a model;
+# "harness" = needs a coding agent (read or change files, run commands). Calls no model.
+# Labels are the correct route, not what the current router does: failures show what to improve.
+name: routing
+description: Direct model vs agent harness, for conversation and for real coding requests
+tasks:
+  # Conversation and general knowledge: a model answers directly
+  - {id: greeting, kind: route, goal: "hi", expect: {route: direct}}
+  - {id: thanks-es, kind: route, goal: "gracias, eso es todo", expect: {route: direct}}
+  - {id: capital, kind: route, goal: "What is the capital of France?", expect: {route: direct}}
+  - {id: explain-mutex, kind: route, goal: "Explain what a mutex is", expect: {route: direct}}
+  - {id: haiku, kind: route, goal: "Write a haiku about rain", expect: {route: direct}}
+  - {id: translate, kind: route, goal: "Translate 'good morning' to Spanish", expect: {route: direct}}
+  - {id: decorators, kind: route, goal: "How do Python decorators work?", expect: {route: direct}}
+  - {id: snippet, kind: route, goal: "Write a Python function that reverses a string", expect: {route: direct}}
+  - {id: tcp-udp, kind: route, goal: "What is the difference between TCP and UDP?", expect: {route: direct}}
+  - {id: hamlet, kind: route, goal: "Summarize the plot of Hamlet in two sentences", expect: {route: direct}}
+  # Work on the user's files: needs an agent harness
+  - {id: run-tests, kind: route, goal: "Run the tests in this repo and tell me what fails", expect: {route: harness}}
+  - {id: git-status, kind: route, goal: "git status", expect: {route: harness}}
+  - {id: compile, kind: route, goal: "Does it compile?", expect: {route: harness}}
+  - {id: list-todos, kind: route, goal: "Inspect the files and list the TODOs", expect: {route: harness}}
+  - {id: fix-named-test, kind: route, goal: "Fix the failing test in tests/test_api.py", expect: {route: harness}}
+  - {id: edit-readme, kind: route, goal: "Add an installation section to README.md", expect: {route: harness}}
+  - {id: read-file, kind: route, goal: "What does the main function in src/app.py do?", expect: {route: harness}}
+  - {id: refactor-file, kind: route, goal: "Refactor utils.py to use pathlib", expect: {route: harness}}
+  - {id: rename, kind: route, goal: "Rename the variable foo to bar everywhere in the codebase", expect: {route: harness}}
+  - {id: create-file, kind: route, goal: "Create a file hello.py that prints hello", expect: {route: harness}}
+  - {id: review-es, kind: route, goal: "¿Puedes revisar los archivos de este proyecto?", expect: {route: harness}}
+  - {id: fix-es, kind: route, goal: "Arregla el error en main.py", expect: {route: harness}}

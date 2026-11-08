@@ -1,0 +1,60 @@
+# Small repository fixes for coding agents. Each task writes its files to an empty folder, asks the target
+# to change them, then runs `check`, which must exit 0. Skipped for direct models (they cannot edit files yet).
+# Run: emiliano eval coding --target claude_code   (or codex, opencode)
+name: coding
+description: Fix a bug, add a function, and fix a broken import in tiny Python projects
+tasks:
+  - id: fix-off-by-one
+    kind: code
+    goal: "calc.py has a bug: total(n) must return the sum of 1..n inclusive. Fix calc.py so that `python check.py` passes. Do not change check.py."
+    files:
+      calc.py: |
+        def total(n):
+            return sum(range(n))
+      check.py: |
+        from calc import total
+        assert total(1) == 1, total(1)
+        assert total(5) == 15, total(5)
+        assert total(0) == 0, total(0)
+        print("ok")
+    check: "python check.py"
+
+  - id: add-function
+    kind: code
+    goal: >-
+      Add a function slugify(text) to text_utils.py that lowercases the text, turns runs of spaces and
+      punctuation into a single hyphen, and strips hyphens from both ends. `python check.py` must pass;
+      do not change check.py.
+    files:
+      text_utils.py: |
+        def word_count(text):
+            return len(text.split())
+      check.py: |
+        from text_utils import slugify, word_count
+        assert slugify("Hello, World!") == "hello-world", slugify("Hello, World!")
+        assert slugify("  Many   spaces here ") == "many-spaces-here"
+        assert slugify("Already-slugged") == "already-slugged"
+        assert word_count("a b c") == 3
+        print("ok")
+    check: "python check.py"
+
+  - id: fix-import
+    kind: code
+    goal: "`python app.py` fails. Find out why and fix it so that `python check.py` passes. Do not change check.py."
+    files:
+      app.py: |
+        from helpers import greet
+
+        if __name__ == "__main__":
+            print(greet("Ana"))
+      helpers/__init__.py: ""
+      helpers/text.py: |
+        def greet(name):
+            return f"Hello, {name}!"
+      check.py: |
+        import subprocess, sys
+        out = subprocess.run([sys.executable, "app.py"], capture_output=True, text=True)
+        assert out.returncode == 0, out.stderr
+        assert out.stdout.strip() == "Hello, Ana!", out.stdout
+        print("ok")
+    check: "python check.py"

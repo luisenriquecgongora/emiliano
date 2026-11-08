@@ -1,0 +1,52 @@
+# Short, automatically checked questions sized for small local models (2B-8B).
+# Measures answer quality, following an output format, and speed (time to first output, tokens/s).
+# Run: emiliano eval local-basics --target ollama   (or ollama:<model>)
+name: local-basics
+description: Format following, arithmetic, JSON extraction, reading code, Spanish, long-prompt recall
+tasks:
+  - id: arithmetic
+    goal: "What is 17 * 23? Reply with only the number."
+    expect: {regex: '\b391\b', max_chars: 40}
+
+  - id: one-word
+    goal: "Reply with exactly one word: the color of a clear daytime sky."
+    expect: {regex: '^\W*blue\W*$'}
+
+  - id: csv-list
+    goal: "List the three primary colors of paint as a comma-separated list and nothing else."
+    expect: {all_of: [red, blue, yellow], max_chars: 60}
+
+  - id: json-extract
+    goal: >-
+      Extract the person's name and age from this sentence and reply with only a JSON object
+      with the keys "name" and "age" (age as a number): "Maria Lopez turned 34 last week."
+    expect: {json: {name: "Maria Lopez", age: 34}}
+
+  - id: read-code
+    goal: "What does this Python code print? Reply with only the number.\n\ndef f(n):\n    return sum(range(n))\n\nprint(f(5))"
+    expect: {regex: '^\W*10\W*$'}
+
+  - id: spot-bug
+    goal: >-
+      This function should return the largest number in a list, but it has a bug. Say what the bug is in one sentence.
+
+
+      def largest(xs):
+          m = 0
+          for x in xs:
+              if x > m:
+                  m = x
+          return m
+    # Any correct explanation names the 0 start, negative/non-positive lists, the first element, or empty lists
+    expect: {any_of: [negative, non-positive, "to 0", "at 0", "= 0", zero, "first element", "xs[0]", empty]}
+
+  - id: spanish
+    goal: "Responde en español con una sola palabra: ¿de qué color es la hierba?"
+    expect: {regex: 'verde'}
+
+  # The code word sits at the very start of a ~3,000-token prompt. If the context window is too small,
+  # Ollama drops the start of the prompt and the model cannot know the word.
+  - id: long-recall
+    goal: "Remember this code word: PELICAN-42.\n\n{filler}\n\nWhat was the code word at the start? Reply with only the code word."
+    filler: {text: "The quick brown fox jumps over the lazy dog while the river keeps flowing past the old mill.", repeat: 160}
+    expect: {contains: "PELICAN-42"}
