@@ -14,6 +14,7 @@ from PIL import Image, ImageGrab
 from loguru import logger
 
 from .pinning import WindowPinManager
+from .uia import UiaReader
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -26,9 +27,10 @@ if IS_WINDOWS:
 
 
 class ScreenPerceiver:
-    def __init__(self, pin_manager: Optional[WindowPinManager] = None):
+    def __init__(self, pin_manager: Optional[WindowPinManager] = None, uia_reader: Optional[UiaReader] = None):
         self.pin_manager = pin_manager or WindowPinManager()
         self._user32 = ctypes.windll.user32 if IS_WINDOWS else None
+        self._uia = uia_reader or (UiaReader() if IS_WINDOWS else None)
 
     def capture_screenshot(self, bbox: Optional[tuple] = None) -> Image.Image:
         """Captures primary or multi-monitor display."""
@@ -86,6 +88,8 @@ class ScreenPerceiver:
         """
         Extracts actionable UI elements (buttons, edits, panels) from the target window.
         Defaults to pinned window or active foreground window.
+        Uses UI Automation, which sees inside browsers and modern apps; falls back to Win32
+        child windows when UIA is unavailable or finds nothing.
         """
         elements: List[Dict] = []
         if not self._user32:
@@ -113,6 +117,11 @@ class ScreenPerceiver:
             },
             "action": "focus",
         })
+
+        uia_elements = self._uia.elements(target_hwnd) if self._uia else None
+        if uia_elements:
+            elements.extend(uia_elements)
+            return elements
 
         try:
             enum_child_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)

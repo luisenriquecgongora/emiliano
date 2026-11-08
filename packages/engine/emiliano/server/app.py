@@ -151,7 +151,8 @@ async def unpin_window():
 
 @app.get("/api/cowork/elements")
 async def get_elements(hwnd: Optional[int] = None):
-    return {"elements": screen_perceiver.get_ui_elements(hwnd=hwnd)}
+    # Reading another app's UI tree can take seconds; keep it off the event loop
+    return {"elements": await asyncio.to_thread(screen_perceiver.get_ui_elements, hwnd=hwnd)}
 
 
 @app.post("/api/cowork/click")

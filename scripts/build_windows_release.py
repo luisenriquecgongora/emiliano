@@ -34,7 +34,7 @@ DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
 # Packages that load data files, plugins, or submodules dynamically, which
 # PyInstaller's static analysis would otherwise miss.
 COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext", "winpty"]
-COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite"]
+COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite", "comtypes"]
 COPY_METADATA = ["litellm"]
 
 
