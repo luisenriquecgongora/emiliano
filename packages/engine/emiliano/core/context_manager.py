@@ -6,6 +6,8 @@ Prevents context overflow and ensures long conversations remain functional.
 
 from __future__ import annotations
 
+import importlib.util
+import os
 from typing import Dict, List, Optional
 from enum import Enum
 
@@ -14,6 +16,16 @@ try:
 except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
+
+
+def _litellm_tokenizers_dir() -> Optional[str]:
+    """Folder of tiktoken encodings bundled with litellm, found without importing litellm."""
+    spec = importlib.util.find_spec("litellm")
+    for root in (spec.submodule_search_locations or []) if spec else []:
+        path = os.path.join(root, "litellm_core_utils", "tokenizers")
+        if os.path.isdir(path):
+            return path
+    return None
 
 
 class TruncationStrategy(str, Enum):
@@ -104,18 +116,18 @@ class ContextWindowManager:
 
     def _get_encoder(self):
         """Lazy-load the cl100k_base encoder, or None to estimate from characters.
-        litellm ships a copy of the encoding, so this works offline; plain tiktoken downloads it."""
+        tiktoken downloads the encoding on first use; litellm ships a copy, so point tiktoken's cache
+        at it to work offline. Locating litellm does not import it (that takes ~15 s)."""
         if self._tiktoken_encoder is None and not self._encoder_unavailable:
             try:
-                from litellm.litellm_core_utils.default_encoding import encoding
-                self._tiktoken_encoder = encoding
-            except Exception:
-                try:
-                    import tiktoken
-                    self._tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
-                except Exception as e:  # not installed, or offline with no cached encoding
-                    logger.warning(f"No tokenizer available ({e}). Using character-based estimation (less accurate).")
-                    self._encoder_unavailable = True
+                bundled = _litellm_tokenizers_dir()
+                if bundled and "TIKTOKEN_CACHE_DIR" not in os.environ:
+                    os.environ["TIKTOKEN_CACHE_DIR"] = bundled  # what importing litellm would set too
+                import tiktoken
+                self._tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
+            except Exception as e:  # not installed, or offline with no cached encoding
+                logger.warning(f"No tokenizer available ({e}). Using character-based estimation (less accurate).")
+                self._encoder_unavailable = True
         return self._tiktoken_encoder
 
     def count_tokens(self, text: str) -> int:
