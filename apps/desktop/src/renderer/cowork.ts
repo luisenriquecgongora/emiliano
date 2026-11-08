@@ -17,8 +17,14 @@ export interface DesktopWindow {
 export interface UIElement {
   hwnd: number;
   name: string;
-  role: 'Window' | 'Button' | 'TextInput' | 'List' | 'Control';
+  /** UI Automation control type (Button, TextInput, Hyperlink, MenuItem, ...), or Control/Window */
+  role: string;
   class: string;
+  /** Stable id the app gives the control (UI Automation only; often empty) */
+  automation_id?: string;
+  enabled?: boolean;
+  /** How it was found: 'uia' (UI Automation) or absent for Win32 child windows */
+  source?: 'uia';
   bounds: {
     x: number;
     y: number;

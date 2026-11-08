@@ -550,7 +550,9 @@ function ElementsPanel(props: {
       <div className="px-3 py-2 text-[11px] font-semibold text-cyan-400 border-b border-slate-800 flex items-center justify-between bg-cyan-950/30">
         <div className="flex items-center space-x-1.5">
           <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Detected UI Elements (Win32)</span>
+          <span>
+            Detected UI Elements ({props.elements.some((el) => el.source === 'uia') ? 'UI Automation' : 'Win32'})
+          </span>
         </div>
         <button onClick={props.onClose} className="text-slate-400 hover:text-white">
           <X className="w-3.5 h-3.5" />
