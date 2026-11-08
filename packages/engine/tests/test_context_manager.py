@@ -202,5 +202,29 @@ class TestContextWindowManager:
         assert tokens <= 400  # Should respect effective limit
 
 
+class TestOfflineTokenizer:
+    """Token counting must work without internet access (local-first use)."""
+
+    def test_uses_bundled_encoding(self):
+        from litellm.litellm_core_utils.default_encoding import encoding
+
+        assert ContextWindowManager()._get_encoder() is encoding
+
+    def test_falls_back_to_estimate_when_no_tokenizer_loads(self, monkeypatch):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name in ("tiktoken", "litellm.litellm_core_utils.default_encoding"):
+                raise OSError("offline: certificate verify failed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", failing_import)
+        manager = ContextWindowManager()
+        assert manager.count_tokens("x" * 40) == 10
+        assert manager.count_tokens("x" * 8) == 2  # loading is not retried, and still no error
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
