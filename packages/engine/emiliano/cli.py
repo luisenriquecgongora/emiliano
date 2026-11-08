@@ -217,6 +217,52 @@ def models():
     asyncio.run(_check_models())
 
 
+@cli.command(name="eval")
+@click.argument("suites", nargs=-1)
+@click.option("--target", "-t", default="ollama", show_default=True,
+              help="What answers: ollama, ollama:<model>, anthropic:<model>, claude_code, codex, opencode, ...")
+@click.option("--timeout", default=180.0, type=float, show_default=True, help="Seconds per task")
+@click.option("--list", "list_only", is_flag=True, help="List the built-in suites and exit")
+def eval_command(suites: tuple, target: str, timeout: float, list_only: bool):
+    """Run eval suites (default: all built-in) against a target and save a JSON report."""
+    from loguru import logger
+
+    from .evals.runner import EvalRunner, Target, list_suites, load_suite, save_report
+
+    logger.remove()  # per-task INFO lines would bury the results table
+    logger.add(sys.stderr, level="WARNING")
+
+    if list_only:
+        for name in list_suites():
+            suite = load_suite(name)
+            click.echo(f"  {click.style(name, bold=True):<28} {len(suite.get('tasks', []))} tasks  {suite.get('description', '')}")
+        return
+
+    parsed = Target.parse(target)
+    runner = EvalRunner(timeout=timeout)
+    marks = {"passed": ("PASS", "green"), "failed": ("FAIL", "red"), "error": ("ERR ", "red"), "skipped": ("SKIP", "yellow")}
+
+    def show(result):
+        label, color = marks[result.status]
+        timing = f"{result.duration_s}s" if result.duration_s is not None else ""
+        speed = f" {result.tokens_per_second} tok/s" if result.tokens_per_second else ""
+        click.echo(f"  {click.style(label, fg=color)} {result.id:<22} {timing:>8}{speed}  {result.detail}")
+        if result.status == "failed" and result.output:
+            click.echo(click.style(f"       reply: {result.output[:160]!r}", dim=True))
+
+    for name in suites or list_suites():
+        suite = load_suite(name)
+        click.echo(click.style(f"\n{suite['name']} → {parsed.spec}", bold=True))
+        report = asyncio.run(runner.run_suite(suite, parsed, on_result=show))
+        s = report.to_dict()["summary"]
+        rate = "-" if s["pass_rate"] is None else f"{s['pass_rate']:.0%}"
+        click.echo(f"  {s['passed']} passed, {s['failed']} failed, {s['errors']} errors, {s['skipped']} skipped "
+                   f"→ {click.style(rate, bold=True)}"
+                   + (f" | median first output {s['median_first_output_s']}s" if s["median_first_output_s"] else "")
+                   + (f" | median {s['median_tokens_per_second']} tok/s" if s["median_tokens_per_second"] else ""))
+        click.echo(f"  Report: {save_report(report)}")
+
+
 @cli.command()
 @click.option("--last", "-n", default=20, type=int, help="How many recent tasks to show")
 @click.option("--json", "as_json", is_flag=True, help="Print full trace records as JSON")
