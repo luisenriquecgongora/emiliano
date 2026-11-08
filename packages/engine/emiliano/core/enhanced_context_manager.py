@@ -69,6 +69,7 @@ class EnhancedContextManager(ContextWindowManager):
             self.safety_margin = self.config.context.safety_margin
         if self.config.context.reserve_tokens:
             self.reserve_tokens = self.config.context.reserve_tokens
+        self.ollama_num_ctx = self.config.models.ollama_num_ctx
 
         # Initialize Phase 1 components
         self._init_components()

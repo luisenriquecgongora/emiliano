@@ -111,6 +111,7 @@ class ContextWindowManager:
         self.strategy = strategy
         self.reserve_tokens = reserve_tokens
         self.safety_margin = safety_margin
+        self.ollama_num_ctx: Optional[int] = None  # window requested from Ollama (models.ollama_num_ctx)
         self._tiktoken_encoder = None
         self._encoder_unavailable = False  # set once loading failed, so it is not retried per call
 
@@ -188,6 +189,10 @@ class ContextWindowManager:
         """
         if self.max_tokens:
             return self.max_tokens
+
+        # Ollama runs a model with the window it is asked for, whatever the model could support
+        if self.ollama_num_ctx and model_id.startswith("ollama/"):
+            return self.ollama_num_ctx
 
         # Extract model name from provider-qualified ID
         model_name = model_id.split("/")[-1].lower()

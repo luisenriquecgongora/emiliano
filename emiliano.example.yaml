@@ -8,6 +8,11 @@ models:
   # Local Ollama endpoint
   ollama_base_url: "http://localhost:11434"
 
+  # Context window (tokens) Emiliano asks Ollama for, and fits conversations into.
+  # Ollama's own default is small and silently drops the start of long prompts.
+  # Bigger needs more memory: 8192 suits most GPUs; try 32768 with 16 GB+ of VRAM.
+  ollama_num_ctx: 8192
+
   # Default model names
   local_model: "qwen2.5-coder:32b"
   remote_model: "claude-opus-5-5"

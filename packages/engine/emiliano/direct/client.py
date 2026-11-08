@@ -27,9 +27,12 @@ class UnifiedLLMClient:
         fallback_chain: Optional[List[str]] = None,
         auto_start_ollama: bool = False,
         config: Optional[EmilianoConfig] = None,
+        ollama_num_ctx: Optional[int] = None,
     ):
         self.ollama_base_url = ollama_base_url.rstrip("/")
         self.fallback_chain = fallback_chain
+        # Explicit, so the window Ollama allocates matches the one context management budgets for
+        self.ollama_num_ctx = ollama_num_ctx or (config.models.ollama_num_ctx if config else None)
         self.ollama_mgr = OllamaManager(
             base_url=self.ollama_base_url,
             auto_start=auto_start_ollama,
@@ -164,6 +167,8 @@ class UnifiedLLMClient:
                 sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
                 if think is not None and target_model.startswith("ollama/"):
                     sampling["think"] = think
+                if self.ollama_num_ctx and target_model.startswith("ollama/"):
+                    sampling["num_ctx"] = self.ollama_num_ctx
                 # Pass the key per call rather than via os.environ, so it never leaks
                 # into harness subprocesses (e.g. switching Claude Code to API billing)
                 response = await litellm.acompletion(

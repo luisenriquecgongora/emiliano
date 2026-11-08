@@ -55,6 +55,10 @@ class ModelConfig(BaseModel):
     remote_model: str = "claude-opus-5-5"
     auto_start_ollama: bool = False
     ollama_timeout: float = 120.0
+    # Context window (tokens) requested from Ollama on every call, and the budget context management
+    # fits the conversation into. Without it Ollama uses its small server default and silently drops
+    # the start of longer prompts. Larger values use more memory (KV cache); raise it if you have VRAM.
+    ollama_num_ctx: int = 8192
     fallback_chain: List[str] = Field(
         default_factory=lambda: [
             "ollama/qwen2.5-coder:32b",
