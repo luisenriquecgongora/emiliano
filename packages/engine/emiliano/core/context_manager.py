@@ -100,17 +100,22 @@ class ContextWindowManager:
         self.reserve_tokens = reserve_tokens
         self.safety_margin = safety_margin
         self._tiktoken_encoder = None
+        self._encoder_unavailable = False  # set once loading failed, so it is not retried per call
 
     def _get_encoder(self):
-        """Lazy-load tiktoken encoder."""
-        if self._tiktoken_encoder is None:
+        """Lazy-load the cl100k_base encoder, or None to estimate from characters.
+        litellm ships a copy of the encoding, so this works offline; plain tiktoken downloads it."""
+        if self._tiktoken_encoder is None and not self._encoder_unavailable:
             try:
-                import tiktoken
-                # Use cl100k_base encoding (used by GPT-4, Claude, etc.)
-                self._tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
-            except ImportError:
-                logger.warning("tiktoken not installed. Using character-based estimation (less accurate).")
-                self._tiktoken_encoder = None
+                from litellm.litellm_core_utils.default_encoding import encoding
+                self._tiktoken_encoder = encoding
+            except Exception:
+                try:
+                    import tiktoken
+                    self._tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
+                except Exception as e:  # not installed, or offline with no cached encoding
+                    logger.warning(f"No tokenizer available ({e}). Using character-based estimation (less accurate).")
+                    self._encoder_unavailable = True
         return self._tiktoken_encoder
 
     def count_tokens(self, text: str) -> int:
