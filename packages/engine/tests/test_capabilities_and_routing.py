@@ -386,6 +386,29 @@ class TestRoutingRegressions(unittest.TestCase):
                     asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model)))
                 self.assertEqual("temperature" in mock_acompletion.call_args.kwargs, expect_temperature)
 
+    def test_ollama_context_window_is_requested_explicitly(self):
+        # Ollama otherwise runs with its small default window and silently drops the prompt's start
+        cfg = EmilianoConfig()
+        cfg.models.ollama_num_ctx = 16384
+        cfg.models.anthropic_api_key = "sk-test-key-for-num-ctx"
+        client = UnifiedLLMClient(config=cfg)
+        for model, expected in (("ollama/qwen3.5:2b", 16384), ("anthropic/claude-opus-5-5", None)):
+            with self.subTest(model=model):
+                stream = _FakeStream([_delta(content="ok")])
+                with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
+                    asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model)))
+                self.assertEqual(mock_acompletion.call_args.kwargs.get("num_ctx"), expected)
+
+    def test_context_budget_matches_ollama_window(self):
+        from emiliano.core.enhanced_context_manager import EnhancedContextManager
+
+        cfg = EmilianoConfig()
+        cfg.models.ollama_num_ctx = 4096
+        manager = EnhancedContextManager(config=cfg)
+        # The table says qwen2.5-coder supports 30000, but Ollama only runs it with 4096
+        self.assertEqual(manager.get_model_context_limit("ollama/qwen2.5-coder:7b"), 4096)
+        self.assertEqual(manager.get_model_context_limit("deepseek/deepseek-chat"), 60000)
+
     def test_config_keys_used_without_touching_environ(self):
         cfg = EmilianoConfig()
         cfg.models.anthropic_api_key = "sk-from-config-file-123"
