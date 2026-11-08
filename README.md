@@ -71,7 +71,7 @@ emiliano/
 
 ### Planned (not built yet)
 
-Vision fallback (Set-of-Marks) for custom-drawn controls, acting through UIA without moving the cursor, an MCP server for cowork actions, parallel agents in git worktrees, and an evaluation suite. Order and status: [Future Horizons](docs/future-horizons.md).
+Vision fallback (Set-of-Marks) for custom-drawn controls, acting through UIA without moving the cursor, an MCP server for cowork actions, and parallel agents in git worktrees. Order and status: [Future Horizons](docs/future-horizons.md).
 
 ## Local models
 
@@ -85,6 +85,20 @@ emiliano traces               # time to first output and tokens/s for each task
 
 - **Context window.** Emiliano asks Ollama for `models.ollama_num_ctx` tokens (default 8192) and fits conversations into that same size. Ollama's own default is small and silently drops the start of longer prompts. A larger window needs more memory: try 16384–32768 with 16 GB or more of VRAM.
 - **Offline.** No internet is needed: token counting uses an encoding bundled with the engine, and traces stay in `~/.emiliano/traces.db` (set `traces: false` in the config to turn them off).
+- **Compare models.** `emiliano eval local-basics --target ollama:<model>` scores a model on short, automatically checked questions (format following, arithmetic, JSON, reading code, Spanish, a long prompt) and reports time to first output and tokens/s. Run it for each model you are considering.
+
+## Evals
+
+`emiliano eval` runs fixed tasks with automatic checks and saves a JSON report to `~/.emiliano/evals/`:
+
+```bash
+emiliano eval --list                              # built-in suites
+emiliano eval routing                             # is each goal sent to a model or a coding agent? (no model calls)
+emiliano eval local-basics --target ollama        # a local model's answers and speed
+emiliano eval coding --target claude_code         # can an agent fix small projects? (codex, opencode, ...)
+```
+
+Add a task by editing a YAML file in `packages/engine/emiliano/evals/suites/`. How it works: [Architecture](docs/ARCHITECTURE.md#measuring-traces-and-evals).
 
 ## Development Setup
 
@@ -136,6 +150,7 @@ emiliano doctor
 > - `emiliano harnesses`: Status of external CLI agents (Claude Code, Codex, Antigravity, OpenCode)
 > - `emiliano models`: Detected local Ollama models and remote API providers
 > - `emiliano traces`: Recent tasks with their route, time to first output, duration and tokens/s
+> - `emiliano eval`: Run eval suites against a model or coding agent (see [Evals](#evals))
 > - `emiliano run "Your task"`: Direct execution with automatic intent-aware provider/harness routing
 > - `emiliano server`: Background WebSocket daemon for Desktop Cowork UI
 

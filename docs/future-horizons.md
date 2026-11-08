@@ -89,8 +89,14 @@
 - [ ] Computer-use agent loop: observe → plan → act → verify.
 
 **P1**
-- [ ] Evaluation suite (golden tasks + Windows Agent Arena / OSWorld subset + routing evals).
-- [ ] Model-based routing to replace keyword matching in `core/dispatcher.py`.
+- [ ] Evaluation suite (golden tasks + Windows Agent Arena / OSWorld subset + routing evals). Runner and first suites done (`emiliano eval`: routing 22, local-basics 8, coding 3); still to do: more coding tasks, a `--repeat` option (single runs of a small model vary by ±25 points), cowork tasks. First coding baseline, with no ACP adapters installed (plain CLI): Codex 3/3; Claude Code 0/3, because plain `claude -p` gets no unattended flag (unlike Codex and Antigravity) and every edit was denied. Decide: ACP adapter, `--permission-mode acceptEdits`, or the `--dangerously-*` flag like the others.
+- [ ] Model-based routing to replace keyword matching in `core/dispatcher.py`. Baseline: 64% on the routing suite; every conversation goal is right, but 8 of 12 file tasks go to a direct model (named files, Spanish requests).
 - [ ] MCP server exposing cowork actions; MCP client in direct mode.
-- [ ] OpenTelemetry traces, per-task cost budgets, prompt caching.
+- [ ] OpenTelemetry traces, per-task cost budgets, prompt caching. Local task traces done (`core/traces.py`, `emiliano traces`); OpenTelemetry export and budgets still to do.
+
+**Local models (priority)**
+- [x] Explicit Ollama context window (`models.ollama_num_ctx`), matched by context management.
+- [x] Offline token counting (bundled encoding).
+- [ ] Cold start: the first local reply takes ~34 s (≈10 s importing litellm, the rest loading the model); later replies start in under 1 s. Pre-import litellm and pre-load the model when the engine starts.
+- [ ] Reasoning trade-off: conversation turns reasoning off for speed (`think=False`), and a 2B model then gets arithmetic and code-reading questions wrong. Measure think on/off per model with `local-basics`.
 - [ ] One git worktree per harness for parallel runs.

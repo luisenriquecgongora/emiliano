@@ -35,10 +35,14 @@ flowchart LR
         server["Server<br/>emiliano/server · FastAPI"]
         disp["ExecutionDispatcher<br/>emiliano/core"]
         hist[("History<br/>SQLite: chats, messages")]
+        traces[("Traces<br/>SQLite: one record per task")]
         cowork["Cowork<br/>see and operate windows"]
+        evals["Evals<br/>emiliano/evals"]
         server --> disp
         server --> hist
         server --> cowork
+        disp --> traces
+        evals --> disp
     end
     disp --> direct["Direct models<br/>emiliano/direct"]
     disp --> harn["Agent harnesses<br/>emiliano/harnesses"]
@@ -54,8 +58,8 @@ flowchart LR
     classDef external fill:#f3f4f6,stroke:#6b7280,color:#374151
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     class user input
-    class ui,server,disp,cowork,direct,harn,cli ours
-    class hist output
+    class ui,server,disp,cowork,direct,harn,cli,evals ours
+    class hist,traces output
     class ollama,apis,agents external
     class screen risk
     style desktop fill:#eff6ff,stroke:#2563eb
@@ -99,6 +103,47 @@ flowchart TD
 
 Only usable candidates count: a provider without credentials, or a harness whose CLI is not installed, is skipped.
 A failure is not retried elsewhere when that could repeat work, for example after an agent already changed files.
+
+**Local models.** Every Ollama call asks for a context window of `models.ollama_num_ctx` tokens (default 8192), and
+context management fits the conversation into that same number. Without it Ollama uses its small server default and
+silently drops the start of longer prompts. Token counting uses the `cl100k_base` encoding bundled with litellm,
+located without importing litellm (an import takes ~15 s), so it works offline.
+
+## Measuring: traces and evals
+
+A **trace** is one record per task, written by the dispatcher to `~/.emiliano/traces.db` (`core/traces.py`): which
+route answered, which ones failed before it, the outcome, time to first output, duration, token counts reported by
+the provider (Ollama is asked to include them) and tokens per second, and how permission requests were answered.
+It never leaves the machine; `traces: false` turns it off, and `emiliano traces` lists recent ones.
+
+An **eval** is a fixed task with an automatic check (`emiliano/evals`, run with `emiliano eval`). Suites are YAML
+files in `evals/suites/`. Each task runs in an empty temporary folder, so a project's `CLAUDE.md` never leaks in.
+
+```mermaid
+flowchart LR
+    suite["Suite YAML<br/>routing · local-basics · coding"] --> kind{"Task kind?"}
+    kind -->|route| router["Dispatcher router<br/>no model call"]
+    kind -->|"answer / code"| tmp["Empty temp folder<br/>(code: task files written)"]
+    tmp --> disp["ExecutionDispatcher<br/>on the chosen target"]
+    disp --> trace[("Trace<br/>timings, tokens/s")]
+    disp --> check{"Check<br/>reply matches? / check command exits 0?"}
+    router --> check
+    check --> report["JSON report<br/>~/.emiliano/evals"]
+    trace --> report
+
+    classDef input fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef ours fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class suite input
+    class kind,check gate
+    class router,tmp,disp ours
+    class trace,report output
+```
+
+A target is `ollama`, `ollama:<model>`, `<provider>:<model>` or a harness name (`claude_code`, `codex`, ...). Code
+tasks are skipped for direct models, which cannot edit files yet. Coding agents run with no approval UI here, so
+their permission requests are approved automatically inside the temporary folder.
 
 ## How a coding agent runs
 
@@ -199,6 +244,8 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Direct models | `packages/engine/emiliano/direct` | Unified client (litellm), Ollama manager, credentials | Ollama, cloud APIs |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
+| Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
+| Evals | `packages/engine/emiliano/evals` | Fixed tasks with automatic checks, run against a model or harness (`emiliano eval`) | Dispatcher |
 | Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
 
@@ -211,3 +258,4 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | How requests are routed | `emiliano/core/dispatcher.py` | `.agents/skills/review-change` |
 | Cowork actions or their safety | `emiliano/cowork/` | `.agents/skills/review-change` |
 | Chat history | `emiliano/history/` | `.agents/skills/review-change` |
+| Eval tasks or suites | `emiliano/evals/suites/*.yaml` (runner: `evals/runner.py`) | `.agents/skills/review-change` |
