@@ -163,7 +163,9 @@ flowchart LR
 ```mermaid
 flowchart LR
     pin["WindowPinManager<br/>pin the target window"] --> see["ScreenPerceiver<br/>list windows and UI elements"]
-    see --> act{"Safety checks"}
+    see --> uia{"UI Automation<br/>finds elements?"}
+    uia -->|"yes (uia.py)"| act{"Safety checks"}
+    uia -->|"no: fall back to<br/>Win32 child windows"| act
     act -->|ok| do["ActionSynthesizer<br/>click, type (pyautogui)"]
     act -->|"Esc, cursor in a corner,<br/>or window changed"| stop["⛔ stop: SafetyInterruptedError"]
     do --> screen["🖱️ the pinned window"]
@@ -172,9 +174,16 @@ flowchart LR
     classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     class pin,see,do ours
-    class act gate
+    class act,uia gate
     class stop,screen risk
 ```
+
+**Reading the screen.** `ScreenPerceiver` reads a window's controls through Windows **UI Automation**
+(`cowork/uia.py`, via `comtypes`): name, control type, automation ID and bounds, fetched in one call. It sees
+inside browsers, Electron apps (VS Code), WPF and WinUI, which the older Win32 child-window method cannot (the
+taskbar: 19 elements vs 4; VS Code: 199 vs 2). UIA calls run on one dedicated thread with a 5 s timeout, so a
+hung app cannot block the engine. Chromium and Electron windows build their accessibility tree only after the
+first request, so the first read of such a window waits 0.5 s and reads again.
 
 HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GET /api/cowork/elements`,
 `POST /api/cowork/click`, `/type`. **Esc must always stop it**: never weaken the emergency stop.
@@ -190,7 +199,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Direct models | `packages/engine/emiliano/direct` | Unified client (litellm), Ollama manager, credentials | Ollama, cloud APIs |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
-| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception, mouse and keyboard actions | Other windows |
+| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
 
 ## Where to change what

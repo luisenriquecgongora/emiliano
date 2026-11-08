@@ -85,7 +85,7 @@
 **P0**
 - [x] ACP adapters for harnesses, with permission requests shown in the dock (Claude Code, Codex; OpenCode opt-in). See [ADR 0001](adr/0001-use-acp-for-harnesses.md).
 - [ ] `--dangerously-*` flags on the plain-CLI fallback can be turned off (`unattended_fallback: false`); still on by default. Add confirmation before irreversible actions, screenshot secret redaction, and an action audit log.
-- [ ] Hybrid perception: UIA first, vision parser for custom controls (supersedes 1A).
+- [ ] Hybrid perception: UIA first, vision parser for custom controls (supersedes 1A). UIA reading done (`cowork/uia.py`); still to do: vision fallback, acting through UIA Invoke/Value patterns.
 - [ ] Computer-use agent loop: observe → plan → act → verify.
 
 **P1**
