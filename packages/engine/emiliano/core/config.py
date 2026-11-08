@@ -98,6 +98,8 @@ class EmilianoConfig(BaseModel):
     harnesses: HarnessPathsConfig = Field(default_factory=HarnessPathsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    # Record one local trace per task (route, timings, tokens) in ~/.emiliano/traces.db; never uploaded
+    traces: bool = True
 
 
 def get_default_config_path() -> Path:

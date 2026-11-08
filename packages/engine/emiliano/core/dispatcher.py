@@ -27,6 +27,7 @@ from .registry import CapabilityRegistry
 from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
+from .traces import TaskTrace, TraceStore
 from ..direct.client import UnifiedLLMClient
 
 
@@ -75,6 +76,8 @@ class ExecutionDispatcher:
             config=self.config,
             strategy=TruncationStrategy(self.config.context.truncation_strategy),
         )
+        self.traces = TraceStore()
+        self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
 
     async def route_task(
         self,
@@ -212,8 +215,61 @@ class ExecutionDispatcher:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
         on_permission answers ACP permission requests (tool_call, options) -> optionId or None.
+        Records a TaskTrace for the run (self.last_trace; saved when config.traces is on).
         Returns: (successful_capability, full_output_text)
         """
+        trace = TaskTrace(goal=goal, policy=self._resolve_policy(policy))
+        self.last_trace = trace
+
+        def traced_chunk(chunk: str) -> None:
+            trace.mark_output(chunk)
+            if on_chunk:
+                on_chunk(chunk)
+
+        traced_permission = None
+        if on_permission:
+            def traced_permission(tool_call: Dict, options: List[Dict]) -> Optional[str]:
+                choice = on_permission(tool_call, options)
+                kind = next((o.get("kind") for o in options if o.get("optionId") == choice), None)
+                trace.permissions.append({"tool": tool_call.get("title") or tool_call.get("kind"),
+                                          "decision": kind or ("rejected" if choice is None else choice)})
+                return choice
+
+        try:
+            result = await self._execute_with_fallback(
+                trace, goal, policy, harness_override, provider_override, model_override, messages,
+                traced_chunk, on_reasoning, on_route_selected, timeout, traced_permission,
+            )
+            trace.finish("succeeded")
+            return result
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            trace.finish("cancelled")
+            raise
+        except ExecutionAbortedError as e:
+            trace.finish("cancelled", str(e))
+            raise
+        except Exception as e:
+            trace.finish("failed", str(e))
+            raise
+        finally:
+            if self.config.traces:
+                self.traces.save(trace)  # a quick local insert; synchronous so it survives cancellation
+
+    async def _execute_with_fallback(
+        self,
+        trace: TaskTrace,
+        goal: str,
+        policy: Optional[str],
+        harness_override: Optional[str],
+        provider_override: Optional[str],
+        model_override: Optional[str],
+        messages: Optional[List[Dict[str, str]]],
+        on_chunk: Optional[Callable[[str], None]],
+        on_reasoning: Optional[Callable[[str], None]],
+        on_route_selected: Optional[Callable[[Capability], None]],
+        timeout: float,
+        on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]],
+    ) -> Tuple[Capability, str]:
         candidates = await self.route_task(
             goal=goal,
             policy=policy,
@@ -229,6 +285,7 @@ class ExecutionDispatcher:
             if on_route_selected:
                 on_route_selected(candidate)
             logger.info(f"[Dispatcher] Attempting execution via: {candidate.display_name} ({candidate.execution_type})")
+            attempt_t0 = time.monotonic()
 
             try:
                 if candidate.execution_type == ExecutionType.DIRECT_MODEL:
@@ -281,6 +338,10 @@ class ExecutionDispatcher:
                     output = "".join(output_parts)
                     if not output.strip():
                         raise RuntimeError(f"{candidate.display_name} returned an empty response.")
+                    if client.last_usage:
+                        trace.prompt_tokens = client.last_usage["prompt_tokens"]
+                        trace.completion_tokens = client.last_usage["completion_tokens"]
+                    self._record_attempt(trace, candidate, attempt_t0, model=client.last_model or model_id)
                     return candidate, output
 
                 elif candidate.execution_type == ExecutionType.AGENT_HARNESS:
@@ -317,6 +378,7 @@ class ExecutionDispatcher:
                             "rate limit exceeded",
                         ]):
                             raise RuntimeError(f"Harness '{candidate.display_name}' reported soft failure: {stdout.strip()[:140]}...")
+                        self._record_attempt(trace, candidate, attempt_t0)
                         return candidate, stdout
                     elif code == 0:
                         detail = f": {stderr.strip()}" if stderr.strip() else ""
@@ -328,16 +390,35 @@ class ExecutionDispatcher:
                     after = await asyncio.to_thread(workspace_snapshot, workspace)
                     self._raise_harness_failure(candidate, failure, workspace, before, after)
 
-            except ExecutionAbortedError:
+            except ExecutionAbortedError as e:
+                self._record_attempt(trace, candidate, attempt_t0, error=str(e), final=False)
                 raise
             except (KeyboardInterrupt, asyncio.CancelledError):
                 logger.info("[Dispatcher] Execution interrupted by user.")
+                self._record_attempt(trace, candidate, attempt_t0, error="cancelled", final=False)
                 raise
             except Exception as e:
                 logger.warning(f"[Dispatcher] Execution via {candidate.display_name} failed: {e}")
+                self._record_attempt(trace, candidate, attempt_t0, error=str(e), final=False)
                 last_error = e
 
         raise RuntimeError(f"All execution routes failed. Last error: {last_error}")
+
+    @staticmethod
+    def _record_attempt(trace: TaskTrace, candidate: Capability, started: float, model: Optional[str] = None,
+                        error: Optional[str] = None, final: bool = True) -> None:
+        """Adds one tried route to the trace; final=True marks it as the route that answered."""
+        trace.attempts.append({
+            "route": candidate.name,
+            "execution_type": str(getattr(candidate.execution_type, "value", candidate.execution_type)),
+            "model": model,
+            "duration_s": round(time.monotonic() - started, 3),
+            "error": error[:500] if error else None,
+        })
+        if final:
+            trace.route = candidate.name
+            trace.execution_type = trace.attempts[-1]["execution_type"]
+            trace.model = model
 
     @staticmethod
     def _raise_harness_failure(

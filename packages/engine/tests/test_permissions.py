@@ -92,7 +92,8 @@ class TestDispatcherPassesHandler(unittest.TestCase):
              patch.object(dispatcher.registry, "get_harness_instances", return_value={"codex": harness}), \
              patch.object(harness, "run_task", side_effect=fake_run_task):
             asyncio.run(dispatcher.execute_task(goal="fix the bug", on_permission=handler))
-        self.assertIs(seen["permission_handler"], handler)
+        # The dispatcher wraps the handler to record decisions in the task trace; answers still come from it
+        self.assertEqual(seen["permission_handler"]({"title": "Edit"}, [{"optionId": "yes"}]), "yes")
 
 
 class TestHarnessSettings(unittest.TestCase):

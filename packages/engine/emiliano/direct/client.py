@@ -33,6 +33,9 @@ class UnifiedLLMClient:
         self.fallback_chain = fallback_chain
         # Explicit, so the window Ollama allocates matches the one context management budgets for
         self.ollama_num_ctx = ollama_num_ctx or (config.models.ollama_num_ctx if config else None)
+        # Set by stream_completion: the model that answered, and token counts when the provider reports them
+        self.last_model: Optional[str] = None
+        self.last_usage: Optional[Dict[str, int]] = None
         self.ollama_mgr = OllamaManager(
             base_url=self.ollama_base_url,
             auto_start=auto_start_ollama,
@@ -167,8 +170,12 @@ class UnifiedLLMClient:
                 sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
                 if think is not None and target_model.startswith("ollama/"):
                     sampling["think"] = think
-                if self.ollama_num_ctx and target_model.startswith("ollama/"):
-                    sampling["num_ctx"] = self.ollama_num_ctx
+                if target_model.startswith("ollama/"):
+                    if self.ollama_num_ctx:
+                        sampling["num_ctx"] = self.ollama_num_ctx
+                    # Ollama reports token counts (for tokens/s in traces) only when asked
+                    sampling["stream_options"] = {"include_usage": True}
+                self.last_model, self.last_usage = target_model, None
                 # Pass the key per call rather than via os.environ, so it never leaks
                 # into harness subprocesses (e.g. switching Claude Code to API billing)
                 response = await litellm.acompletion(
@@ -183,6 +190,13 @@ class UnifiedLLMClient:
                 produced_content = False
                 reasoning_chars = 0
                 async for chunk in response:
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None and isinstance(getattr(usage, "completion_tokens", None), int):
+                        prompt = getattr(usage, "prompt_tokens", None)
+                        self.last_usage = {"prompt_tokens": prompt if isinstance(prompt, int) else 0,
+                                           "completion_tokens": usage.completion_tokens}
+                    if not chunk.choices:
+                        continue
                     delta = chunk.choices[0].delta
                     content = delta.content or ""
                     reasoning = getattr(delta, "reasoning_content", None) or ""
