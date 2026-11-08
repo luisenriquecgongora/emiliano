@@ -205,10 +205,19 @@ class TestContextWindowManager:
 class TestOfflineTokenizer:
     """Token counting must work without internet access (local-first use)."""
 
-    def test_uses_bundled_encoding(self):
-        from litellm.litellm_core_utils.default_encoding import encoding
+    def test_loads_bundled_encoding_without_network(self, monkeypatch):
+        import tiktoken.load
+        import tiktoken.registry
 
-        assert ContextWindowManager()._get_encoder() is encoding
+        def no_network(url):
+            raise OSError(f"offline: tried to download {url}")
+
+        monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+        monkeypatch.setattr(tiktoken.registry, "ENCODINGS", {})  # forget encodings loaded by other tests
+        monkeypatch.setattr(tiktoken.load, "read_file", no_network)
+        manager = ContextWindowManager()
+        assert manager._get_encoder() is not None
+        assert manager.count_tokens("Hello world") == 2
 
     def test_falls_back_to_estimate_when_no_tokenizer_loads(self, monkeypatch):
         import builtins
@@ -216,7 +225,7 @@ class TestOfflineTokenizer:
         real_import = builtins.__import__
 
         def failing_import(name, *args, **kwargs):
-            if name in ("tiktoken", "litellm.litellm_core_utils.default_encoding"):
+            if name == "tiktoken":
                 raise OSError("offline: certificate verify failed")
             return real_import(name, *args, **kwargs)
 
