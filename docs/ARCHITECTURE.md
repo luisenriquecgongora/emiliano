@@ -109,16 +109,24 @@ context management fits the conversation into that same number. Without it Ollam
 silently drops the start of longer prompts. Token counting uses the `cl100k_base` encoding bundled with litellm,
 located without importing litellm (an import takes ~15 s), so it works offline.
 
-**Cold start.** A first local reply on a cold machine waits for three things: discovery (each agent CLI's
-`--version`, ~9 s), importing litellm (~13 s) and Ollama loading the model (~16 s). The work is done before the
-user asks, because overlapping it with a request in the same process made every part slower (the litellm import
-holds the GIL; the model load competes for disk), so a one-shot `emiliano run` still waits for all three.
+**Ollama is called directly.** `UnifiedLLMClient` streams from Ollama's `/api/chat` over httpx; only remote
+providers go through litellm, whose import takes ~13 s. Local requests never import it.
 
-| Where | Done ahead of the first message | First output, cold (measured) |
-| :--- | :--- | :--- |
-| Engine server (desktop app) | `warm_up()` at startup: discovery, litellm import and model preload, in parallel | ~40 s → 5 s |
-| `emiliano chat` | While the user types: discovery and model preload (not litellm: it would make typing lag) | ~45 s → 20 s |
-| `emiliano run` | Nothing | ~45 s |
+**Cold start.** A cold first local reply used to wait for discovery (each agent CLI's `--version`, ~10 s), the
+litellm import (~13 s) and Ollama loading the model (16–29 s, depending on the disk), one after another. Now:
+
+- Local calls skip litellm (above).
+- A request that cannot use an agent (a forced provider, or the `local`/`api` policy) skips the agent CLI checks.
+- The model is loaded ahead of time: by the engine at startup (`warm_up()`), by `emiliano chat` while the user
+  types, and by `emiliano run` while it routes. Ollama loads it in its own process, so this overlaps cleanly. The
+  litellm import is never overlapped with other work in a process: in a thread it holds the GIL, and it slowed
+  concurrent discovery from 9 s to 44 s.
+
+| Where | First output, cold model (measured) |
+| :--- | :--- |
+| Engine server (desktop app), after its startup warm-up | ~40 s → 1.3 s |
+| `emiliano chat`, after 25 s of typing | ~45 s → 2.2 s |
+| `emiliano run` (whole command, fresh process) | ~45–60 s → 14–19 s (mostly the model load) |
 
 The model preloaded is the one discovery selects (or `--model`), with the same `num_ctx`, so the real call does not
 load it again. `models.preload_local_model: false` turns preloading off.
@@ -255,7 +263,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Protocol | `packages/protocol` | Message schemas shared by both sides: `models.py` (Python) and `types.ts` (TypeScript) | — |
 | Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models`, cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
 | Dispatcher and registry | `packages/engine/emiliano/core` | Routing policy, capability registry, configuration, workspace and context | Direct, harnesses |
-| Direct models | `packages/engine/emiliano/direct` | Unified client (litellm), Ollama manager, credentials | Ollama, cloud APIs |
+| Direct models | `packages/engine/emiliano/direct` | Unified client (Ollama directly, cloud APIs through litellm), Ollama manager, credentials | Ollama, cloud APIs |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
 | Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
