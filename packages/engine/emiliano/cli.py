@@ -572,7 +572,6 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             # Manually trigger conversation summarization
             click.echo(click.style("⚙️  Compacting conversation history...", fg="cyan"))
             try:
-                import asyncio
                 compacted, summary = asyncio.run(
                     dispatcher.context_manager.compact_conversation(conversation_history)
                 )
