@@ -15,7 +15,9 @@ from emiliano.core.traces import TaskTrace
 from emiliano.evals.runner import (
     EvalRunner,
     Target,
+    TaskResult,
     check_answer,
+    combine_runs,
     goal_text,
     list_suites,
     load_suite,
@@ -28,13 +30,16 @@ class FakeDispatcher:
 
     requires_agent_harness = staticmethod(ExecutionDispatcher.requires_agent_harness)
 
-    def __init__(self, reply="", edit=None, error=None):
+    def __init__(self, reply="", edit=None, error=None, replies=None):
         self.reply, self.edit, self.error = reply, edit, error
+        self.replies = list(replies) if replies else None  # one reply per call, in order
         self.calls = []
         self.last_trace = None
 
     async def execute_task(self, goal, timeout=None, **kwargs):
         self.calls.append({"goal": goal, "cwd": os.getcwd(), **kwargs})
+        if self.replies:
+            self.reply = self.replies.pop(0)
         trace = TaskTrace(goal=goal, policy="auto")
         trace.mark_output(self.reply or "x")
         trace.completion_tokens = 10
@@ -145,6 +150,43 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(summary["pass_rate"], 0.5)
         path = save_report(report, Path(tempfile.mkdtemp()))
         self.assertEqual(json.loads(path.read_text())["suite"], "mini")
+
+
+class TestRepeat(unittest.TestCase):
+    def test_combine_runs(self):
+        def result(status, duration):
+            return TaskResult("t", "answer", status, detail="" if status == "passed" else "wrong",
+                              duration_s=duration, output=status)
+
+        flaky = combine_runs([result("passed", 1.0), result("failed", 3.0), result("passed", 2.0)])
+        self.assertEqual((flaky.status, flaky.passes, flaky.runs), ("flaky", 2, 3))
+        self.assertEqual((flaky.duration_s, flaky.detail, flaky.output), (2.0, "wrong", "failed"))
+        self.assertEqual(combine_runs([result("passed", 1.0)] * 2).status, "passed")
+        self.assertEqual(combine_runs([result("failed", 1.0)] * 2).status, "failed")
+        self.assertEqual(combine_runs([result("error", 1.0)] * 2).status, "error")
+
+    def test_repeat_runs_model_tasks_and_rates_runs(self):
+        suite = {"name": "mini", "tasks": [
+            {"id": "route", "kind": "route", "goal": "git status", "expect": {"route": "harness"}},
+            {"id": "answer", "goal": "q", "expect": {"contains": "yes"}},
+        ]}
+        dispatcher = FakeDispatcher(replies=["yes", "no", "yes", "yes"])
+        report = asyncio.run(EvalRunner(dispatcher=dispatcher).run_suite(suite, Target.parse("ollama"), repeat=4))
+        self.assertEqual(len(dispatcher.calls), 4)  # the route task calls no model and runs once
+        route, answer = report.results
+        self.assertEqual((route.runs, route.status), (1, "passed"))
+        self.assertEqual((answer.status, answer.passes, answer.runs), ("flaky", 3, 4))
+        summary = report.to_dict()["summary"]
+        self.assertEqual((summary["flaky"], summary["runs_per_task"]), (1, 4))
+        self.assertEqual(summary["pass_rate"], 0.8)  # 4 of 5 runs passed
+
+    def test_reasoning_reaches_the_dispatcher(self):
+        target = Target.parse("ollama")
+        self.assertNotIn("reasoning", target.dispatch_args())  # auto: the dispatcher decides
+        target.reasoning = True
+        dispatcher = FakeDispatcher(reply="391")
+        asyncio.run(EvalRunner(dispatcher=dispatcher).run_task({"id": "a", "goal": "q", "expect": {}}, target))
+        self.assertIs(dispatcher.calls[-1]["reasoning"], True)
 
 
 class TestBuiltinSuites(unittest.TestCase):

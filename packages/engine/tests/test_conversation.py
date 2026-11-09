@@ -70,6 +70,25 @@ async def _drain(agen):
 
 
 class TestThinkOption(unittest.TestCase):
+    def test_reasoning_override_beats_per_goal_choice(self):
+        seen = []
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.last_model, self.last_usage = None, None
+
+            async def stream_completion(self, messages, think=None, **kwargs):
+                seen.append(think)
+                yield "ok"
+
+        dispatcher = ExecutionDispatcher()
+        dispatcher.config.context.enabled = False
+        dispatcher.route_task = AsyncMock(return_value=[OLLAMA])
+        with patch("emiliano.core.dispatcher.UnifiedLLMClient", FakeClient):
+            for reasoning in (None, True, False):
+                asyncio.run(dispatcher.execute_task("hi", reasoning=reasoning))
+        self.assertEqual(seen, [False, True, False])  # "hi" is conversation: off unless forced on
+
     def test_think_is_only_sent_to_ollama(self):
         import json
 
