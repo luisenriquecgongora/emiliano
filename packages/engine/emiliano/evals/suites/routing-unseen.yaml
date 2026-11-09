@@ -1,0 +1,36 @@
+# Routing goals written AFTER the routing rules (core/routing.py, 2026-11-09) and never used to tune them,
+# so this suite measures how the router generalizes. Do not change the rules to fit these goals: add new
+# rules from other evidence (real traces) and keep this score honest. The 2026-11-09 rules score 17/28 (61%);
+# the old keyword router scored 13/28 (46%).
+# "direct" = answer with a model; "harness" = needs the user's files or machine.
+name: routing-unseen
+description: Fresh routing goals the router was not tuned on, to measure how it generalizes
+tasks:
+  - {id: list-vs-tuple, kind: route, goal: "What's the difference between a list and a tuple in Python?", expect: {route: direct}}
+  - {id: async-await, kind: route, goal: "Can you explain how async/await works in JavaScript?", expect: {route: direct}}
+  - {id: book, kind: route, goal: "Recommend a good book about software architecture", expect: {route: direct}}
+  - {id: kilobyte, kind: route, goal: "How many bytes are in a kilobyte?", expect: {route: direct}}
+  - {id: bash-one-liner, kind: route, goal: "Write a bash one-liner to count lines in all .txt files", expect: {route: direct}}
+  - {id: docker, kind: route, goal: "What is Docker and why would I use it?", expect: {route: direct}}
+  - {id: recipe-es, kind: route, goal: "Dame una receta de tortilla de patatas", expect: {route: direct}}
+  - {id: rest-es, kind: route, goal: "Explícame qué es una API REST", expect: {route: direct}}
+  - {id: react-example, kind: route, goal: "Show me an example of a React component with hooks", expect: {route: direct}}
+  - {id: rust-vs-go, kind: route, goal: "Is Rust faster than Go?", expect: {route: direct}}
+  - {id: translate-sentence, kind: route, goal: "Translate this sentence to French: I love programming", expect: {route: direct}}
+  - {id: fix-sentence, kind: route, goal: "Fix this sentence: 'their going to the store'", expect: {route: direct}}
+  - {id: clean-code, kind: route, goal: "Summarize the main ideas of clean code", expect: {route: direct}}
+  - {id: linter, kind: route, goal: "Run the linter and fix the warnings", expect: {route: harness}}
+  - {id: app-crash, kind: route, goal: "Why does my app crash on startup?", expect: {route: harness}}
+  - {id: tests-pass, kind: route, goal: "Can you check if the tests pass?", expect: {route: harness}}
+  - {id: bump-react, kind: route, goal: "Bump the React version to 19", expect: {route: harness}}
+  - {id: dark-mode, kind: route, goal: "Add a dark mode toggle to the settings page", expect: {route: harness}}
+  - {id: migration, kind: route, goal: "Generate a migration for the users table", expect: {route: harness}}
+  - {id: login-es, kind: route, goal: "Revisa por qué falla el login", expect: {route: harness}}
+  - {id: push-es, kind: route, goal: "Sube los cambios a GitHub", expect: {route: harness}}
+  - {id: last-commit, kind: route, goal: "What changed in the last commit?", expect: {route: harness}}
+  - {id: pull-request, kind: route, goal: "Open a pull request for this branch", expect: {route: harness}}
+  - {id: diff, kind: route, goal: "Show me the diff", expect: {route: harness}}
+  - {id: make-pass, kind: route, goal: "Make the tests pass", expect: {route: harness}}
+  - {id: todos, kind: route, goal: "Search the codebase for TODO comments", expect: {route: harness}}
+  - {id: logs, kind: route, goal: "Can you look at the logs and tell me what went wrong?", expect: {route: harness}}
+  - {id: eslint, kind: route, goal: "Set up ESLint in the project", expect: {route: harness}}
