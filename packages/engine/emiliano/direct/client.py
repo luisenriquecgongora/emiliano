@@ -20,6 +20,19 @@ from .credentials import CredentialManager
 from .ollama import OllamaManager
 
 
+def load_litellm():
+    """Imports and returns litellm. Imported lazily because it is slow, so it does not block CLI startup."""
+    os.environ["LITELLM_TELEMETRY"] = "False"
+    # Use the bundled cost map instead of downloading it on every run
+    os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+    try:
+        import litellm
+        litellm.telemetry = False
+    except ImportError:
+        raise RuntimeError("LiteLLM is not installed. Please install it with: uv pip install litellm")
+    return litellm
+
+
 class UnifiedLLMClient:
     def __init__(
         self,
@@ -134,15 +147,7 @@ class UnifiedLLMClient:
         think=False turns off reasoning on local Ollama models (a greeting drops from ~45s to ~1s
         on a small thinking model); None leaves each model's default.
         """
-        # Lazy import litellm to avoid blocking CLI startup
-        os.environ["LITELLM_TELEMETRY"] = "False"
-        # Use the bundled cost map instead of downloading it on every run
-        os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-        try:
-            import litellm
-            litellm.telemetry = False
-        except ImportError:
-            raise RuntimeError("LiteLLM is not installed. Please install it with: uv pip install litellm")
+        litellm = load_litellm()
 
         candidates = await self.get_viable_candidates(model_name=model_name)
 
