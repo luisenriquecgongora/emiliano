@@ -216,10 +216,12 @@ class ExecutionDispatcher:
         on_route_selected: Optional[Callable[[Capability], None]] = None,
         timeout: float = 300.0,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]] = None,
+        reasoning: Optional[bool] = None,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
         on_permission answers ACP permission requests (tool_call, options) -> optionId or None.
+        reasoning forces a local model's reasoning on or off; None decides per goal (off for conversation).
         Records a TaskTrace for the run (self.last_trace; saved when config.traces is on).
         Returns: (successful_capability, full_output_text)
         """
@@ -243,7 +245,7 @@ class ExecutionDispatcher:
         try:
             result = await self._execute_with_fallback(
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
-                traced_chunk, on_reasoning, on_route_selected, timeout, traced_permission,
+                traced_chunk, on_reasoning, on_route_selected, timeout, traced_permission, reasoning,
             )
             trace.finish("succeeded")
             return result
@@ -274,6 +276,7 @@ class ExecutionDispatcher:
         on_route_selected: Optional[Callable[[Capability], None]],
         timeout: float,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]],
+        reasoning: Optional[bool] = None,
     ) -> Tuple[Capability, str]:
         candidates = await self.route_task(
             goal=goal,
@@ -335,7 +338,7 @@ class ExecutionDispatcher:
                         model_name=model_id,
                         timeout=timeout,
                         on_reasoning=on_reasoning,
-                        think=None if is_task else False,
+                        think=reasoning if reasoning is not None else (None if is_task else False),
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
