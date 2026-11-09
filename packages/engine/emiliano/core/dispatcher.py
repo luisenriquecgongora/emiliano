@@ -233,6 +233,11 @@ class ExecutionDispatcher:
             if on_chunk:
                 on_chunk(chunk)
 
+        def traced_reasoning(chunk: str) -> None:
+            trace.mark_reasoning(chunk)
+            if on_reasoning:
+                on_reasoning(chunk)
+
         traced_permission = None
         if on_permission:
             def traced_permission(tool_call: Dict, options: List[Dict]) -> Optional[str]:
@@ -245,7 +250,7 @@ class ExecutionDispatcher:
         try:
             result = await self._execute_with_fallback(
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
-                traced_chunk, on_reasoning, on_route_selected, timeout, traced_permission, reasoning,
+                traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
             )
             trace.finish("succeeded")
             return result

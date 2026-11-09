@@ -57,11 +57,18 @@ class TaskTrace:
     completion_tokens: Optional[int] = None
     permissions: List[Dict[str, Any]] = field(default_factory=list)  # tool, decision
     _t0: float = field(default_factory=time.monotonic, repr=False)
+    _first_token_s: Optional[float] = field(default=None, repr=False)  # first token of any kind, reasoning included
 
     def mark_output(self, text: str) -> None:
         if self.first_output_s is None and text:
             self.first_output_s = round(time.monotonic() - self._t0, 3)
+        self.mark_reasoning(text)
         self.output_chars += len(text)
+
+    def mark_reasoning(self, text: str) -> None:
+        """Reasoning tokens count for speed: provider token counts include them."""
+        if self._first_token_s is None and text:
+            self._first_token_s = round(time.monotonic() - self._t0, 3)
 
     def finish(self, outcome: str, error: Optional[str] = None) -> None:
         self.outcome = outcome
@@ -70,10 +77,12 @@ class TaskTrace:
 
     @property
     def tokens_per_second(self) -> Optional[float]:
-        """Generation speed after the first output; the number that matters most for local models."""
-        if not self.completion_tokens or self.duration_s is None or self.first_output_s is None:
+        """Generation speed from the first token (reasoning or answer) to the end; the number that matters
+        most for local models."""
+        first = self._first_token_s if self._first_token_s is not None else self.first_output_s
+        if not self.completion_tokens or self.duration_s is None or first is None:
             return None
-        generating = self.duration_s - self.first_output_s
+        generating = self.duration_s - first
         return round(self.completion_tokens / generating, 1) if generating > 0 else None
 
     def to_dict(self) -> Dict[str, Any]:
