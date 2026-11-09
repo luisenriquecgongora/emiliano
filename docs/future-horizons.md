@@ -90,7 +90,7 @@
 
 **P1**
 - [ ] Evaluation suite (golden tasks + Windows Agent Arena / OSWorld subset + routing evals). Runner and first suites done (`emiliano eval`: routing 22, local-basics 8, coding 3); still to do: more coding tasks, a `--repeat` option (single runs of a small model vary by ±25 points), cowork tasks. First coding baseline, with no ACP adapters installed (plain CLI): Codex 3/3; Claude Code 0/3, because plain `claude -p` gets no unattended flag (unlike Codex and Antigravity) and every edit was denied. Decide: ACP adapter, `--permission-mode acceptEdits`, or the `--dangerously-*` flag like the others.
-- [ ] Model-based routing to replace keyword matching in `core/dispatcher.py`. Baseline: 64% on the routing suite; every conversation goal is right, but 8 of 12 file tasks go to a direct model (named files, Spanish requests).
+- [ ] Model-based routing to replace keyword matching in `core/dispatcher.py`. Rules done (`core/routing.py`): 46/46 on `routing` (was 64%), but only 17/28 on `routing-unseen`, goals written after the rules (old router: 13/28); they miss commands without a familiar noun. Next: ask the local model when the rules are unsure, measured on `routing-unseen` (a first zero-shot test was cut short: Ollama was busy). Grow the suites from real goals in task traces.
 - [ ] MCP server exposing cowork actions; MCP client in direct mode.
 - [ ] OpenTelemetry traces, per-task cost budgets, prompt caching. Local task traces done (`core/traces.py`, `emiliano traces`); OpenTelemetry export and budgets still to do.
 
@@ -98,5 +98,5 @@
 - [x] Explicit Ollama context window (`models.ollama_num_ctx`), matched by context management.
 - [x] Offline token counting (bundled encoding).
 - [x] Cold start (was: discovery 10 s + litellm import 13 s + model load 16–29 s). Ollama is called directly (no litellm), agent discovery is skipped when no agent can answer, and the model is preloaded. First output: desktop engine ~40 s → 1.3 s, chat ~45 s → 2.2 s, `emiliano run` ~45–60 s → 14–19 s total.
-- [ ] Reasoning trade-off: conversation turns reasoning off for speed (`think=False`), and a 2B model then gets arithmetic and code-reading questions wrong. Measure think on/off per model with `local-basics`.
+- [ ] Reasoning trade-off: conversation turns reasoning off for speed (`think=False`), and a 2B model then gets arithmetic and code-reading questions wrong. Measure with `emiliano eval local-basics --repeat 5 --reasoning on` vs `--reasoning auto`. A first run was stopped by low memory after one task (arithmetic: 5/5 with reasoning on, where reasoning off had failed).
 - [ ] One git worktree per harness for parallel runs.

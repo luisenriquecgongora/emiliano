@@ -101,6 +101,15 @@ flowchart TD
     class done output
 ```
 
+**Step 6, does the goal need tools?** `core/routing.py` decides with rules (instant, offline, English and
+Spanish): the goal names a file or path; points at the user's own work ("this code", "mis cambios"); gives a
+command about a specific thing of theirs ("install the dependencies", "ejecuta los tests"); asks why something of
+theirs is broken ("why is the build failing?"); or asks whether "this"/"it" compiles or runs. How-to questions
+stay direct. Measured with `emiliano eval routing` (goals the rules were written against: 46/46) and
+`emiliano eval routing-unseen` (goals written afterwards and never used for tuning: 17/28; the old keyword
+router: 13/28). Rules miss commands without a familiar noun ("Show me the diff", "Sube los cambios"); a
+local-model fallback for undecided goals is the next step.
+
 Only usable candidates count: a provider without credentials, or a harness whose CLI is not installed, is skipped.
 A failure is not retried elsewhere when that could repeat work, for example after an agent already changed files.
 
