@@ -6,8 +6,11 @@ Uses LiteLLM with streaming and dynamic fallback chains based on actual installe
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
+
+import httpx
 
 try:
     from loguru import logger
@@ -49,6 +52,7 @@ class UnifiedLLMClient:
         # Set by stream_completion: the model that answered, and token counts when the provider reports them
         self.last_model: Optional[str] = None
         self.last_usage: Optional[Dict[str, int]] = None
+        self._ollama_transport: Optional[httpx.AsyncBaseTransport] = None  # tests swap in a fake Ollama
         self.ollama_mgr = OllamaManager(
             base_url=self.ollama_base_url,
             auto_start=auto_start_ollama,
@@ -147,8 +151,6 @@ class UnifiedLLMClient:
         think=False turns off reasoning on local Ollama models (a greeting drops from ~45s to ~1s
         on a small thinking model); None leaves each model's default.
         """
-        litellm = load_litellm()
-
         candidates = await self.get_viable_candidates(model_name=model_name)
 
         if not candidates:
@@ -170,41 +172,14 @@ class UnifiedLLMClient:
         for target_model, api_base in candidates:
             logger.info(f"[LLM] Attempting completion with model: {target_model} (api_base={api_base})")
             try:
-                # Current Claude models reject sampling parameters with a 400, so only
-                # send temperature to other providers
-                sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
-                if think is not None and target_model.startswith("ollama/"):
-                    sampling["think"] = think
-                if target_model.startswith("ollama/"):
-                    if self.ollama_num_ctx:
-                        sampling["num_ctx"] = self.ollama_num_ctx
-                    # Ollama reports token counts (for tokens/s in traces) only when asked
-                    sampling["stream_options"] = {"include_usage": True}
                 self.last_model, self.last_usage = target_model, None
-                # Pass the key per call rather than via os.environ, so it never leaks
-                # into harness subprocesses (e.g. switching Claude Code to API billing)
-                response = await litellm.acompletion(
-                    model=target_model,
-                    messages=messages,
-                    stream=True,
-                    api_base=api_base,
-                    api_key=self._provider_key(target_model),
-                    timeout=timeout,
-                    **sampling,
-                )
+                if target_model.startswith("ollama/"):
+                    deltas = self._stream_ollama(target_model, messages, api_base, temperature, think, timeout)
+                else:
+                    deltas = self._stream_litellm(target_model, messages, api_base, temperature, timeout)
                 produced_content = False
                 reasoning_chars = 0
-                async for chunk in response:
-                    usage = getattr(chunk, "usage", None)
-                    if usage is not None and isinstance(getattr(usage, "completion_tokens", None), int):
-                        prompt = getattr(usage, "prompt_tokens", None)
-                        self.last_usage = {"prompt_tokens": prompt if isinstance(prompt, int) else 0,
-                                           "completion_tokens": usage.completion_tokens}
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-                    content = delta.content or ""
-                    reasoning = getattr(delta, "reasoning_content", None) or ""
+                async for content, reasoning in deltas:
                     if reasoning:
                         reasoning_chars += len(reasoning)
                         if on_reasoning:
@@ -226,6 +201,73 @@ class UnifiedLLMClient:
 
         if last_error:
             raise RuntimeError(f"All viable models failed. Last error: {last_error}")
+
+    async def _stream_ollama(self, target_model: str, messages: List[Dict[str, str]], api_base: Optional[str],
+                             temperature: float, think: Optional[bool],
+                             timeout: float) -> AsyncGenerator[Tuple[str, str], None]:
+        """Streams (content, reasoning) pairs from Ollama's /api/chat directly. Going through litellm would add
+        its ~13 s import to the first local reply, and this HTTP API is all a local model needs."""
+        options: Dict[str, object] = {"temperature": temperature}
+        if self.ollama_num_ctx:
+            options["num_ctx"] = self.ollama_num_ctx
+        payload: Dict[str, object] = {"model": target_model.removeprefix("ollama/"), "messages": messages,
+                                      "stream": True, "options": options}
+        if think is not None:
+            payload["think"] = think
+        url = f"{(api_base or self.ollama_base_url).rstrip('/')}/api/chat"
+        # The read timeout applies per streamed line, so a model that takes long to load is still waited for
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0),
+                                     transport=self._ollama_transport) as client:
+            async with client.stream("POST", url, json=payload) as res:
+                if res.status_code != 200:
+                    body = (await res.aread()).decode("utf-8", errors="replace")
+                    try:
+                        body = json.loads(body).get("error", body)
+                    except ValueError:
+                        pass
+                    raise RuntimeError(f"Ollama returned HTTP {res.status_code}: {str(body)[:300]}")
+                async for line in res.aiter_lines():
+                    if not line.strip():
+                        continue
+                    data = json.loads(line)
+                    if data.get("error"):
+                        raise RuntimeError(f"Ollama error: {data['error']}")
+                    message = data.get("message") or {}
+                    yield message.get("content") or "", message.get("thinking") or ""
+                    if data.get("done"):
+                        if isinstance(data.get("eval_count"), int):
+                            self.last_usage = {"prompt_tokens": data.get("prompt_eval_count") or 0,
+                                               "completion_tokens": data["eval_count"]}
+                        return
+
+    async def _stream_litellm(self, target_model: str, messages: List[Dict[str, str]], api_base: Optional[str],
+                              temperature: float, timeout: float) -> AsyncGenerator[Tuple[str, str], None]:
+        """Streams (content, reasoning) pairs from a remote provider through litellm."""
+        litellm = load_litellm()
+        # Current Claude models reject sampling parameters with a 400, so only
+        # send temperature to other providers
+        sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
+        # Pass the key per call rather than via os.environ, so it never leaks
+        # into harness subprocesses (e.g. switching Claude Code to API billing)
+        response = await litellm.acompletion(
+            model=target_model,
+            messages=messages,
+            stream=True,
+            api_base=api_base,
+            api_key=self._provider_key(target_model),
+            timeout=timeout,
+            **sampling,
+        )
+        async for chunk in response:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None and isinstance(getattr(usage, "completion_tokens", None), int):
+                prompt = getattr(usage, "prompt_tokens", None)
+                self.last_usage = {"prompt_tokens": prompt if isinstance(prompt, int) else 0,
+                                   "completion_tokens": usage.completion_tokens}
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            yield delta.content or "", getattr(delta, "reasoning_content", None) or ""
 
     @staticmethod
     def _is_anthropic_model(model_name: str) -> bool:

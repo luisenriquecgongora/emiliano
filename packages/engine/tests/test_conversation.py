@@ -71,13 +71,23 @@ async def _drain(agen):
 
 class TestThinkOption(unittest.TestCase):
     def test_think_is_only_sent_to_ollama(self):
+        import json
+
+        import httpx
+
         client = UnifiedLLMClient()
-        for model, expected in (("ollama/qwen3.5:2b", {"think": False}), ("anthropic/claude-opus-5-5", {})):
-            with self.subTest(model=model):
-                with patch("litellm.acompletion", new_callable=AsyncMock, return_value=_one_chunk_stream()) as mock:
-                    asyncio.run(_drain(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model, think=False)))
-                kwargs = mock.call_args.kwargs
-                self.assertEqual({k: kwargs[k] for k in ("think",) if k in kwargs}, expected)
+        sent = []
+
+        def fake_ollama(request):
+            sent.append(json.loads(request.content))
+            return httpx.Response(200, content=b'{"message": {"content": "ok"}, "done": true}')
+
+        client._ollama_transport = httpx.MockTransport(fake_ollama)  # Ollama is called directly
+        asyncio.run(_drain(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b", think=False)))
+        self.assertIs(sent[0]["think"], False)
+        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=_one_chunk_stream()) as mock:
+            asyncio.run(_drain(client.stream_completion([{"role": "user", "content": "hi"}], model_name="anthropic/claude-opus-5-5", think=False)))
+        self.assertNotIn("think", mock.call_args.kwargs)
 
 
 class TestDiscoveryCache(unittest.TestCase):

@@ -344,6 +344,27 @@ async def _collect(agen):
     return [c async for c in agen]
 
 
+def _fake_ollama(client, lines, status=200):
+    """Points client's direct Ollama calls at a fake /api/chat that streams `lines` (dicts, as NDJSON).
+    Returns the list the request payloads are appended to."""
+    import json
+
+    import httpx
+
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(status, content="\n".join(json.dumps(line) for line in lines).encode())
+
+    client._ollama_transport = httpx.MockTransport(handler)
+    return sent
+
+
+OLLAMA_OK = [{"message": {"content": "ok"}, "done": False},
+             {"message": {"content": ""}, "done": True, "prompt_eval_count": 5, "eval_count": 1}]
+
+
 class TestRoutingRegressions(unittest.TestCase):
     def test_remote_model_not_rerouted_to_ollama(self):
         client = UnifiedLLMClient()
@@ -379,12 +400,14 @@ class TestRoutingRegressions(unittest.TestCase):
 
     def test_temperature_not_sent_to_anthropic_models(self):
         client = UnifiedLLMClient()
-        for model, expect_temperature in (("anthropic/claude-opus-5-5", False), ("ollama/qwen3.5:2b", True)):
-            with self.subTest(model=model):
-                stream = _FakeStream([_delta(content="ok")])
-                with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
-                    asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model)))
-                self.assertEqual("temperature" in mock_acompletion.call_args.kwargs, expect_temperature)
+        stream = _FakeStream([_delta(content="ok")])
+        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
+            asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="anthropic/claude-opus-5-5")))
+        self.assertNotIn("temperature", mock_acompletion.call_args.kwargs)
+        # Ollama is called directly; temperature goes in its options
+        sent = _fake_ollama(client, OLLAMA_OK)
+        asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b")))
+        self.assertIn("temperature", sent[0]["options"])
 
     def test_ollama_context_window_is_requested_explicitly(self):
         # Ollama otherwise runs with its small default window and silently drops the prompt's start
@@ -392,12 +415,13 @@ class TestRoutingRegressions(unittest.TestCase):
         cfg.models.ollama_num_ctx = 16384
         cfg.models.anthropic_api_key = "sk-test-key-for-num-ctx"
         client = UnifiedLLMClient(config=cfg)
-        for model, expected in (("ollama/qwen3.5:2b", 16384), ("anthropic/claude-opus-5-5", None)):
-            with self.subTest(model=model):
-                stream = _FakeStream([_delta(content="ok")])
-                with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
-                    asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name=model)))
-                self.assertEqual(mock_acompletion.call_args.kwargs.get("num_ctx"), expected)
+        sent = _fake_ollama(client, OLLAMA_OK)
+        asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b")))
+        self.assertEqual(sent[0]["options"]["num_ctx"], 16384)
+        stream = _FakeStream([_delta(content="ok")])
+        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream) as mock_acompletion:
+            asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="anthropic/claude-opus-5-5")))
+        self.assertNotIn("num_ctx", mock_acompletion.call_args.kwargs)
 
     def test_context_budget_matches_ollama_window(self):
         from emiliano.core.enhanced_context_manager import EnhancedContextManager
@@ -423,10 +447,10 @@ class TestRoutingRegressions(unittest.TestCase):
 
     def test_reasoning_only_response_is_a_failure(self):
         client = UnifiedLLMClient()
-        stream = _FakeStream([_delta(reasoning="Thinking..."), _delta(reasoning="still thinking")])
-        with patch("litellm.acompletion", new_callable=AsyncMock, return_value=stream):
-            with self.assertRaises(RuntimeError) as ctx:
-                asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b")))
+        _fake_ollama(client, [{"message": {"content": "", "thinking": "Thinking..."}, "done": False},
+                              {"message": {"content": "", "thinking": "still thinking"}, "done": True}])
+        with self.assertRaises(RuntimeError) as ctx:
+            asyncio.run(_collect(client.stream_completion([{"role": "user", "content": "hi"}], model_name="ollama/qwen3.5:2b")))
         self.assertIn("empty response", str(ctx.exception))
         self.assertIn("reasoning", str(ctx.exception))
 

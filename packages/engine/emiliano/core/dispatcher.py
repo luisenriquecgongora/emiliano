@@ -475,10 +475,10 @@ class ExecutionDispatcher:
         model_override: Optional[str] = None,
         import_litellm: bool = True,
     ) -> None:
-        """Prepares a first local reply ahead of time, in parallel: imports litellm (~13 s cold) and has Ollama
-        load the model that would answer (~16 s cold). Skips what the request cannot use: nothing when an agent
-        harness is forced, no model preload when another provider is forced, or when
-        models.preload_local_model is off. Never raises.
+        """Prepares a first reply ahead of time, in parallel: has Ollama load the model that would answer
+        (~16 s cold) and, when a remote provider could answer, imports litellm (~13 s cold). Skips what the
+        request cannot use: nothing when an agent harness is forced, no model preload when another provider is
+        forced or models.preload_local_model is off, no litellm when only Ollama can answer. Never raises.
         import_litellm=False when this process has other work to do meanwhile: importing in a thread holds the
         GIL and slowed concurrent discovery from 9 s to 44 s. The model loads in Ollama's process, so it is free."""
         try:
@@ -487,7 +487,9 @@ class ExecutionDispatcher:
             return  # the request itself reports the bad policy
         if harness_override or policy_norm == RoutingPolicy.HARNESS.value:
             return
-        steps = [asyncio.to_thread(load_litellm)] if import_litellm else []
+        # Only remote providers go through litellm; Ollama is called directly
+        remote_possible = provider_override != "ollama" and policy_norm != RoutingPolicy.LOCAL.value
+        steps = [asyncio.to_thread(load_litellm)] if import_litellm and remote_possible else []
         local_possible = provider_override in (None, "ollama") and policy_norm != RoutingPolicy.API.value
         if local_possible and self.config.models.preload_local_model:
             steps.append(self._preload_ollama_model(model_override))
