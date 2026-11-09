@@ -28,6 +28,7 @@ from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
 from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
+from ..direct.agent import DirectAgentLoop
 from ..direct.client import UnifiedLLMClient, load_litellm
 
 
@@ -337,13 +338,34 @@ class ExecutionDispatcher:
                                 f"saved {context_meta.tokens_saved} tokens"
                             )
 
+                    if is_task:
+                        agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout)
+                        output = await agent.run(
+                            goal=goal,
+                            workspace=os.getcwd(),
+                            messages=task_messages,
+                            on_chunk=on_chunk,
+                            on_reasoning=on_reasoning,
+                            reasoning=reasoning if reasoning is not None else None,
+                        )
+                        if not output.strip():
+                            raise RuntimeError(f"{candidate.display_name} returned an empty response.")
+                        if agent.last_usage.get("completion_tokens"):
+                            trace.prompt_tokens = agent.last_usage.get("prompt_tokens")
+                            trace.completion_tokens = agent.last_usage.get("completion_tokens")
+                        elif client.last_usage:
+                            trace.prompt_tokens = client.last_usage["prompt_tokens"]
+                            trace.completion_tokens = client.last_usage["completion_tokens"]
+                        self._record_attempt(trace, candidate, attempt_t0, model=client.last_model or model_id)
+                        return candidate, output
+
                     output_parts = []
                     async for chunk in client.stream_completion(
                         messages=task_messages,
                         model_name=model_id,
                         timeout=timeout,
                         on_reasoning=on_reasoning,
-                        think=reasoning if reasoning is not None else (None if is_task else False),
+                        think=reasoning if reasoning is not None else False,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
