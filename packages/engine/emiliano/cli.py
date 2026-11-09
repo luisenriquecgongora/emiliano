@@ -416,6 +416,14 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     except ImportError:
         pass
 
+    # While the user types the first message: discover routes and have Ollama load the model (~25 s cold).
+    # Not litellm: importing it here would hold the GIL for ~13 s and make typing lag.
+    import threading
+    threading.Thread(
+        target=lambda: asyncio.run(dispatcher.warm_up(policy, harness, provider, model, import_litellm=False)),
+        name="emiliano-warm-up", daemon=True,
+    ).start()
+
 
 
 
