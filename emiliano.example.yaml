@@ -13,6 +13,10 @@ models:
   # Bigger needs more memory: 8192 suits most GPUs; try 32768 with 16 GB+ of VRAM.
   ollama_num_ctx: 8192
 
+  # Load the local model when the engine (desktop app) or `emiliano chat` starts, so the first reply does
+  # not wait ~15 s for it. The model then holds memory even if you never use it; false = load on first use.
+  preload_local_model: true
+
   # Default model names
   local_model: "qwen2.5-coder:32b"
   remote_model: "claude-opus-5-5"

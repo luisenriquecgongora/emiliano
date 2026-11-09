@@ -113,6 +113,20 @@ class OllamaManager:
         logger.warning("[Ollama] Timed out waiting for Ollama service to become ready.")
         return False
 
+    async def preload(self, model: str, num_ctx: Optional[int] = None, timeout: float = 180.0) -> bool:
+        """Has Ollama load the model into memory now: an empty prompt only loads it. Uses the same context
+        window as later calls ask for, since a different num_ctx would make Ollama load the model again."""
+        payload: dict = {"model": model, "prompt": ""}
+        if num_ctx:
+            payload["options"] = {"num_ctx": num_ctx}
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                res = await client.post(f"{self.base_url}/api/generate", json=payload)
+                return res.status_code == 200
+        except Exception as e:
+            logger.debug(f"[Ollama] Preloading {model} failed: {e}")
+            return False
+
     async def list_installed_models(self) -> List[str]:
         """Queries /api/tags and returns installed model names."""
         try:

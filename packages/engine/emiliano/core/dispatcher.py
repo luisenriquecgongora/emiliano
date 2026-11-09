@@ -28,7 +28,7 @@ from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
 from .traces import TaskTrace, TraceStore
-from ..direct.client import UnifiedLLMClient
+from ..direct.client import UnifiedLLMClient, load_litellm
 
 
 class ExecutionAbortedError(RuntimeError):
@@ -448,12 +448,63 @@ class ExecutionDispatcher:
             "Review the changes, then re-run."
         )
 
-    async def warm_up(self) -> None:
-        """Runs discovery ahead of the first message, so that message does not wait for it."""
+    async def warm_up(
+        self,
+        policy: Optional[str] = None,
+        harness_override: Optional[str] = None,
+        provider_override: Optional[str] = None,
+        model_override: Optional[str] = None,
+        import_litellm: bool = True,
+    ) -> None:
+        """Runs discovery ahead of the first message, so that message does not wait for it, and in parallel
+        gets the local model ready (prewarm_local, with the same arguments)."""
+        async def discover() -> None:
+            try:
+                await self._discover()
+            except Exception as e:
+                logger.warning(f"[Dispatcher] Warm-up discovery failed: {e}")
+
+        await asyncio.gather(discover(), self.prewarm_local(
+            policy, harness_override, provider_override, model_override, import_litellm=import_litellm))
+
+    async def prewarm_local(
+        self,
+        policy: Optional[str] = None,
+        harness_override: Optional[str] = None,
+        provider_override: Optional[str] = None,
+        model_override: Optional[str] = None,
+        import_litellm: bool = True,
+    ) -> None:
+        """Prepares a first local reply ahead of time, in parallel: imports litellm (~13 s cold) and has Ollama
+        load the model that would answer (~16 s cold). Skips what the request cannot use: nothing when an agent
+        harness is forced, no model preload when another provider is forced, or when
+        models.preload_local_model is off. Never raises.
+        import_litellm=False when this process has other work to do meanwhile: importing in a thread holds the
+        GIL and slowed concurrent discovery from 9 s to 44 s. The model loads in Ollama's process, so it is free."""
         try:
-            await self._discover()
-        except Exception as e:
-            logger.warning(f"[Dispatcher] Warm-up discovery failed: {e}")
+            policy_norm = self._resolve_policy(policy)
+        except ValueError:
+            return  # the request itself reports the bad policy
+        if harness_override or policy_norm == RoutingPolicy.HARNESS.value:
+            return
+        steps = [asyncio.to_thread(load_litellm)] if import_litellm else []
+        local_possible = provider_override in (None, "ollama") and policy_norm != RoutingPolicy.API.value
+        if local_possible and self.config.models.preload_local_model:
+            steps.append(self._preload_ollama_model(model_override))
+        for result in await asyncio.gather(*steps, return_exceptions=True):
+            if isinstance(result, Exception):
+                logger.debug(f"[Dispatcher] Prewarm step failed: {result}")
+
+    async def _preload_ollama_model(self, model_override: Optional[str]) -> None:
+        mgr = self.registry.ollama_mgr
+        installed = await mgr.list_installed_models()
+        # The same choice discovery makes (registry), so the model loaded is the one that answers
+        model = mgr.select_best_model(installed, model_override)
+        if not model:
+            return
+        started = time.monotonic()
+        if await mgr.preload(model, self.config.models.ollama_num_ctx):
+            logger.info(f"[Dispatcher] Preloaded local model {model} in {time.monotonic() - started:.1f}s")
 
     async def _discover(self) -> Dict[str, Capability]:
         """Returns the capabilities, reusing a discovery from the last DISCOVERY_TTL_SECONDS."""

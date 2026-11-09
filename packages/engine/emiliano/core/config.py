@@ -59,6 +59,9 @@ class ModelConfig(BaseModel):
     # fits the conversation into. Without it Ollama uses its small server default and silently drops
     # the start of longer prompts. Larger values use more memory (KV cache); raise it if you have VRAM.
     ollama_num_ctx: int = 8192
+    # Load the local model when the engine or chat starts, so the first reply does not wait ~15 s for it.
+    # It then holds memory (VRAM) even if you never chat locally; set false to load on first use instead.
+    preload_local_model: bool = True
     fallback_chain: List[str] = Field(
         default_factory=lambda: [
             "ollama/qwen2.5-coder:32b",
