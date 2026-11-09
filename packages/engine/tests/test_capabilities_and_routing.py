@@ -6,6 +6,7 @@ authentication, harness integration, and execution routing.
 import asyncio
 import os
 import sys
+import time
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -546,8 +547,15 @@ class TestHarnessPromptSafety(unittest.TestCase):
         self.assertEqual(help_result.exit_code, 0)
         self.assertIn("interactive terminal coworking session", help_result.output)
 
-        # Verify /help and exit in interactive session
-        chat_result = runner.invoke(chat, input="/help\nexit\n")
+        # Verify /help and exit in interactive session. Chat warms up in the background (agent CLIs, model
+        # preload); keep that off the real machine here.
+        with patch.object(ExecutionDispatcher, "warm_up", new_callable=AsyncMock) as warm_up:
+            chat_result = runner.invoke(chat, input="/help\nexit\n")
+            for _ in range(50):  # the warm-up thread starts as chat opens
+                if warm_up.await_count:
+                    break
+                time.sleep(0.05)
+        warm_up.assert_awaited_once()  # the thread runs (it once died on a NameError unnoticed)
         self.assertEqual(chat_result.exit_code, 0)
         self.assertIn("Available Slash Commands", chat_result.output)
         self.assertIn("Exiting Emiliano. Goodbye!", chat_result.output)
