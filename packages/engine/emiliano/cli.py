@@ -372,6 +372,9 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
         click.echo(click.style(chunk, dim=True, fg="bright_black"), nl=False)
 
     async def _execute():
+        # Ollama loads the model in its own process while this one routes the request. Not litellm: importing
+        # it alongside held the GIL and slowed routing from 9 s to 44 s (local calls do not need it).
+        prewarm = asyncio.create_task(dispatcher.prewarm_local(policy, harness, provider, model, import_litellm=False))
         try:
             cap, full_output = await dispatcher.execute_task(
                 goal=goal,
@@ -392,6 +395,8 @@ def run(goal: str, policy: str, harness: Optional[str], provider: Optional[str],
         except Exception as e:
             click.echo(click.style(f"\n[Emiliano Error] {e}", fg="red"), err=True)
             sys.exit(1)
+        finally:
+            prewarm.cancel()
 
     asyncio.run(_execute())
 
