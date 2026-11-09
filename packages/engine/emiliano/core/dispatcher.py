@@ -69,7 +69,8 @@ class ExecutionDispatcher:
     def __init__(self, config: Optional[EmilianoConfig] = None):
         self.config = config or load_config()
         self.registry = CapabilityRegistry(config=self.config)
-        self._discovered: Optional[Tuple[float, Dict[str, Capability]]] = None
+        # include_harnesses -> (time, capabilities); a full discovery (True) also serves direct-only requests
+        self._discovered: Dict[bool, Tuple[float, Dict[str, Capability]]] = {}
 
         # Initialize enhanced context manager (Phase 1 features)
         self.context_manager = EnhancedContextManager(
@@ -91,7 +92,11 @@ class ExecutionDispatcher:
         Determines the ordered list of candidate capabilities to attempt.
         Filters out unconfigured, uninstalled, and unauthenticated options.
         """
-        caps = await self._discover()
+        # A forced provider, or the local/api policy, never uses a harness: skip checking every agent CLI
+        needs_harnesses = bool(harness_override) or (
+            not provider_override
+            and self._resolve_policy(policy) not in (RoutingPolicy.LOCAL.value, RoutingPolicy.API.value))
+        caps = await self._discover(include_harnesses=needs_harnesses)
         ready_caps = [c for c in caps.values() if c.is_usable]
 
         # 1. Explicit Harness Override
@@ -508,13 +513,17 @@ class ExecutionDispatcher:
         if await mgr.preload(model, self.config.models.ollama_num_ctx):
             logger.info(f"[Dispatcher] Preloaded local model {model} in {time.monotonic() - started:.1f}s")
 
-    async def _discover(self) -> Dict[str, Capability]:
-        """Returns the capabilities, reusing a discovery from the last DISCOVERY_TTL_SECONDS."""
+    async def _discover(self, include_harnesses: bool = True) -> Dict[str, Capability]:
+        """Returns the capabilities, reusing a discovery from the last DISCOVERY_TTL_SECONDS.
+        include_harnesses=False skips the agent CLIs' --version checks (~10 s cold) for requests that cannot
+        use an agent harness; a recent full discovery serves those too."""
         now = time.monotonic()
-        if self._discovered and now - self._discovered[0] < DISCOVERY_TTL_SECONDS:
-            return self._discovered[1]
-        caps = await self.registry.discover_all(test_harness_usability=True)
-        self._discovered = (now, caps)
+        for full in (True,) if include_harnesses else (True, False):
+            cached = self._discovered.get(full)
+            if cached and now - cached[0] < DISCOVERY_TTL_SECONDS:
+                return cached[1]
+        caps = await self.registry.discover_all(test_harness_usability=True, include_harnesses=include_harnesses)
+        self._discovered[include_harnesses] = (now, caps)
         return caps
 
     def _resolve_policy(self, policy: Optional[str]) -> str:

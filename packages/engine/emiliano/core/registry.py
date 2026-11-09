@@ -52,8 +52,10 @@ class CapabilityRegistry:
             harness.unattended = paths.unattended_fallback
         return harnesses
 
-    async def discover_all(self, test_harness_usability: bool = True) -> Dict[str, Capability]:
-        """Discovers all providers and harnesses and returns a dictionary of capabilities."""
+    async def discover_all(self, test_harness_usability: bool = True,
+                           include_harnesses: bool = True) -> Dict[str, Capability]:
+        """Discovers all providers and harnesses and returns a dictionary of capabilities.
+        include_harnesses=False discovers only the direct model providers (no agent CLI is run)."""
         caps: Dict[str, Capability] = {}
 
         # 1. Discover Ollama (Local Model Provider)
@@ -66,11 +68,15 @@ class CapabilityRegistry:
             caps[c.name] = c
 
         # 3. Discover External Agent Harnesses
-        harness_caps = await self._discover_harnesses(test_usability=test_harness_usability)
-        for c in harness_caps:
-            caps[c.name] = c
-
-        self._capabilities = caps
+        if include_harnesses:
+            harness_caps = await self._discover_harnesses(test_usability=test_harness_usability)
+            for c in harness_caps:
+                caps[c.name] = c
+            self._capabilities = caps
+        else:
+            # Keep the harnesses a full discovery found; refresh only the direct providers
+            self._capabilities = {**{n: c for n, c in self._capabilities.items()
+                                     if c.execution_type == ExecutionType.AGENT_HARNESS}, **caps}
         return caps
 
     async def _discover_ollama(self) -> Capability:
