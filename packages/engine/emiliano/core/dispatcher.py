@@ -495,9 +495,14 @@ class ExecutionDispatcher:
         import_litellm=False when this process has other work to do meanwhile: importing in a thread holds the
         GIL and slowed concurrent discovery from 9 s to 44 s. The model loads in Ollama's process, so it is free."""
         try:
-            policy_norm = self._resolve_policy(policy)
-        except ValueError:
-            return  # the request itself reports the bad policy
+            await self._prewarm_local(policy, harness_override, provider_override, model_override, import_litellm)
+        except Exception as e:  # warming up is an optimization; the request itself reports real problems
+            logger.debug(f"[Dispatcher] Prewarm skipped: {e}")
+
+    async def _prewarm_local(self, policy: Optional[str], harness_override: Optional[str],
+                             provider_override: Optional[str], model_override: Optional[str],
+                             import_litellm: bool) -> None:
+        policy_norm = self._resolve_policy(policy)
         if harness_override or policy_norm == RoutingPolicy.HARNESS.value:
             return
         # Only remote providers go through litellm; Ollama is called directly
