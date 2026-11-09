@@ -1,6 +1,6 @@
-# Small repository fixes for coding agents. Each task writes its files to an empty folder, asks the target
-# to change them, then runs `check`, which must exit 0. Skipped for direct models (they cannot edit files yet).
-# Run: emiliano eval coding --target claude_code   (or codex, opencode)
+# Small repository fixes for coding agents and direct models. Each task writes its files to an empty folder, asks the target
+# to change them, then runs `check`, which must exit 0.
+# Run: emiliano eval coding --target ollama   (or claude_code, codex, opencode)
 name: coding
 description: Fix a bug, add a function, and fix a broken import in tiny Python projects
 tasks:

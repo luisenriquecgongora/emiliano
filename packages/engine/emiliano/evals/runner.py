@@ -6,7 +6,7 @@ Task kinds (see suites/*.yaml):
 - route:  is the goal sent to a direct model or to an agent harness? Calls no model.
 - answer: the target answers a question; the reply is checked (contains, regex, equals, ...).
 - code:   files are written to an empty folder, the target is asked to change them, then a check command
-          must exit 0. Direct models cannot edit files yet, so these are skipped for them.
+          must exit 0. Agents or direct models (via DirectAgentLoop) edit files and run checks.
 
 Every task runs in its own empty temporary folder, so a project's EMILIANO.md or CLAUDE.md never leaks in.
 """
@@ -243,8 +243,6 @@ class EvalRunner:
         kind = task.get("kind", "answer")
         if kind == "route":
             return self._run_route(task)
-        if kind == "code" and target.is_direct:
-            return TaskResult(task["id"], kind, "skipped", "direct models cannot edit files yet")
         if kind not in ("answer", "code"):
             return TaskResult(task["id"], kind, "error", f"unknown task kind {kind!r}")
 
