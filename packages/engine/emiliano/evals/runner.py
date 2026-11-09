@@ -42,6 +42,7 @@ class Target:
     provider: Optional[str] = None
     harness: Optional[str] = None
     model: Optional[str] = None
+    reasoning: Optional[bool] = None  # force a local model's reasoning on/off; None = Emiliano decides per goal
 
     @classmethod
     def parse(cls, spec: str) -> "Target":
@@ -55,16 +56,22 @@ class Target:
     def is_direct(self) -> bool:
         return self.provider is not None
 
-    def dispatch_args(self) -> Dict[str, Optional[str]]:
-        return {"provider_override": self.provider, "harness_override": self.harness, "model_override": self.model}
+    def dispatch_args(self) -> Dict[str, Any]:
+        args: Dict[str, Any] = {"provider_override": self.provider, "harness_override": self.harness,
+                                "model_override": self.model}
+        if self.reasoning is not None:
+            args["reasoning"] = self.reasoning
+        return args
 
 
 @dataclass
 class TaskResult:
     id: str
     kind: str
-    status: str  # "passed" | "failed" | "skipped" | "error"
+    status: str  # "passed" | "failed" | "flaky" (passed some repeats) | "skipped" | "error"
     detail: str = ""
+    runs: int = 1
+    passes: Optional[int] = None  # how many of the runs passed; None for a single run (see status)
     duration_s: Optional[float] = None
     first_output_s: Optional[float] = None
     tokens_per_second: Optional[float] = None
@@ -87,8 +94,11 @@ class SuiteReport:
 
     @property
     def pass_rate(self) -> Optional[float]:
-        scored = self.count("passed") + self.count("failed") + self.count("error")
-        return round(self.count("passed") / scored, 3) if scored else None
+        """Passed runs over all scored runs (skipped tasks do not count)."""
+        scored = [r for r in self.results if r.status != "skipped"]
+        runs = sum(r.runs for r in scored)
+        passed = sum(r.passes if r.passes is not None else int(r.status == "passed") for r in scored)
+        return round(passed / runs, 3) if runs else None
 
     def median(self, attr: str) -> Optional[float]:
         values = [getattr(r, attr) for r in self.results if getattr(r, attr) is not None]
@@ -98,8 +108,9 @@ class SuiteReport:
         return {
             "suite": self.suite, "target": self.target, "started_at": self.started_at,
             "summary": {
-                "passed": self.count("passed"), "failed": self.count("failed"), "errors": self.count("error"),
-                "skipped": self.count("skipped"), "pass_rate": self.pass_rate,
+                "passed": self.count("passed"), "failed": self.count("failed"), "flaky": self.count("flaky"),
+                "errors": self.count("error"), "skipped": self.count("skipped"), "pass_rate": self.pass_rate,
+                "runs_per_task": max((r.runs for r in self.results), default=1),
                 "median_duration_s": self.median("duration_s"),
                 "median_first_output_s": self.median("first_output_s"),
                 "median_tokens_per_second": self.median("tokens_per_second"),
@@ -158,6 +169,34 @@ def check_answer(output: str, expect: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def combine_runs(runs: List[TaskResult]) -> TaskResult:
+    """One result for repeated runs of a task: passes counted, timings as medians, the first failure kept."""
+    if len(runs) == 1:
+        return runs[0]
+    first = runs[0]
+    if all(r.status == "skipped" for r in runs):
+        return first
+    passes = sum(r.status == "passed" for r in runs)
+    if passes == len(runs):
+        status = "passed"
+    elif passes:
+        status = "flaky"
+    else:
+        status = "error" if all(r.status == "error" for r in runs) else "failed"
+    failure = next((r for r in runs if r.status != "passed"), None)
+
+    def median(attr):
+        values = [getattr(r, attr) for r in runs if getattr(r, attr) is not None]
+        return round(statistics.median(values), 2) if values else None
+
+    return TaskResult(
+        first.id, first.kind, status, detail=failure.detail if failure else "", runs=len(runs), passes=passes,
+        duration_s=median("duration_s"), first_output_s=median("first_output_s"),
+        tokens_per_second=median("tokens_per_second"), route=first.route,
+        output=failure.output if failure else first.output,
+    )
+
+
 def goal_text(task: Dict[str, Any]) -> str:
     """The task's goal, with {filler} replaced by filler.text repeated filler.repeat times (long prompts)."""
     goal = task["goal"]
@@ -188,11 +227,13 @@ class EvalRunner:
         self.dispatcher = dispatcher
         self.timeout = timeout
 
-    async def run_suite(self, suite: Dict[str, Any], target: Target, on_result=None) -> SuiteReport:
+    async def run_suite(self, suite: Dict[str, Any], target: Target, on_result=None, repeat: int = 1) -> SuiteReport:
+        """Runs every task; repeat > 1 runs model tasks that many times (route tasks are deterministic: once)."""
         report = SuiteReport(suite=suite["name"], target=target.spec,
                              started_at=datetime.now(timezone.utc).isoformat())
         for task in suite.get("tasks", []):
-            result = await self.run_task(task, target)
+            times = 1 if task.get("kind") == "route" else max(1, repeat)
+            result = combine_runs([await self.run_task(task, target) for _ in range(times)])
             report.results.append(result)
             if on_result:
                 on_result(result)
