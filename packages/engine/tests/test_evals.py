@@ -132,11 +132,11 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(unfixed.status, "failed")
         self.assertIn("check failed", unfixed.detail)
 
-    def test_code_task_skipped_for_direct_models(self):
+    def test_code_task_runs_for_direct_models(self):
         dispatcher = FakeDispatcher()
         result = run(EvalRunner(dispatcher=dispatcher), {"id": "c", "kind": "code", "goal": "x", "check": "python -V"})
-        self.assertEqual(result.status, "skipped")
-        self.assertEqual(dispatcher.calls, [])
+        self.assertEqual(result.status, "passed")
+        self.assertEqual(len(dispatcher.calls), 1)
 
     def test_report_summary_and_file(self):
         suite = {"name": "mini", "tasks": [
@@ -146,8 +146,8 @@ class TestRunner(unittest.TestCase):
         ]}
         report = asyncio.run(EvalRunner(dispatcher=FakeDispatcher(reply="yes")).run_suite(suite, Target.parse("ollama")))
         summary = report.to_dict()["summary"]
-        self.assertEqual((summary["passed"], summary["failed"], summary["skipped"]), (1, 1, 1))
-        self.assertEqual(summary["pass_rate"], 0.5)
+        self.assertEqual((summary["passed"], summary["failed"], summary["skipped"]), (2, 1, 0))
+        self.assertAlmostEqual(summary["pass_rate"], 2 / 3, places=2)
         path = save_report(report, Path(tempfile.mkdtemp()))
         self.assertEqual(json.loads(path.read_text())["suite"], "mini")
 
