@@ -28,3 +28,31 @@ tasks:
   - {id: create-file, kind: route, goal: "Create a file hello.py that prints hello", expect: {route: harness}}
   - {id: review-es, kind: route, goal: "¿Puedes revisar los archivos de este proyecto?", expect: {route: harness}}
   - {id: fix-es, kind: route, goal: "Arregla el error en main.py", expect: {route: harness}}
+
+  # Held-out set: written before the router was rewritten (2026-11-09), so it was not tuned to them.
+  # General questions that mention code, files or tools, but need no access to the user's files: direct
+  - {id: ho-gitignore, kind: route, goal: "What is a .gitignore file for?", expect: {route: direct}}
+  - {id: ho-merge-rebase, kind: route, goal: "Explain the difference between git merge and git rebase", expect: {route: direct}}
+  - {id: ho-pytest-howto, kind: route, goal: "How do I write a unit test in pytest?", expect: {route: direct}}
+  - {id: ho-npm-install, kind: route, goal: "What does npm install do?", expect: {route: direct}}
+  - {id: ho-regex, kind: route, goal: "Write a regex that matches email addresses", expect: {route: direct}}
+  - {id: ho-recursion-es, kind: route, goal: "¿Qué es una función recursiva?", expect: {route: direct}}
+  - {id: ho-poem-es, kind: route, goal: "Escribe un poema corto sobre el mar", expect: {route: direct}}
+  - {id: ho-convert, kind: route, goal: "Convert 30 Celsius to Fahrenheit", expect: {route: direct}}
+  - {id: ho-index-zero, kind: route, goal: "Why do Python lists start at index 0?", expect: {route: direct}}
+  - {id: ho-sql, kind: route, goal: "Give me a SQL query that counts users per country", expect: {route: direct}}
+  - {id: ho-var-name, kind: route, goal: "What's a good name for a variable that stores a user's age?", expect: {route: direct}}
+  - {id: ho-joke, kind: route, goal: "Tell me a joke about programmers", expect: {route: direct}}
+  # Work on the user's files or machine, often without a tell-tale keyword: harness
+  - {id: ho-package-json, kind: route, goal: "Update the version in package.json to 2.0.0", expect: {route: harness}}
+  - {id: ho-build-failing, kind: route, goal: "Why is the build failing?", expect: {route: harness}}
+  - {id: ho-npm-test-fix, kind: route, goal: "Run npm test and fix whatever fails", expect: {route: harness}}
+  - {id: ho-type-hints, kind: route, goal: "Add type hints to the functions in utils.py", expect: {route: harness}}
+  - {id: ho-find-key, kind: route, goal: "Find where the API key is read in this code", expect: {route: harness}}
+  - {id: ho-unused-imports, kind: route, goal: "Delete the unused imports in main.py", expect: {route: harness}}
+  - {id: ho-tests-module, kind: route, goal: "Write tests for the parser module", expect: {route: harness}}
+  - {id: ho-commit, kind: route, goal: "Commit my changes with a good message", expect: {route: harness}}
+  - {id: ho-explain-file-es, kind: route, goal: "Explica qué hace el archivo config.yaml", expect: {route: harness}}
+  - {id: ho-run-tests-es, kind: route, goal: "Ejecuta los tests", expect: {route: harness}}
+  - {id: ho-dev-server, kind: route, goal: "Install the dependencies and start the dev server", expect: {route: harness}}
+  - {id: ho-structure, kind: route, goal: "Look at src/ and tell me how the project is structured", expect: {route: harness}}

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import threading
 import time
 from enum import Enum
@@ -27,6 +26,7 @@ from .registry import CapabilityRegistry
 from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
+from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
 from ..direct.client import UnifiedLLMClient, load_litellm
 
@@ -571,36 +571,6 @@ class ExecutionDispatcher:
     def requires_agent_harness(goal: str) -> bool:
         """
         Determines whether a user goal requires an agent harness (filesystem access,
-        compiling, testing, or modifying local code).
+        compiling, testing, or modifying local code). Rules in core/routing.py.
         """
-        g = goal.lower()
-
-        # Specific local filesystem or project context markers
-        fs_markers = [
-            "this folder", "this directory", "this repo", "this project", "this codebase",
-            "our files", "my files", "local files", "the files in", "files in this",
-            "in this folder", "in this directory", "in this repo", "on this folder",
-            "in the current folder", "in current directory",
-        ]
-        if any(marker in g for marker in fs_markers):
-            return True
-
-        # Compilation, build, and test keywords
-        build_markers = [
-            "compile", "compiling", "will compile", "does it compile", "can it compile",
-            "build the project", "build the code",
-            "run test", "run tests", "pytest", "npm test", "cargo test",
-            "git status", "git diff", "git commit", "git push",
-            "refactor the file", "edit the file", "fix the bug", "fix the test",
-        ]
-        if any(marker in g for marker in build_markers):
-            return True
-
-        # Action verb + target combination (e.g. "check files", "inspect files")
-        words = set(re.findall(r"\b[a-zA-Z]+\b", g))
-        action_verbs = {"check", "chekc", "inspect", "audit", "scan", "list"}
-        file_targets = {"files", "folders", "directories"}
-        if (action_verbs & words) and (file_targets & words):
-            return True
-
-        return False
+        return needs_workspace(goal)
