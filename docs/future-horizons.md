@@ -97,6 +97,6 @@
 **Local models (priority)**
 - [x] Explicit Ollama context window (`models.ollama_num_ctx`), matched by context management.
 - [x] Offline token counting (bundled encoding).
-- [ ] Cold start: the first local reply takes ~34 s (≈10 s importing litellm, the rest loading the model); later replies start in under 1 s. Pre-import litellm and pre-load the model when the engine starts.
+- [ ] Cold start (measured: discovery 9 s, litellm import 13 s, model load 16 s; a warm reply starts in 1.5 s). Done: the engine warms up at startup (first output ~40 s → 5 s) and chat while the user types (~45 s → 20 s). Still to do: talk to Ollama directly over its HTTP API instead of through litellm, which removes the 13 s import from every local start, including `emiliano run`; skip harness discovery when a provider is forced (`--provider ollama` still waits for every agent's `--version`).
 - [ ] Reasoning trade-off: conversation turns reasoning off for speed (`think=False`), and a 2B model then gets arithmetic and code-reading questions wrong. Measure think on/off per model with `local-basics`.
 - [ ] One git worktree per harness for parallel runs.

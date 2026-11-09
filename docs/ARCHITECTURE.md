@@ -109,6 +109,20 @@ context management fits the conversation into that same number. Without it Ollam
 silently drops the start of longer prompts. Token counting uses the `cl100k_base` encoding bundled with litellm,
 located without importing litellm (an import takes ~15 s), so it works offline.
 
+**Cold start.** A first local reply on a cold machine waits for three things: discovery (each agent CLI's
+`--version`, ~9 s), importing litellm (~13 s) and Ollama loading the model (~16 s). The work is done before the
+user asks, because overlapping it with a request in the same process made every part slower (the litellm import
+holds the GIL; the model load competes for disk), so a one-shot `emiliano run` still waits for all three.
+
+| Where | Done ahead of the first message | First output, cold (measured) |
+| :--- | :--- | :--- |
+| Engine server (desktop app) | `warm_up()` at startup: discovery, litellm import and model preload, in parallel | ~40 s → 5 s |
+| `emiliano chat` | While the user types: discovery and model preload (not litellm: it would make typing lag) | ~45 s → 20 s |
+| `emiliano run` | Nothing | ~45 s |
+
+The model preloaded is the one discovery selects (or `--model`), with the same `num_ctx`, so the real call does not
+load it again. `models.preload_local_model: false` turns preloading off.
+
 ## Measuring: traces and evals
 
 A **trace** is one record per task, written by the dispatcher to `~/.emiliano/traces.db` (`core/traces.py`): which

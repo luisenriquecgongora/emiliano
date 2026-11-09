@@ -84,6 +84,7 @@ emiliano traces               # time to first output and tokens/s for each task
 ```
 
 - **Context window.** Emiliano asks Ollama for `models.ollama_num_ctx` tokens (default 8192) and fits conversations into that same size. Ollama's own default is small and silently drops the start of longer prompts. A larger window needs more memory: try 16384–32768 with 16 GB or more of VRAM.
+- **Fast first reply.** The desktop app's engine and `emiliano chat` load the local model at startup (and chat does it while you type), so the first reply does not wait for it. Set `models.preload_local_model: false` to load it on first use and save the memory instead.
 - **Offline.** No internet is needed: token counting uses an encoding bundled with the engine, and traces stay in `~/.emiliano/traces.db` (set `traces: false` in the config to turn them off).
 - **Compare models.** `emiliano eval local-basics --target ollama:<model>` scores a model on short, automatically checked questions (format following, arithmetic, JSON, reading code, Spanish, a long prompt) and reports time to first output and tokens/s. Run it for each model you are considering.
 
