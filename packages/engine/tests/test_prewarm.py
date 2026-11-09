@@ -55,6 +55,14 @@ class TestPrewarmLocal(unittest.TestCase):
         mgr.preload.assert_not_awaited()
         off_mgr.preload.assert_not_awaited()
 
+    def test_local_only_requests_skip_litellm(self, load_litellm):
+        # Ollama is called directly, so litellm is only needed when a remote provider could answer
+        dispatcher, mgr = make_dispatcher()
+        asyncio.run(dispatcher.prewarm_local(provider_override="ollama"))
+        asyncio.run(dispatcher.prewarm_local(policy="local"))
+        load_litellm.assert_not_called()
+        self.assertEqual(mgr.preload.await_count, 2)
+
     def test_model_only_skips_litellm(self, load_litellm):
         # chat warms up while the user types; importing litellm there would hold the GIL and lag typing
         dispatcher, mgr = make_dispatcher()
