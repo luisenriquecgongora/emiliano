@@ -118,6 +118,60 @@ class TestServerIPC(unittest.TestCase):
                 self.assertIn("DAG_UPDATE", received_types)
                 self.assertIn("THOUGHT_STREAM", received_types)
 
+    def test_websocket_task_emits_artifacts(self):
+        mock_cap = Capability(
+            name="test_direct",
+            display_name="Test Direct Model",
+            execution_type=ExecutionType.DIRECT_MODEL,
+            status=CapabilityStatus.READY,
+            priority=100,
+        )
+        dispatcher = get_dispatcher()
+
+        plan_output = (
+            "Here is the plan:\n\n"
+            "```mermaid\n"
+            "flowchart TD\n"
+            "    A --> B\n"
+            "```\n\n"
+            "- [ ] Step 1\n"
+            "- [ ] Step 2\n"
+        )
+
+        async def fake_execute_task(**kwargs):
+            if kwargs.get("on_route_selected"):
+                kwargs["on_route_selected"](mock_cap)
+            return mock_cap, plan_output
+
+        with patch.object(dispatcher, "execute_task", side_effect=fake_execute_task):
+            with self.client.websocket_connect("ws://127.0.0.1/ws") as ws:
+                ws.send_text(json.dumps({
+                    "type": "TASK_START",
+                    "payload": {
+                        "taskId": "task-test-art",
+                        "goal": "Design architecture",
+                        "harnessPreference": "auto"
+                    }
+                }))
+
+                received_types = []
+                artifact_payloads = []
+                for _ in range(8):
+                    try:
+                        raw = ws.receive_text()
+                        msg = json.loads(raw)
+                        received_types.append(msg["type"])
+                        if msg["type"] == "ARTIFACT":
+                            artifact_payloads.append(msg["payload"])
+                        if msg["type"] == "DAG_UPDATE" and msg["payload"].get("status") == "completed":
+                            break
+                    except Exception:
+                        break
+
+                self.assertIn("ARTIFACT", received_types)
+                self.assertTrue(any(a["kind"] == "diagram" for a in artifact_payloads))
+                self.assertTrue(any(a["kind"] == "plan" for a in artifact_payloads))
+
     def test_websocket_task_cancel(self):
         dispatcher = get_dispatcher()
 
