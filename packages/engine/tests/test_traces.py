@@ -68,12 +68,12 @@ class TestTaskTrace(unittest.TestCase):
         # Token counts include reasoning, so speed is timed from the first reasoning token, not the answer
         trace = TaskTrace(goal="g", policy="auto")
         trace.mark_reasoning("thinking")
-        time.sleep(0.3)
+        time.sleep(0.2)
         trace.mark_output("4")
         trace.completion_tokens = 30
         trace.finish("succeeded")
-        self.assertLess(trace.tokens_per_second, 150)  # ~30 tokens over >=0.3 s, not over a few ms
-        self.assertGreater(trace.first_output_s, 0.25)  # time to the answer itself is still reported
+        self.assertLess(trace.tokens_per_second, 200)  # ~30 tokens over >=0.2 s, not over a few ms
+        self.assertGreater(trace.first_output_s, 0.1)  # time to the answer itself is still reported
 
     def test_speed_unknown_without_tokens(self):
         trace = TaskTrace(goal="g", policy="auto")

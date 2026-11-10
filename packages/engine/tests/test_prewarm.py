@@ -92,7 +92,7 @@ class TestWarmUp(unittest.TestCase):
         def slow(name):
             async def step(*args, **kwargs):
                 started.append(name)
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
             return step
 
         with patch.object(dispatcher, "_discover", new=slow("discover")), \
@@ -105,7 +105,7 @@ class TestWarmUp(unittest.TestCase):
             finally:
                 loop.close()
         self.assertEqual(sorted(started), ["discover", "prewarm"])
-        self.assertLess(elapsed, 0.35)  # in parallel, not 0.4 s one after the other
+        self.assertLess(elapsed, 0.18)  # in parallel (~0.1 s), not 0.2 s one after the other
 
     def test_request_settings_reach_prewarm(self):
         dispatcher, _ = make_dispatcher()
