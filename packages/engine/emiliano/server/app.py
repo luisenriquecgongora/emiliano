@@ -113,7 +113,7 @@ async def list_models():
 # Cowork singletons
 pin_manager = WindowPinManager()
 screen_perceiver = ScreenPerceiver(pin_manager=pin_manager)
-action_synthesizer = ActionSynthesizer(pin_manager=pin_manager)
+action_synthesizer = ActionSynthesizer(pin_manager=pin_manager, uia_reader=screen_perceiver._uia)
 
 
 class PinPayload(BaseModel):
@@ -130,6 +130,8 @@ class ClickPayload(BaseModel):
 
 class TypePayload(BaseModel):
     text: str
+    x: Optional[float] = None
+    y: Optional[float] = None
 
 
 @app.get("/api/cowork/windows")
@@ -167,7 +169,7 @@ async def click_element(payload: ClickPayload):
 @app.post("/api/cowork/type")
 async def type_text(payload: TypePayload):
     try:
-        action_synthesizer.type_text(payload.text)
+        action_synthesizer.type_text(payload.text, x=payload.x, y=payload.y)
         return {"status": "ok"}
     except SafetyInterruptedError as e:
         raise HTTPException(status_code=400, detail=str(e))

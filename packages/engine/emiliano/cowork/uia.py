@@ -114,6 +114,34 @@ class UiaReader:
             logger.warning(f"[UIA] Reading HWND={hwnd} failed: {e}")
         return None
 
+    def invoke_at(self, x: int, y: int, timeout: float = 3.0) -> bool:
+        """Invokes an element at (x, y) programmatically without moving the cursor."""
+        if not self.available:
+            return False
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="uia", initializer=_co_initialize)
+        try:
+            future = self._executor.submit(self._invoke_at, int(x), int(y))
+            return bool(future.result(timeout=timeout))
+        except Exception as e:
+            logger.debug(f"[UIA] Ghost invoke at ({x}, {y}) failed: {e}")
+            return False
+
+    def set_value_at(self, x: int, y: int, text: str, timeout: float = 3.0) -> bool:
+        """Sets text on an edit/input control at (x, y) without synthetic keystrokes."""
+        if not self.available:
+            return False
+        if self._executor is None:
+            self._executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="uia", initializer=_co_initialize)
+        try:
+            future = self._executor.submit(self._set_value_at, int(x), int(y), str(text))
+            return bool(future.result(timeout=timeout))
+        except Exception as e:
+            logger.debug(f"[UIA] Ghost set_value at ({x}, {y}) failed: {e}")
+            return False
+
     def close(self) -> None:
         """Shuts down the background UIA worker executor."""
         if self._executor is not None:
@@ -171,6 +199,74 @@ class UiaReader:
                 if len(elements) >= max_elements:
                     break
         return elements
+
+    def _invoke_at(self, x: int, y: int) -> bool:
+        if not self._ensure():
+            return False
+        try:
+            from ctypes import wintypes
+            pt = wintypes.POINT(int(x), int(y))
+            el = self._uia.ElementFromPoint(pt)
+            if not el:
+                return False
+
+            current = el
+            for _ in range(3):
+                if not current:
+                    break
+                # 1. InvokePattern (Button, Hyperlink, SplitButton, MenuItem)
+                pat = current.GetCurrentPattern(getattr(self._mod, "UIA_InvokePatternId", 10000))
+                if pat:
+                    inv = pat.QueryInterface(self._mod.IUIAutomationInvokePattern)
+                    inv.Invoke()
+                    return True
+                # 2. TogglePattern (CheckBox, RadioButton, Toggle buttons)
+                pat = current.GetCurrentPattern(getattr(self._mod, "UIA_TogglePatternId", 10015))
+                if pat:
+                    tog = pat.QueryInterface(self._mod.IUIAutomationTogglePattern)
+                    tog.Toggle()
+                    return True
+                # 3. SelectionItemPattern (TabItem, ListItem, TreeItem)
+                pat = current.GetCurrentPattern(getattr(self._mod, "UIA_SelectionItemPatternId", 10010))
+                if pat:
+                    sel = pat.QueryInterface(self._mod.IUIAutomationSelectionItemPattern)
+                    sel.Select()
+                    return True
+                try:
+                    current = self._uia.ControlViewWalker.GetParentElement(current)
+                except Exception:
+                    break
+        except Exception as e:
+            logger.debug(f"[UIA] Ghost invoke error at ({x}, {y}): {e}")
+        return False
+
+    def _set_value_at(self, x: int, y: int, text: str) -> bool:
+        if not self._ensure():
+            return False
+        try:
+            from ctypes import wintypes
+            pt = wintypes.POINT(int(x), int(y))
+            el = self._uia.ElementFromPoint(pt)
+            if not el:
+                return False
+
+            current = el
+            for _ in range(3):
+                if not current:
+                    break
+                # ValuePattern (Edit controls, Document, text inputs)
+                pat = current.GetCurrentPattern(getattr(self._mod, "UIA_ValuePatternId", 10002))
+                if pat:
+                    val = pat.QueryInterface(self._mod.IUIAutomationValuePattern)
+                    val.SetValue(str(text))
+                    return True
+                try:
+                    current = self._uia.ControlViewWalker.GetParentElement(current)
+                except Exception:
+                    break
+        except Exception as e:
+            logger.debug(f"[UIA] Ghost set_value error at ({x}, {y}): {e}")
+        return False
 
 
 def _co_initialize() -> None:

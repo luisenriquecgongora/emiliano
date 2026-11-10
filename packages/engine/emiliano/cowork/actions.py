@@ -11,6 +11,7 @@ from typing import Callable, Optional
 from loguru import logger
 
 from .pinning import WindowPinManager, SafetyInterruptedError
+from .uia import UiaReader
 
 
 def _pyautogui():
@@ -25,9 +26,16 @@ def _pyautogui():
 
 
 class ActionSynthesizer:
-    def __init__(self, pin_manager: Optional[WindowPinManager] = None):
+    def __init__(
+        self,
+        pin_manager: Optional[WindowPinManager] = None,
+        uia_reader: Optional[UiaReader] = None,
+        ghost_mode: bool = True,
+    ):
         self._paused = False
         self.pin_manager = pin_manager or WindowPinManager()
+        self.uia_reader = uia_reader
+        self.ghost_mode = ghost_mode
         self.preview_delay_seconds: float = 0.4  # 400ms safety preview window
 
     def set_paused(self, paused: bool) -> None:
@@ -71,6 +79,13 @@ class ActionSynthesizer:
             logger.error(f"[Action] {msg}")
             raise SafetyInterruptedError(msg)
 
+        # Check Ghost UIA programmatic invocation (no mouse cursor movement)
+        if self.ghost_mode and button == "left" and clicks == 1 and self.uia_reader and self.uia_reader.available:
+            if self.uia_reader.invoke_at(int(x), int(y)):
+                logger.info(f"[Action] Ghost invoked control at ({x}, {y}) without moving mouse cursor")
+                return
+            logger.debug(f"[Action] Ghost invoke not supported at ({x}, {y}); falling back to synthetic cursor click")
+
         # Invariant 3: 400ms Shadow preview countdown (listen for pause/Esc)
         if self.preview_delay_seconds > 0:
             if on_preview:
@@ -88,8 +103,14 @@ class ActionSynthesizer:
         _pyautogui().moveTo(x, y, duration=0.15)
         _pyautogui().click(x=x, y=y, button=button, clicks=clicks)
 
-    def type_text(self, text: str, interval: float = 0.02) -> None:
-        """Types text safely into the pinned active window."""
+    def type_text(
+        self,
+        text: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        interval: float = 0.02,
+    ) -> None:
+        """Types text safely into the pinned active window. Uses ghost SetValue when coordinates are provided."""
         if self._paused:
             logger.warning("[Action] Aborted type: synthesizer is currently paused.")
             raise SafetyInterruptedError("Synthesizer is paused")
@@ -98,6 +119,13 @@ class ActionSynthesizer:
             msg = "Target pinned window lost focus before typing!"
             logger.error(f"[Action] {msg}")
             raise SafetyInterruptedError(msg)
+
+        if self.ghost_mode and x is not None and y is not None and self.uia_reader and self.uia_reader.available:
+            if self.pin_manager.is_point_within_pinned_window(x, y):
+                if self.uia_reader.set_value_at(int(x), int(y), text):
+                    logger.info(f"[Action] Ghost set value on control at ({x}, {y}) without synthetic keystrokes")
+                    return
+                logger.debug(f"[Action] Ghost set_value not supported at ({x}, {y}); falling back to synthetic keystrokes")
 
         logger.info(f"[Action] Typing: {text[:20]}... (length={len(text)})")
         _pyautogui().typewrite(text, interval=interval)
