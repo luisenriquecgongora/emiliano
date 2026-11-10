@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from emiliano.direct.agent import (
     DirectAgentLoop,
+    detect_verification_command,
     parse_tool_calls,
     tool_bash,
     tool_edit_file,
@@ -152,6 +153,96 @@ class TestDirectAgentLoop(unittest.TestCase):
         self.assertIn("The off-by-one bug in calc.py has been fixed.", out)
         self.assertEqual(calc.read_text(encoding="utf-8"), "def total(n):\n    return sum(range(1, n + 1))\n")
         self.assertGreater(loop.last_usage["completion_tokens"], 0)
+
+    def test_detect_verification_command(self):
+        # 1. Custom verify.py script
+        scripts_dir = Path(self.cwd, "scripts")
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (scripts_dir / "verify.py").write_text("print('verify')", encoding="utf-8")
+        cmd = detect_verification_command(self.cwd)
+        self.assertIsNotNone(cmd)
+        self.assertIn("scripts/verify.py", cmd)
+
+        # 2. Package.json with test script
+        (scripts_dir / "verify.py").unlink()
+        Path(self.cwd, "package.json").write_text('{"scripts": {"test": "jest"}}', encoding="utf-8")
+        self.assertEqual(detect_verification_command(self.cwd), "npm test")
+
+        # 3. Cargo.toml
+        Path(self.cwd, "package.json").unlink()
+        Path(self.cwd, "Cargo.toml").write_text('[package]\nname = "test"', encoding="utf-8")
+        self.assertEqual(detect_verification_command(self.cwd), "cargo test")
+
+    def test_verification_gate_passes(self):
+        # Create a repo with a passing check
+        check_script = Path(self.cwd, "scripts")
+        check_script.mkdir(parents=True, exist_ok=True)
+        (check_script / "verify.py").write_text("import sys; sys.exit(0)", encoding="utf-8")
+
+        calc = Path(self.cwd, "calc.py")
+        calc.write_text("x = 1\n", encoding="utf-8")
+
+        turns = [
+            '<call:edit_file path="calc.py">\n<target>x = 1</target>\n<replacement>x = 2</replacement>\n</call:edit_file>',
+            'Finished updating calc.py',
+        ]
+
+        async def fake_stream(*args, **kwargs):
+            reply = turns.pop(0)
+            yield reply
+
+        client = MagicMock()
+        client.stream_completion = fake_stream
+        client.last_usage = {"prompt_tokens": 10, "completion_tokens": 10}
+
+        loop = DirectAgentLoop(client=client, model_id="test", auto_verify=True)
+        out = asyncio.run(loop.run(goal="Update x", workspace=self.cwd))
+        self.assertIn("✅ Verification passed", out)
+        self.assertEqual(calc.read_text(encoding="utf-8"), "x = 2\n")
+
+    def test_verification_gate_triggers_self_correction(self):
+        # Create a verification script that fails once then passes
+        state_file = Path(self.cwd, "state.txt")
+        state_file.write_text("0", encoding="utf-8")
+
+        scripts_dir = Path(self.cwd, "scripts")
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        # First execution fails, second passes
+        v_script = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "p = Path('state.txt')\n"
+            "count = int(p.read_text().strip())\n"
+            "p.write_text(str(count + 1))\n"
+            "if count == 0:\n"
+            "    sys.exit(1)\n"
+            "sys.exit(0)\n"
+        )
+        (scripts_dir / "verify.py").write_text(v_script, encoding="utf-8")
+
+        turns = [
+            # Turn 1: edits file
+            '<call:write_file path="app.py">\ninitial code\n</call:write_file>',
+            # Turn 2: model claims it is done (triggers verification -> fails)
+            'Done with initial code',
+            # Turn 3: model receives verification failure, fixes the bug
+            '<call:write_file path="app.py">\nfixed code\n</call:write_file>',
+            # Turn 4: model claims it is done (second verification passes)
+            'Done with fix',
+        ]
+
+        async def fake_stream(*args, **kwargs):
+            reply = turns.pop(0)
+            yield reply
+
+        client = MagicMock()
+        client.stream_completion = fake_stream
+        client.last_usage = {"prompt_tokens": 10, "completion_tokens": 10}
+
+        loop = DirectAgentLoop(client=client, model_id="test", auto_verify=True, max_turns=6)
+        out = asyncio.run(loop.run(goal="Write app.py", workspace=self.cwd))
+        self.assertIn("Done with fix", out)
+        self.assertEqual(Path(self.cwd, "app.py").read_text(encoding="utf-8").strip(), "fixed code")
 
 
 if __name__ == "__main__":
