@@ -237,32 +237,46 @@ flowchart LR
 ## Cowork: operating other windows
 
 ```mermaid
-flowchart LR
-    pin["WindowPinManager<br/>pin the target window"] --> see["ScreenPerceiver<br/>list windows and UI elements"]
-    see --> uia{"UI Automation<br/>finds elements?"}
-    uia -->|"yes (uia.py)"| act{"Safety checks"}
-    uia -->|"no: fall back to<br/>Win32 child windows"| act
-    act -->|ok| do["ActionSynthesizer<br/>click, type (pyautogui)"]
-    act -->|"Esc, cursor in a corner,<br/>or window changed"| stop["⛔ stop: SafetyInterruptedError"]
-    do --> screen["🖱️ the pinned window"]
+flowchart TD
+    subgraph loop["Autonomous Cowork Loop (cowork/agent.py)"]
+        observe["1. Observe (ScreenPerceiver)<br/>Number elements [1], [2], ..."] --> plan["2. Plan (Local / Direct Model)<br/>Select element tag and action"]
+        plan --> act{"3. Safety & Bounds Check"}
+        act -->|"inside pinned window"| mode{"Ghost Mode Pattern<br/>Supported?"}
+        act -->|"outside or Esc pressed"| stop["⛔ SafetyInterruptedError"]
+        mode -->|"yes (Invoke / Value / Toggle)"| ghost["👻 Ghost Action (uia.py)<br/>Direct COM without cursor move"]
+        mode -->|"no: fallback"| synth["🖱️ Synthetic Action<br/>Smooth move + click / type (pyautogui)"]
+        ghost --> verify["4. Verify<br/>Re-observe UI & feedback to model"]
+        synth --> verify
+        verify --> observe
+    end
 
     classDef ours fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    class pin,see,do ours
-    class act,uia gate
-    class stop,screen risk
+    classDef agent fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    class observe,ghost,verify ours
+    class act,mode gate
+    class stop risk
+    class plan,synth agent
 ```
 
-**Reading the screen.** `ScreenPerceiver` reads a window's controls through Windows **UI Automation**
+**Reading the screen & Set-of-Marks grounding.** `ScreenPerceiver` reads a window's controls through Windows **UI Automation**
 (`cowork/uia.py`, via `comtypes`): name, control type, automation ID and bounds, fetched in one call. It sees
 inside browsers, Electron apps (VS Code), WPF and WinUI, which the older Win32 child-window method cannot (the
-taskbar: 19 elements vs 4; VS Code: 199 vs 2). UIA calls run on one dedicated thread with a 5 s timeout, so a
-hung app cannot block the engine. Chromium and Electron windows build their accessibility tree only after the
-first request, so the first read of such a window waits 0.5 s and reads again.
+taskbar: 19 elements vs 4; VS Code: 199 vs 2). Actionable elements receive stable numeric tags (`[1] Button "Settings"`, `[2] TextInput "Search"`) with computed center coordinates.
+
+**Ghost Actions vs. Synthetic Fallback.** When an action is taken on an element, `ActionSynthesizer` uses **Ghost Mode**:
+it queries COM patterns (`IUIAutomationInvokePattern`, `IUIAutomationValuePattern`, `IUIAutomationTogglePattern`) directly
+through the dedicated UIA worker thread. Ghost actions invoke controls and set edit box values directly in the application's
+message queue without moving the user's mouse cursor across the screen. If the target control does not implement UIA patterns,
+it cleanly falls back to smooth cursor movements and synthetic events via `pyautogui`.
+
+**Autonomous Cowork Loop.** `CoworkAgentLoop` runs an Observe-Plan-Act-Verify cycle on a pinned window. The model plans actions
+using numeric tags (`<call:click_element id="1"/>`, `<call:type_into_element id="2" text="..."/>`), the engine executes the action,
+re-observes the window's UI tree to verify the outcome, and provides feedback until completion.
 
 HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GET /api/cowork/elements`,
-`POST /api/cowork/click`, `/type`. **Esc must always stop it**: never weaken the emergency stop.
+`POST /api/cowork/click`, `POST /api/cowork/type`, `POST /api/cowork/run`. **Esc must always stop it**: never weaken the emergency stop.
 
 ## Parts
 
