@@ -8,6 +8,7 @@ Handles fallback and error classification.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import threading
 import time
@@ -23,7 +24,7 @@ except ImportError:
 from .capabilities import Capability, ExecutionType
 from .config import EmilianoConfig, load_config
 from .registry import CapabilityRegistry
-from .workspace import WorkspaceSnapshot, changed_paths, workspace_snapshot
+from .workspace import IsolatedWorkspace, WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
 from .routing import needs_workspace
@@ -218,11 +219,15 @@ class ExecutionDispatcher:
         timeout: float = 300.0,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]] = None,
         reasoning: Optional[bool] = None,
+        isolate_workspace: bool = False,
+        merge_on_success: bool = True,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
         on_permission answers ACP permission requests (tool_call, options) -> optionId or None.
         reasoning forces a local model's reasoning on or off; None decides per goal (off for conversation).
+        isolate_workspace runs the task in an isolated temporary Git worktree.
+        merge_on_success merges the isolated task branch back into HEAD upon successful completion.
         Records a TaskTrace for the run (self.last_trace; saved when config.traces is on).
         Returns: (successful_capability, full_output_text)
         """
@@ -248,20 +253,48 @@ class ExecutionDispatcher:
                                           "decision": kind or ("rejected" if choice is None else choice)})
                 return choice
 
+        isolated: Optional[IsolatedWorkspace] = None
+        target_dir = os.getcwd()
+        if isolate_workspace:
+            try:
+                candidate_iso = IsolatedWorkspace(base_dir=target_dir)
+                if candidate_iso.is_git_repo():
+                    target_dir = candidate_iso.create()
+                    isolated = candidate_iso
+                    logger.info(f"[Dispatcher] Isolated worktree initialized: {target_dir}")
+            except Exception as e:
+                logger.warning(f"[Dispatcher] Failed to isolate workspace, falling back to main cwd: {e}")
+                isolated = None
+
         try:
             result = await self._execute_with_fallback(
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
                 traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
+                workspace=target_dir,
             )
+            if isolated:
+                if merge_on_success:
+                    isolated.merge_back()
+                    isolated.discard()
+                else:
+                    changed = isolated.get_changed_files()
+                    if changed:
+                        isolated.commit(f"chore: changes from task {isolated.task_id}")
             trace.finish("succeeded")
             return result
         except (KeyboardInterrupt, asyncio.CancelledError):
+            if isolated:
+                isolated.discard()
             trace.finish("cancelled")
             raise
         except ExecutionAbortedError as e:
+            if isolated:
+                isolated.discard()
             trace.finish("cancelled", str(e))
             raise
         except Exception as e:
+            if isolated:
+                isolated.discard()
             trace.finish("failed", str(e))
             raise
         finally:
@@ -283,6 +316,7 @@ class ExecutionDispatcher:
         timeout: float,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]],
         reasoning: Optional[bool] = None,
+        workspace: Optional[str] = None,
     ) -> Tuple[Capability, str]:
         candidates = await self.route_task(
             goal=goal,
@@ -340,9 +374,10 @@ class ExecutionDispatcher:
 
                     if is_task:
                         agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout)
+                        active_ws = workspace or os.getcwd()
                         output = await agent.run(
                             goal=goal,
-                            workspace=os.getcwd(),
+                            workspace=active_ws,
                             messages=task_messages,
                             on_chunk=on_chunk,
                             on_reasoning=on_reasoning,
@@ -386,10 +421,16 @@ class ExecutionDispatcher:
                         raise RuntimeError(f"Harness adapter '{candidate.name}' not found.")
 
                     # Snapshot the workspace so a failure can be checked for partial changes
-                    workspace = os.getcwd()
-                    before = await asyncio.to_thread(workspace_snapshot, workspace)
+                    active_ws = workspace or os.getcwd()
+                    before = await asyncio.to_thread(workspace_snapshot, active_ws)
 
                     extra = {"permission_handler": on_permission} if on_permission else {}
+                    try:
+                        sig = inspect.signature(harness.run_task)
+                        if "cwd" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                            extra["cwd"] = active_ws
+                    except Exception:
+                        pass
                     try:
                         code, stdout, stderr = await asyncio.to_thread(
                             harness.run_task,
@@ -422,8 +463,8 @@ class ExecutionDispatcher:
                         err_msg = stderr.strip() or stdout.strip() or f"Process exited with code {code}"
                         failure = f"Harness '{candidate.display_name}' failed: {err_msg}"
 
-                    after = await asyncio.to_thread(workspace_snapshot, workspace)
-                    self._raise_harness_failure(candidate, failure, workspace, before, after)
+                    after = await asyncio.to_thread(workspace_snapshot, active_ws)
+                    self._raise_harness_failure(candidate, failure, active_ws, before, after)
 
             except ExecutionAbortedError as e:
                 self._record_attempt(trace, candidate, attempt_t0, error=str(e), final=False)
