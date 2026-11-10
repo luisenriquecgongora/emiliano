@@ -95,6 +95,7 @@
 - [ ] OpenTelemetry traces, per-task cost budgets, prompt caching. Local task traces done (`core/traces.py`, `emiliano traces`); OpenTelemetry export and budgets still to do.
 
 **Local models (priority)**
+- [x] Autonomous agent tool loop for direct models (`DirectAgentLoop` in `emiliano/direct/agent.py`): file reading, surgical editing, writing, directory listing, and bash execution in workspace, enabling local models to solve coding tasks.
 - [x] Explicit Ollama context window (`models.ollama_num_ctx`), matched by context management.
 - [x] Offline token counting (bundled encoding).
 - [x] Cold start (was: discovery 10 s + litellm import 13 s + model load 16–29 s). Ollama is called directly (no litellm), agent discovery is skipped when no agent can answer, and the model is preloaded. First output: desktop engine ~40 s → 1.3 s, chat ~45 s → 2.2 s, `emiliano run` ~45–60 s → 14–19 s total.
