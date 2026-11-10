@@ -1,5 +1,7 @@
 // Client for the engine's saved chats API (see packages/engine/emiliano/history/api.py)
 
+import type { ArtifactPayload } from '@emiliano/protocol';
+
 export const ENGINE_HTTP_URL = 'http://127.0.0.1:8765';
 export const CHAT_WS_URL = 'ws://127.0.0.1:8765/api/chat';
 
@@ -20,6 +22,7 @@ export interface ChatMessage {
   reasoning?: string;
   route?: string;
   pending?: boolean;
+  artifacts?: ArtifactPayload[];
 }
 
 export interface ChatDetail extends ChatSummary {

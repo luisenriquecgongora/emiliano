@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEngineSocket } from './engine';
+import { ParsedMessageContent } from './Artifacts';
 import {
   CHAT_WS_URL,
   ChatMessage,
@@ -135,6 +136,12 @@ export default function Dock() {
           break;
         case 'chunk':
           updatePending((m) => ({ ...m, content: m.content + event.content }));
+          break;
+        case 'artifact':
+          updatePending((m) => ({
+            ...m,
+            artifacts: [...(m.artifacts ?? []), event as any],
+          }));
           break;
         case 'permission_request':
           setPermission(event as PermissionRequest);
@@ -676,9 +683,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   }
   const waiting = message.pending && !message.content;
   return (
-    <div className="flex flex-col items-start">
+    <div className="flex flex-col items-start w-full">
       {message.route && <span className="text-[10px] text-slate-500 mb-0.5 ml-1">via {message.route}</span>}
-      <div className="max-w-[92%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
+      <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
         {message.reasoning && (
           <details className="mb-1.5 text-slate-400">
             <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wide">
@@ -690,7 +697,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {waiting && !message.reasoning ? (
           <span className="text-slate-400 animate-pulse">Working…</span>
         ) : (
-          <div className="whitespace-pre-wrap leading-relaxed select-text">{message.content}</div>
+          <ParsedMessageContent content={message.content} />
         )}
       </div>
     </div>
