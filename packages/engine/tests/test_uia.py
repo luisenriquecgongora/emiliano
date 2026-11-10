@@ -95,10 +95,13 @@ class TestUiaReader(unittest.TestCase):
 
     def test_hung_app_times_out(self):
         reader = fake_reader(MagicMock())
-        with patch.object(UiaReader, "_read", side_effect=lambda *a: time.sleep(2)):
-            start = time.monotonic()
-            self.assertIsNone(reader.elements(1, timeout=0.3))
-        self.assertLess(time.monotonic() - start, 1.5)
+        try:
+            with patch.object(UiaReader, "_read", side_effect=lambda *a: time.sleep(2)):
+                start = time.monotonic()
+                self.assertIsNone(reader.elements(1, timeout=0.3))
+            self.assertLess(time.monotonic() - start, 1.5)
+        finally:
+            reader.close()
 
     def test_missing_comtypes_disables_uia(self):
         reader = UiaReader()
@@ -117,20 +120,23 @@ class TestPerceiverUsesUia(unittest.TestCase):
         reader.elements.return_value = uia_result
         return ScreenPerceiver(uia_reader=reader)
 
-    def _desktop_window(self):
+    def _test_window(self):
         import ctypes
 
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd and ctypes.windll.user32.IsWindow(hwnd):
+            return hwnd
         return ctypes.windll.user32.GetDesktopWindow()
 
     def test_uia_elements_are_used(self):
         el = to_element(RAW, hwnd=1)
-        els = self._perceiver([el]).get_ui_elements(self._desktop_window())
+        els = self._perceiver([el]).get_ui_elements(self._test_window())
         self.assertEqual(els[0]["role"], "Window")
         self.assertEqual(els[1:], [el])
 
     def test_falls_back_to_win32_when_uia_finds_nothing(self):
         for result in (None, []):
-            els = self._perceiver(result).get_ui_elements(self._desktop_window())
+            els = self._perceiver(result).get_ui_elements(self._test_window(), max_elements=10)
             self.assertEqual(els[0]["role"], "Window")
             self.assertTrue(all(e.get("source") != "uia" for e in els))
 

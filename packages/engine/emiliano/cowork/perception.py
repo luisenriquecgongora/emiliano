@@ -84,7 +84,7 @@ class ScreenPerceiver:
 
         return windows
 
-    def get_ui_elements(self, hwnd: Optional[int] = None) -> List[Dict]:
+    def get_ui_elements(self, hwnd: Optional[int] = None, max_elements: int = 400) -> List[Dict]:
         """
         Extracts actionable UI elements (buttons, edits, panels) from the target window.
         Defaults to pinned window or active foreground window.
@@ -172,6 +172,8 @@ class ScreenPerceiver:
                             },
                             "action": action,
                         })
+                        if len(elements) >= max_elements:
+                            return False
                 return True
 
             self._user32.EnumChildWindows(target_hwnd, enum_child_proc(_child_cb), 0)

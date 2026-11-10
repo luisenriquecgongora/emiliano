@@ -114,6 +114,15 @@ class UiaReader:
             logger.warning(f"[UIA] Reading HWND={hwnd} failed: {e}")
         return None
 
+    def close(self) -> None:
+        """Shuts down the background UIA worker executor."""
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+
+    def __del__(self) -> None:
+        self.close()
+
     # --- runs on the UIA thread -----------------------------------------------------------
 
     def _ensure(self) -> bool:
