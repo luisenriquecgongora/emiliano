@@ -88,15 +88,28 @@ export const coworkApi = {
     }
   },
 
-  typeText: async (text: string): Promise<void> => {
+  typeText: async (text: string, x?: number, y?: number): Promise<void> => {
     const res = await fetch(`${ENGINE_HTTP_URL}/api/cowork/type`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, x, y }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Type failed' }));
       throw new Error(err.detail || 'Type failed');
     }
+  },
+
+  runAgent: async (goal: string, hwnd?: number, model?: string): Promise<{ status: string; output: string }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/cowork/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ goal, hwnd, model }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Cowork agent run failed' }));
+      throw new Error(err.detail || 'Cowork agent run failed');
+    }
+    return res.json();
   },
 };

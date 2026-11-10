@@ -19,7 +19,8 @@ from loguru import logger
 from ..core.dispatcher import ExecutionDispatcher
 from ..history import HistoryStore
 from ..history.api import router as history_router
-from ..cowork import WindowPinManager, ScreenPerceiver, ActionSynthesizer, SafetyInterruptedError
+from ..cowork import WindowPinManager, ScreenPerceiver, ActionSynthesizer, CoworkAgentLoop, SafetyInterruptedError
+from ..direct import UnifiedLLMClient
 from .security import get_allowed_origins, is_origin_allowed
 
 @asynccontextmanager
@@ -134,6 +135,13 @@ class TypePayload(BaseModel):
     y: Optional[float] = None
 
 
+class CoworkRunPayload(BaseModel):
+    goal: str
+    hwnd: Optional[int] = None
+    model: Optional[str] = None
+    timeout: float = 120.0
+
+
 @app.get("/api/cowork/windows")
 async def get_windows():
     return {"windows": screen_perceiver.list_windows()}
@@ -173,6 +181,31 @@ async def type_text(payload: TypePayload):
         return {"status": "ok"}
     except SafetyInterruptedError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/cowork/run")
+async def run_cowork_agent(payload: CoworkRunPayload):
+    dispatcher = get_dispatcher()
+    model_name = payload.model or "ollama/qwen2.5-coder:7b"
+    client = UnifiedLLMClient(
+        ollama_base_url=dispatcher.config.models.ollama_base_url,
+        fallback_chain=[model_name],
+        config=dispatcher.config,
+    )
+    agent = CoworkAgentLoop(
+        client=client,
+        model_id=model_name,
+        pin_manager=pin_manager,
+        screen_perceiver=screen_perceiver,
+        action_synthesizer=action_synthesizer,
+        timeout=payload.timeout,
+    )
+    try:
+        output = await agent.run(goal=payload.goal, hwnd=payload.hwnd)
+        return {"status": "completed", "output": output}
+    except Exception as e:
+        logger.error(f"[Server] Cowork agent failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws")

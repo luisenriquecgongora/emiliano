@@ -6,6 +6,7 @@ from .pinning import WindowPinManager, SafetyInterruptedError
 from .perception import ScreenPerceiver
 from .actions import ActionSynthesizer
 from .uia import UiaReader
+from .agent import CoworkAgentLoop
 
 __all__ = [
     "WindowPinManager",
@@ -13,4 +14,5 @@ __all__ = [
     "ScreenPerceiver",
     "ActionSynthesizer",
     "UiaReader",
+    "CoworkAgentLoop",
 ]
