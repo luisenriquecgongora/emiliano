@@ -194,18 +194,32 @@ class BaseHarness(ABC):
         acp_exe = self.resolve_acp_executable()
         if acp_exe:
             logger.info(f"[Harness] Running {self.name} over ACP: {acp_exe}")
-            session = AcpSession(
-                args=[acp_exe, *self.acp_command.split()[1:]],
-                cwd=cwd or os.getcwd(),
-                on_chunk=on_chunk,
-                permission_handler=permission_handler or self.permission_handler,
-                shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
-            )
-            self._active_acp = session
+            target_cwd = os.path.abspath(cwd or os.getcwd())
+            session = self._active_acp
+            if session is None or not session.is_alive() or session.cwd != target_cwd:
+                if session is not None:
+                    session.close()
+                session = AcpSession(
+                    args=[acp_exe, *self.acp_command.split()[1:]],
+                    cwd=target_cwd,
+                    on_chunk=on_chunk,
+                    permission_handler=permission_handler or self.permission_handler,
+                    shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
+                    enable_fs=True,
+                    keep_alive=True,
+                )
+                self._active_acp = session
+            else:
+                session.on_chunk = on_chunk
+                session.permission_handler = permission_handler or self.permission_handler
+
             try:
                 return session.run(prompt, timeout=timeout)
-            finally:
-                self._active_acp = None
+            except Exception:
+                if self._active_acp:
+                    self._active_acp.close()
+                    self._active_acp = None
+                raise
 
         exe = self.resolve_executable()
         if not exe:
@@ -350,6 +364,15 @@ class BaseHarness(ABC):
         if proc and proc.poll() is None:
             logger.info(f"[Harness] Stopping {self.name} (pid {proc.pid})")
             self._kill_process_tree(proc)
+
+    def close(self) -> None:
+        """Shuts down any running persistent ACP session."""
+        if self._active_acp is not None:
+            self._active_acp.close()
+            self._active_acp = None
+
+    def __del__(self) -> None:
+        self.close()
 
     @staticmethod
     def _kill_process_tree(proc: Optional[subprocess.Popen]) -> None:
