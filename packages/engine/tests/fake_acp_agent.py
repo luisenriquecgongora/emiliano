@@ -76,6 +76,15 @@ def main():
                 outcome = answer["result"]["outcome"]
                 chunk(sid, f"outcome={outcome['outcome']}:{outcome.get('optionId', '')}")
                 send({"id": req_id, "result": {"stopReason": "end_turn"}})
+            elif text == "fs_test":
+                _next_id += 1
+                send({"id": _next_id, "method": "fs/write_text_file", "params": {"sessionId": sid, "path": "test.txt", "content": "persisted-data"}})
+                read()
+                _next_id += 1
+                send({"id": _next_id, "method": "fs/read_text_file", "params": {"sessionId": sid, "path": "test.txt"}})
+                res_r = read()
+                chunk(sid, f"read={res_r.get('result', {}).get('content')}")
+                send({"id": req_id, "result": {"stopReason": "end_turn"}})
             else:
                 # An unadvertised client method must get a JSON-RPC error, not hang the agent
                 _next_id += 1

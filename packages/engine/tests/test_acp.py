@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from emiliano.harnesses.acp import AcpSession, allow_once_policy
 from emiliano.harnesses.base import ClaudeCodeHarness
@@ -87,6 +87,48 @@ class TestAcpSession(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("exited during", err)
 
+    def test_session_persistence_across_multiple_prompts(self):
+        session = AcpSession(AGENT_ARGS, cwd=self.tmp.name)
+        self.assertFalse(session.is_alive())
+
+        # Turn 1
+        code1, out1, _ = session.prompt("hi", timeout=20)
+        self.assertEqual(code1, 0)
+        self.assertEqual(out1, "Hello world")
+        self.assertTrue(session.is_alive())
+
+        # Turn 2 on the same running process and session
+        code2, out2, _ = session.prompt("hi", timeout=20)
+        self.assertEqual(code2, 0)
+        self.assertEqual(out2, "Hello world")
+        self.assertTrue(session.is_alive())
+
+        session.close()
+        self.assertFalse(session.is_alive())
+
+        # Verify handshake occurred once, but prompt occurred twice
+        methods = [m.get("method") for m in self._received() if "method" in m]
+        self.assertEqual(methods, ["initialize", "session/new", "session/prompt", "session/prompt"])
+
+    def test_fs_capabilities_write_and_read(self):
+        session = AcpSession(AGENT_ARGS, cwd=self.tmp.name, enable_fs=True)
+        code, out, _ = session.run("fs_test", timeout=20)
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "read=persisted-data")
+
+        target_file = os.path.join(self.tmp.name, "test.txt")
+        self.assertTrue(os.path.isfile(target_file))
+        with open(target_file, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "persisted-data")
+        self.assertIn(os.path.abspath(target_file), session.written_files)
+
+    def test_mcp_servers_forwarded(self):
+        servers = [{"name": "db", "command": "uvx", "args": ["mcp-server-sqlite"]}]
+        session = AcpSession(AGENT_ARGS, cwd=self.tmp.name, mcp_servers=servers)
+        session.run("hi", timeout=20)
+        new_params = self._received()[1]["params"]
+        self.assertEqual(new_params["mcpServers"], servers)
+
 
 class TestAllowOncePolicy(unittest.TestCase):
     def test_prefers_allow_once(self):
@@ -115,6 +157,30 @@ class TestClaudeCodeAcpSelection(unittest.TestCase):
         session_cls.assert_not_called()
         self.assertEqual(code, 1)
         self.assertIn("not found", err)
+
+    def test_harness_reuses_active_session(self):
+        harness = ClaudeCodeHarness(acp_command="fake-acp")
+        mock_session = MagicMock()
+        mock_session.is_alive.return_value = True
+        mock_session.cwd = os.path.abspath(".")
+        mock_session.run.return_value = (0, "ok", "")
+
+        with patch.object(ClaudeCodeHarness, "resolve_acp_executable", return_value="fake-acp"), \
+             patch("emiliano.harnesses.base.AcpSession", return_value=mock_session) as session_cls:
+            # Turn 1
+            code1, out1, _ = harness.run_task("turn 1", cwd=".")
+            self.assertEqual(code1, 0)
+            self.assertEqual(session_cls.call_count, 1)
+
+            # Turn 2
+            code2, out2, _ = harness.run_task("turn 2", cwd=".")
+            self.assertEqual(code2, 0)
+            # Reused session, so constructor not called again
+            self.assertEqual(session_cls.call_count, 1)
+            self.assertEqual(mock_session.run.call_count, 2)
+
+            harness.close()
+            mock_session.close.assert_called_once()
 
 
 if __name__ == "__main__":
