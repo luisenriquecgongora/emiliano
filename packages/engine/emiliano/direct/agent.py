@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -229,6 +230,35 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
     return calls
 
 
+def detect_verification_command(workspace: str = ".") -> Optional[str]:
+    """Auto-detects the project's test or verification command if available."""
+    root = Path(workspace).resolve()
+    # 1. Custom verify script in repo
+    if (root / "scripts" / "verify.py").is_file():
+        return f"{sys.executable} scripts/verify.py --only python"
+    # 2. Python pytest / pyproject.toml
+    if (root / "pytest.ini").is_file() or (root / "pyproject.toml").is_file() or (root / "setup.cfg").is_file():
+        if (root / "tests").is_dir() or (root / "test").is_dir():
+            return f"{sys.executable} -m pytest"
+    # 3. Node/JS package.json
+    pkg_json = root / "package.json"
+    if pkg_json.is_file():
+        try:
+            data = json.loads(pkg_json.read_text(encoding="utf-8"))
+            scripts = data.get("scripts") or {}
+            if "test" in scripts:
+                return "npm test"
+        except Exception:
+            pass
+    # 4. Rust Cargo.toml
+    if (root / "Cargo.toml").is_file():
+        return "cargo test"
+    # 5. Go go.mod
+    if (root / "go.mod").is_file():
+        return "go test ./..."
+    return None
+
+
 class DirectAgentLoop:
     """
     Autonomous ReAct execution loop for local and direct models.
@@ -241,11 +271,14 @@ class DirectAgentLoop:
         model_id: str,
         max_turns: int = 10,
         timeout: float = 180.0,
+        auto_verify: bool = True,
     ):
         self.client = client
         self.model_id = model_id
         self.max_turns = max_turns
         self.timeout = timeout
+        self.auto_verify = auto_verify
+        self.files_modified: set[str] = set()
         self.last_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
 
     async def execute_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
@@ -260,11 +293,15 @@ class DirectAgentLoop:
             path = args.get("path") or args.get("file") or ""
             target = args.get("target", "")
             replacement = args.get("replacement", "")
+            if path:
+                self.files_modified.add(path)
             return tool_edit_file(path, target=target, replacement=replacement, cwd=cwd)
 
         elif tool_name == "write_file":
             path = args.get("path") or args.get("file") or ""
             content = args.get("content", "")
+            if path:
+                self.files_modified.add(path)
             return tool_write_file(path, content=content, cwd=cwd)
 
         elif tool_name == "list_dir":
@@ -302,6 +339,7 @@ class DirectAgentLoop:
             history.append({"role": "user", "content": goal})
 
         full_output_parts: List[str] = []
+        verification_attempted = False
 
         for turn in range(self.max_turns):
             logger.info(f"[DirectAgent] Turn {turn + 1}/{self.max_turns} on {self.model_id}")
@@ -329,6 +367,34 @@ class DirectAgentLoop:
             # Parse tool calls from the model output
             tool_calls = parse_tool_calls(turn_text)
             if not tool_calls:
+                # Automated verification gate: run checks before concluding
+                if self.auto_verify and self.files_modified and not verification_attempted:
+                    verification_attempted = True
+                    v_cmd = detect_verification_command(workspace)
+                    if v_cmd:
+                        logger.info(f"[DirectAgent] Running auto-verification gate: {v_cmd}")
+                        if on_chunk:
+                            on_chunk(f"\n🔍 [Running verification: {v_cmd}]\n")
+                        v_out = await tool_bash(v_cmd, cwd=workspace)
+                        if "Exit code: 0" in v_out:
+                            logger.info(f"[DirectAgent] Auto-verification passed: {v_cmd}")
+                            if on_chunk:
+                                on_chunk(f"\n✅ [Auto-verification passed: {v_cmd}]\n")
+                            full_output_parts.append(f"\n\n✅ Verification passed: `{v_cmd}`")
+                            break
+                        else:
+                            logger.warning(f"[DirectAgent] Auto-verification failed: {v_cmd}; prompting self-correction")
+                            if on_chunk:
+                                on_chunk(f"\n❌ [Auto-verification failed: {v_cmd}; entering self-correction]\n")
+                            correction_prompt = (
+                                f"<verification_failure command=\"{v_cmd}\">\n{v_out}\n</verification_failure>\n\n"
+                                f"The verification check failed. Please inspect the errors above, fix the issues "
+                                f"in the code you modified using edit_file or write_file, and verify your changes."
+                            )
+                            history.append({"role": "assistant", "content": turn_text})
+                            history.append({"role": "user", "content": correction_prompt})
+                            continue
+
                 # No tool calls made; model has finished
                 logger.info(f"[DirectAgent] Agent finished with no tool calls on turn {turn + 1}")
                 break
