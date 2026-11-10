@@ -62,7 +62,18 @@ def fake_reader(root):
     reader._unavailable = None
     reader._uia = MagicMock()
     reader._uia.ElementFromHandle.return_value = root
-    reader._mod = SimpleNamespace(TreeScope_Descendants=4, TreeScope_Children=2)
+    reader._mod = SimpleNamespace(
+        TreeScope_Descendants=4,
+        TreeScope_Children=2,
+        IUIAutomationInvokePattern=MagicMock(),
+        IUIAutomationTogglePattern=MagicMock(),
+        IUIAutomationSelectionItemPattern=MagicMock(),
+        IUIAutomationValuePattern=MagicMock(),
+        UIA_InvokePatternId=10000,
+        UIA_TogglePatternId=10015,
+        UIA_SelectionItemPatternId=10010,
+        UIA_ValuePatternId=10002,
+    )
     return reader
 
 
@@ -109,6 +120,38 @@ class TestUiaReader(unittest.TestCase):
         with patch.dict(sys.modules, {"comtypes.client": None}):
             self.assertFalse(reader._ensure())
         self.assertFalse(reader.available)
+
+    def test_ghost_invoke_success(self):
+        reader = fake_reader(MagicMock())
+        mock_el = MagicMock()
+        mock_pat = MagicMock()
+        mock_inv = MagicMock()
+        mock_pat.QueryInterface.return_value = mock_inv
+        mock_el.GetCurrentPattern.return_value = mock_pat
+        reader._uia.ElementFromPoint.return_value = mock_el
+
+        self.assertTrue(reader.invoke_at(50, 60))
+        mock_inv.Invoke.assert_called_once()
+        reader.close()
+
+    def test_ghost_set_value_success(self):
+        reader = fake_reader(MagicMock())
+        mock_el = MagicMock()
+        mock_pat = MagicMock()
+        mock_val = MagicMock()
+        mock_pat.QueryInterface.return_value = mock_val
+        mock_el.GetCurrentPattern.return_value = mock_pat
+        reader._uia.ElementFromPoint.return_value = mock_el
+
+        self.assertTrue(reader.set_value_at(50, 60, "test text"))
+        mock_val.SetValue.assert_called_once_with("test text")
+        reader.close()
+
+    def test_ghost_invoke_when_unavailable(self):
+        reader = UiaReader()
+        reader._unavailable = "not Windows"
+        self.assertFalse(reader.invoke_at(10, 20))
+        self.assertFalse(reader.set_value_at(10, 20, "val"))
 
 
 @unittest.skipUnless(sys.platform == "win32", "ScreenPerceiver reads Win32 windows")

@@ -4,7 +4,7 @@ Window pinning, action synthesis guardrails, and screen perception.
 """
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from emiliano.cowork import WindowPinManager, ActionSynthesizer, SafetyInterruptedError
@@ -71,6 +71,68 @@ class TestActionSynthesizer(unittest.TestCase):
                 self.synth.click(200, 300, button="left")
                 mock_gui.return_value.moveTo.assert_called_once_with(200, 300, duration=0.15)
                 mock_gui.return_value.click.assert_called_once_with(x=200, y=300, button="left", clicks=1)
+
+    @patch("emiliano.cowork.actions._pyautogui")
+    def test_ghost_click_invoked_without_cursor_movement(self, mock_gui):
+        mock_uia = MagicMock()
+        mock_uia.available = True
+        mock_uia.invoke_at.return_value = True
+
+        synth = ActionSynthesizer(pin_manager=self.pin_mgr, uia_reader=mock_uia, ghost_mode=True)
+        synth.preview_delay_seconds = 0.0
+
+        with patch.object(self.pin_mgr, "verify_active", return_value=True):
+            with patch.object(self.pin_mgr, "is_point_within_pinned_window", return_value=True):
+                synth.click(200, 300, button="left")
+                mock_uia.invoke_at.assert_called_once_with(200, 300)
+                mock_gui.return_value.moveTo.assert_not_called()
+                mock_gui.return_value.click.assert_not_called()
+
+    @patch("emiliano.cowork.actions._pyautogui")
+    def test_ghost_click_falls_back_when_invoke_fails(self, mock_gui):
+        mock_uia = MagicMock()
+        mock_uia.available = True
+        mock_uia.invoke_at.return_value = False
+
+        synth = ActionSynthesizer(pin_manager=self.pin_mgr, uia_reader=mock_uia, ghost_mode=True)
+        synth.preview_delay_seconds = 0.0
+
+        with patch.object(self.pin_mgr, "verify_active", return_value=True):
+            with patch.object(self.pin_mgr, "is_point_within_pinned_window", return_value=True):
+                synth.click(200, 300, button="left")
+                mock_uia.invoke_at.assert_called_once_with(200, 300)
+                mock_gui.return_value.moveTo.assert_called_once_with(200, 300, duration=0.15)
+                mock_gui.return_value.click.assert_called_once_with(x=200, y=300, button="left", clicks=1)
+
+    @patch("emiliano.cowork.actions._pyautogui")
+    def test_ghost_type_without_synthetic_keystrokes(self, mock_gui):
+        mock_uia = MagicMock()
+        mock_uia.available = True
+        mock_uia.set_value_at.return_value = True
+
+        synth = ActionSynthesizer(pin_manager=self.pin_mgr, uia_reader=mock_uia, ghost_mode=True)
+        synth.preview_delay_seconds = 0.0
+
+        with patch.object(self.pin_mgr, "verify_active", return_value=True):
+            with patch.object(self.pin_mgr, "is_point_within_pinned_window", return_value=True):
+                synth.type_text("hello ghost", x=150, y=250)
+                mock_uia.set_value_at.assert_called_once_with(150, 250, "hello ghost")
+                mock_gui.return_value.typewrite.assert_not_called()
+
+    @patch("emiliano.cowork.actions._pyautogui")
+    def test_ghost_type_falls_back_when_set_value_fails(self, mock_gui):
+        mock_uia = MagicMock()
+        mock_uia.available = True
+        mock_uia.set_value_at.return_value = False
+
+        synth = ActionSynthesizer(pin_manager=self.pin_mgr, uia_reader=mock_uia, ghost_mode=True)
+        synth.preview_delay_seconds = 0.0
+
+        with patch.object(self.pin_mgr, "verify_active", return_value=True):
+            with patch.object(self.pin_mgr, "is_point_within_pinned_window", return_value=True):
+                synth.type_text("fallback text", x=150, y=250)
+                mock_uia.set_value_at.assert_called_once_with(150, 250, "fallback text")
+                mock_gui.return_value.typewrite.assert_called_once_with("fallback text", interval=0.02)
 
 
 class TestCoworkApi(unittest.TestCase):
