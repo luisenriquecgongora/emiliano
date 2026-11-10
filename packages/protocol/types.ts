@@ -77,6 +77,7 @@ export type ServerMessageType =
   | 'THOUGHT_STREAM'
   | 'APPROVAL_REQUEST'
   | 'HARNESS_LOG'
+  | 'ARTIFACT'
   | 'ERROR';
 
 export interface TaskStartMessage {
@@ -135,4 +136,19 @@ export interface HarnessLogMessage {
     stream: 'stdout' | 'stderr' | 'system';
     text: string;
   };
+}
+
+export type ArtifactKind = 'plan' | 'diagram' | 'diff' | 'code' | 'markdown';
+
+export interface ArtifactPayload {
+  id: string;
+  title: string;
+  kind: ArtifactKind;
+  content: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ArtifactMessage {
+  type: 'ARTIFACT';
+  payload: ArtifactPayload;
 }

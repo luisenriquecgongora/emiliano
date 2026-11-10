@@ -5,7 +5,7 @@ Pydantic v2 Models mirroring @emiliano/protocol contracts.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -108,3 +108,22 @@ class ApprovalResponsePayload(BaseModel):
     requestId: str
     approved: bool
     feedback: Optional[str] = None
+
+
+class ArtifactKind(str, Enum):
+    PLAN = "plan"
+    DIAGRAM = "diagram"
+    DIFF = "diff"
+    CODE = "code"
+    MARKDOWN = "markdown"
+
+
+class ArtifactPayload(BaseModel):
+    id: str
+    title: str
+    kind: ArtifactKind = ArtifactKind.PLAN
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+ArtifactPayload.model_rebuild()
