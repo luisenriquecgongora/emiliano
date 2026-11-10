@@ -391,6 +391,10 @@ async def _run_dispatched_task(
             on_route_selected=_on_route,
         )
 
+        from ..core.artifacts import extract_artifacts
+        for art in extract_artifacts(full_output):
+            await broadcast_event("ARTIFACT", art)
+
         await broadcast_event("DAG_UPDATE", {
             "stepId": task_id,
             "status": "completed",

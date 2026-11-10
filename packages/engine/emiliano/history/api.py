@@ -228,6 +228,9 @@ async def chat_socket(websocket: WebSocket):
                 on_route_selected=lambda c: emit({"type": "route", "name": c.name, "display_name": c.display_name}),
                 on_permission=ask_permission,
             )
+            from ..core.artifacts import extract_artifacts
+            for art in extract_artifacts(full):
+                emit({"type": "artifact", **art})
             saved = store.add_message(chat_id, "assistant", full)
             emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id)})
         except asyncio.CancelledError:
