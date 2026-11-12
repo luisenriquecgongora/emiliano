@@ -10,6 +10,8 @@ A goal needs the workspace when it:
      (a determiner such as the/my/los marks it as theirs: "Write a function" is a request for a snippet)
   D. asks why something of theirs is broken:            "Why is the build failing?"
   E. matches a known workspace phrase:                  "git status", "will this compile?", "run tests"
+  F. asks to find out how to run something:             "Can u help me find how to run the HUD?"
+     (only the user's own files can say how their thing starts)
 How-to and explanation questions ("How do I write a test in pytest?") stay direct unless A, B or D applies.
 
 Measured with `emiliano eval routing`, which keeps a held-out set the rules were not written against.
@@ -59,9 +61,10 @@ _VERBS = (
     r"instala|crea|implementa|depura|compila|inicia|arranca|despliega|revisa|inspecciona|busca|lista|mueve|"
     r"cambia|modifica|reemplaza|escribe|genera|prueba|documenta|"
     r"arreglar|corregir|actualizar|añadir|agregar|eliminar|borrar|renombrar|ejecutar|instalar|crear|revisar|"
-    r"buscar|cambiar|modificar|escribir"
+    r"buscar|cambiar|modificar|escribir|encontrar|averiguar"
 )
-_POLITE = r"(?:please\s+|pls\s+|(?:can|could|would) you\s+(?:please\s+)?|por favor\s+|puedes\s+|podr[ií]as\s+)?"
+_POLITE = (r"(?:please\s+|pls\s+|(?:can|could|would) (?:you|u)\s+(?:please\s+)?(?:help me\s+(?:to\s+)?)?|"
+           r"help me\s+(?:to\s+)?|por favor\s+|puedes\s+|podr[ií]as\s+|ay[uú]dame a\s+)?")
 _COMMAND = re.compile(rf"^\W*{_POLITE}(?:{_VERBS})\b", re.IGNORECASE)
 
 _BROKEN = re.compile(
@@ -78,6 +81,13 @@ _PHRASES = (
     "git status", "git diff", "git commit", "git push", "git log", "git add",
 )
 
+
+# "Find how to run the HUD", "busca cómo arrancar el dock": how something of theirs starts is in their files
+_FIND_HOW_TO_RUN = re.compile(
+    r"\b(?:find|locate|search|figure out|look up|busca|encuentra|averigua|buscar|encontrar|averiguar)\b.{0,30}?"
+    r"\b(?:how\s+(?:to|can i|do i|could i|i can|should i)|c[oó]mo(?:\s+puedo)?)\s+"
+    r"(?:run|start|launch|open|execute|ejecutar|correr|arrancar|iniciar|abrir|lanzar)\b",
+    re.IGNORECASE)
 
 # "Will this compile?", "does it run?": "this"/"it" without a noun is the user's own code
 _DOES_IT_RUN = re.compile(
@@ -103,6 +113,8 @@ def needs_workspace(goal: str) -> bool:
         return True
     if _QUESTION.search(g):
         return False
+    if _COMMAND.search(g) and _FIND_HOW_TO_RUN.search(g):               # F
+        return True
     if _COMMAND.search(g) and (specific or _BARE_THING.search(g)):       # C
         return True
     # "run tests", "npm test" as a command, even without a determiner
