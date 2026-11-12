@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,11 +36,44 @@ METHOD_NOT_FOUND = -32601
 MAX_RESULT_CHARS = 20_000
 
 
+INITIALIZE_PARAMS = {
+    "protocolVersion": PROTOCOL_VERSION,
+    "capabilities": {"roots": {"listChanged": False}},
+    "clientInfo": {"name": "emiliano", "title": "Emiliano", "version": __version__},
+}
+
+
 class McpError(RuntimeError):
     """The server returned a JSON-RPC error, broke the protocol, or exited."""
 
 
-class McpStdioClient:
+class _McpClient:
+    """What every transport shares: listing and calling tools on top of request()."""
+
+    name: str
+
+    def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def list_tools(self, timeout: float = 30.0) -> List[Dict[str, Any]]:
+        tools: List[Dict[str, Any]] = []
+        cursor = None
+        for _ in range(50):  # pages; a guard against a server that never stops paging
+            result = self.request("tools/list", {"cursor": cursor} if cursor else {}, timeout=timeout)
+            tools.extend(t for t in result.get("tools", []) if isinstance(t, dict) and t.get("name"))
+            cursor = result.get("nextCursor")
+            if not cursor:
+                break
+        return tools
+
+    def call_tool(self, tool: str, arguments: Optional[Dict[str, Any]] = None, timeout: float = 60.0) -> str:
+        """Runs a tool and returns its result as text for the model; a failed tool reads "Error: ..."."""
+        result = self.request("tools/call", {"name": tool, "arguments": arguments or {}}, timeout=timeout)
+        text = format_tool_result(result)
+        return f"Error: {text}" if result.get("isError") else text
+
+
+class McpStdioClient(_McpClient):
     """One MCP server process."""
 
     def __init__(self, name: str, command: str, args: Optional[List[str]] = None,
@@ -169,33 +203,12 @@ class McpStdioClient:
             threading.Thread(target=target, name=f"mcp-{self.name}", daemon=True).start()
 
         try:
-            init = self.request("initialize", {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"roots": {"listChanged": False}},
-                "clientInfo": {"name": "emiliano", "title": "Emiliano", "version": __version__},
-            }, timeout=timeout)
+            init = self.request("initialize", INITIALIZE_PARAMS, timeout=timeout)
         except Exception:
             self.close()
             raise
         self.server_info = init.get("serverInfo") or {}
         self._notify("notifications/initialized")
-
-    def list_tools(self, timeout: float = 30.0) -> List[Dict[str, Any]]:
-        tools: List[Dict[str, Any]] = []
-        cursor = None
-        for _ in range(50):  # pages; a guard against a server that never stops paging
-            result = self.request("tools/list", {"cursor": cursor} if cursor else {}, timeout=timeout)
-            tools.extend(t for t in result.get("tools", []) if isinstance(t, dict) and t.get("name"))
-            cursor = result.get("nextCursor")
-            if not cursor:
-                break
-        return tools
-
-    def call_tool(self, tool: str, arguments: Optional[Dict[str, Any]] = None, timeout: float = 60.0) -> str:
-        """Runs a tool and returns its result as text for the model; a failed tool reads "Error: ..."."""
-        result = self.request("tools/call", {"name": tool, "arguments": arguments or {}}, timeout=timeout)
-        text = format_tool_result(result)
-        return f"Error: {text}" if result.get("isError") else text
 
     def close(self) -> None:
         if not self.proc:
@@ -210,6 +223,132 @@ class McpStdioClient:
         except subprocess.TimeoutExpired:
             from ..harnesses.acp import _kill_tree
             _kill_tree(self.proc)
+
+
+_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def expand_env(value: str) -> str:
+    """'Bearer ${PLAATOOS_TOKEN}' -> 'Bearer pak_...'. A variable that is not set is an error, so a missing token
+    is reported as such instead of being sent as an empty header."""
+    def sub(m: "re.Match[str]") -> str:
+        name = m.group(1)
+        if name not in os.environ:
+            raise McpError(f"environment variable {name} is not set (used in an MCP header)")
+        return os.environ[name]
+    return _ENV_REF.sub(sub, value)
+
+
+def _parse_sse(body: str) -> List[Dict[str, Any]]:
+    """JSON-RPC messages from a text/event-stream body: each event's data lines joined."""
+    messages, data = [], []
+    for line in body.replace("\r\n", "\n").split("\n") + [""]:
+        if line.startswith("data:"):
+            data.append(line[5:].lstrip())
+        elif line == "" and data:
+            try:
+                msg = json.loads("\n".join(data))
+                if isinstance(msg, dict):
+                    messages.append(msg)
+            except ValueError:
+                pass
+            data = []
+    return messages
+
+
+class McpHttpClient(_McpClient):
+    """
+    A remote MCP server over Streamable HTTP: each JSON-RPC message is a POST to one URL; the reply is plain JSON or
+    a short event stream. Keeps the session id the server may assign. Certificates are checked against the operating
+    system's store, which also trusts the TLS-inspecting proxies some networks use.
+    """
+
+    def __init__(self, name: str, url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 30.0):
+        self.name = name
+        self.url = url
+        self.raw_headers = dict(headers or {})
+        self.timeout = timeout
+        self.server_info: Dict[str, Any] = {}
+        self.protocol_version: Optional[str] = None
+        self.session_id: Optional[str] = None
+        self._client = None
+        self._next_id = 0
+        self._lock = threading.Lock()
+
+    def is_alive(self) -> bool:
+        return self._client is not None
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {k: expand_env(v) for k, v in self.raw_headers.items()}
+        headers.update({"Accept": "application/json, text/event-stream", "Content-Type": "application/json"})
+        if self.protocol_version:
+            headers["MCP-Protocol-Version"] = self.protocol_version
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        return headers
+
+    def _post(self, message: Dict[str, Any], timeout: float):
+        import httpx
+        message["jsonrpc"] = "2.0"
+        try:
+            res = self._client.post(self.url, json=message, headers=self._headers(), timeout=timeout)
+        except httpx.HTTPError as e:
+            raise McpError(f"MCP server '{self.name}' unreachable at {self.url}: {e}") from e
+        if res.headers.get("mcp-session-id"):
+            self.session_id = res.headers["mcp-session-id"]
+        if res.status_code in (401, 403):
+            raise McpError(f"MCP server '{self.name}' refused the credentials (HTTP {res.status_code}). "
+                           "Check the token in its headers.")
+        return res
+
+    def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> Dict[str, Any]:
+        if self._client is None:
+            raise McpError(f"MCP server '{self.name}' is not connected.")
+        with self._lock:
+            req_id = self._next_id
+            self._next_id += 1
+        res = self._post({"id": req_id, "method": method, "params": params or {}}, timeout)
+        if res.headers.get("content-type", "").startswith("text/event-stream"):
+            replies = [m for m in _parse_sse(res.text) if m.get("id") == req_id]
+            msg = replies[-1] if replies else {}
+        else:
+            try:
+                msg = res.json()
+            except ValueError:
+                raise McpError(f"{self.name}: {method} returned HTTP {res.status_code} without JSON") from None
+        if not isinstance(msg, dict) or ("result" not in msg and "error" not in msg):
+            raise McpError(f"{self.name}: {method} returned HTTP {res.status_code} with no JSON-RPC answer")
+        if "error" in msg:
+            err = msg["error"] or {}
+            raise McpError(f"{self.name}: {method} failed: {err.get('message', err)}")
+        return msg.get("result") or {}
+
+    def start(self, timeout: float = 30.0) -> None:
+        if self._client is not None:
+            return
+        import ssl
+
+        import httpx
+        self._client = httpx.Client(verify=ssl.create_default_context(), follow_redirects=True)
+        try:
+            init = self.request("initialize", INITIALIZE_PARAMS, timeout=timeout)
+            self.server_info = init.get("serverInfo") or {}
+            self.protocol_version = init.get("protocolVersion") or PROTOCOL_VERSION
+            self._post({"method": "notifications/initialized"}, timeout)
+        except Exception:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        if self._client is not None:
+            try:
+                if self.session_id:  # tell the server the session is over; ignore failures
+                    self._client.delete(self.url, headers=self._headers(), timeout=5)
+            except Exception:
+                pass
+            self._client.close()
+            self._client = None
+        self.session_id = None
 
 
 def format_tool_result(result: Dict[str, Any]) -> str:

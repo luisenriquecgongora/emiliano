@@ -21,7 +21,7 @@ except ImportError:
     import logging
     logger = logging.getLogger("emiliano")
 
-from .client import McpStdioClient
+from .client import McpHttpClient, McpStdioClient
 
 # Built-in tools of the direct agent; an MCP tool may not take one of these names
 BUILTIN_TOOLS = {"read_file", "edit_file", "write_file", "list_dir", "grep", "search", "bash"}
@@ -82,7 +82,9 @@ class McpManager:
     def _start_server(self, name: str, cfg: Any) -> None:
         for qualified in [q for q, t in self.tools.items() if t.server == name]:
             del self.tools[qualified]
-        client = McpStdioClient(name, cfg.command, cfg.args, cfg.env, cwd=self.cwd)
+        url = getattr(cfg, "url", None)
+        client = (McpHttpClient(name, url, getattr(cfg, "headers", {}), timeout=getattr(cfg, "timeout", 30.0))
+                  if url else McpStdioClient(name, cfg.command, cfg.args, cfg.env, cwd=self.cwd))
         try:
             client.start()
             listed = client.list_tools()
@@ -169,9 +171,11 @@ class McpManager:
 
 
 def acp_server_list(servers: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The configured servers in ACP's session/new format, so ACP harnesses (Claude Code, Codex) get them too."""
+    """The configured local (stdio) servers in ACP's session/new format, so ACP harnesses (Claude Code, Codex) get
+    them too. Remote URL servers are left out: an ACP agent only accepts them if it advertises HTTP support, and
+    passing one would put the expanded token into the agent's session."""
     return [
         {"name": name, "command": cfg.command, "args": list(cfg.args),
          "env": [{"name": k, "value": v} for k, v in cfg.env.items()]}
-        for name, cfg in servers.items() if getattr(cfg, "enabled", True)
+        for name, cfg in servers.items() if getattr(cfg, "enabled", True) and getattr(cfg, "command", None)
     ]

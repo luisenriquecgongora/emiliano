@@ -250,7 +250,9 @@ def mcp_command():
     if not config.mcp_servers:
         click.echo("No MCP servers configured. Add some to emiliano.yaml (or ~/.emiliano/config.yaml), e.g.:\n")
         click.echo("mcp_servers:\n  filesystem:\n    command: npx\n"
-                   "    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \".\"]")
+                   "    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \".\"]\n"
+                   "  plaatoos:\n    url: https://api-takient.onrender.com/mcp\n"
+                   "    headers: {Authorization: \"Bearer ${PLAATOOS_TOKEN}\"}")
         return
 
     click.echo(click.style("MCP Servers:", bold=True))

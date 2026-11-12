@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SummarizationConfig(BaseModel):
@@ -89,12 +89,24 @@ class HarnessPathsConfig(BaseModel):
 
 
 class McpServerConfig(BaseModel):
-    """An MCP server started over stdio, e.g. command "npx", args ["-y", "@modelcontextprotocol/server-github"]."""
-    command: str
+    """
+    An MCP server: either a local one started over stdio (command "npx", args ["-y", "..."]) or a remote one
+    reached over HTTP (url "https://api-takient.onrender.com/mcp", headers {"Authorization": "Bearer ${PLAATOOS_TOKEN}"}).
+    ${NAME} in a header value is read from the environment, so tokens stay out of the config file.
+    """
+    command: Optional[str] = None
     args: List[str] = Field(default_factory=list)
     env: Dict[str, str] = Field(default_factory=dict)  # added to the engine's environment
+    url: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
     timeout: float = 60.0  # seconds a tool call may take
+
+    @model_validator(mode="after")
+    def _one_transport(self) -> "McpServerConfig":
+        if bool(self.command) == bool(self.url):
+            raise ValueError("an MCP server needs either 'command' (local) or 'url' (remote), not both")
+        return self
 
 
 class CoworkConfig(BaseModel):
