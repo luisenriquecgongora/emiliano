@@ -101,6 +101,43 @@ fn escape_key() -> Shortcut {
     Shortcut::new(None, Code::Escape)
 }
 
+/// Default shortcut that brings up the dock from anywhere. Not Alt+Space: Windows uses it for every
+/// window's system menu.
+const DEFAULT_SUMMON: &str = "Ctrl+Shift+Space";
+
+/// The summon shortcut: EMILIANO_SUMMON_SHORTCUT (e.g. "Ctrl+Alt+E") if set and valid, else the default.
+/// An empty value turns it off.
+fn summon_shortcut() -> Option<Shortcut> {
+    let wanted =
+        std::env::var("EMILIANO_SUMMON_SHORTCUT").unwrap_or_else(|_| DEFAULT_SUMMON.to_string());
+    if wanted.trim().is_empty() {
+        return None;
+    }
+    match wanted.parse::<Shortcut>() {
+        Ok(shortcut) => Some(shortcut),
+        Err(err) => {
+            eprintln!("[emiliano] invalid EMILIANO_SUMMON_SHORTCUT {wanted:?} ({err}); using {DEFAULT_SUMMON}");
+            DEFAULT_SUMMON.parse().ok()
+        }
+    }
+}
+
+/// Shows the dock and puts the cursor in its message box; if the dock already has focus, hides it.
+fn toggle_dock(app: &AppHandle) {
+    let Some(dock) = app.get_webview_window("dock") else {
+        return;
+    };
+    let visible = dock.is_visible().unwrap_or(false) && !dock.is_minimized().unwrap_or(false);
+    if visible && dock.is_focused().unwrap_or(false) {
+        let _ = dock.hide();
+        return;
+    }
+    let _ = dock.show();
+    let _ = dock.unminimize();
+    let _ = dock.set_focus();
+    let _ = app.emit("summon", ());
+}
+
 /// Arms or disarms the system-wide Esc kill switch. The UI arms it only while a task
 /// runs, so Esc keeps working normally in other apps the rest of the time.
 #[tauri::command]
@@ -121,10 +158,13 @@ fn main() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    if event.state() == ShortcutState::Pressed
-                        && shortcut.matches(Modifiers::empty(), Code::Escape)
-                    {
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    if shortcut.matches(Modifiers::empty(), Code::Escape) {
                         let _ = app.emit("emergency-stop", ());
+                    } else if summon_shortcut().is_some_and(|summon| summon.id() == shortcut.id()) {
+                        toggle_dock(app);
                     }
                 })
                 .build(),
@@ -140,13 +180,24 @@ fn main() {
             let handle = app.handle();
             app.manage(Engine(Mutex::new(start_engine(handle))));
             place_windows(handle)?;
+            // Registered for the app's whole life; failing (another app owns the keys) must not stop startup
+            if let Some(summon) = summon_shortcut() {
+                if let Err(err) = app.global_shortcut().register(summon) {
+                    eprintln!("[emiliano] could not register the summon shortcut: {err}");
+                }
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building Emiliano")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                let child = app.state::<Engine>().0.lock().ok().and_then(|mut engine| engine.take());
+                let child = app
+                    .state::<Engine>()
+                    .0
+                    .lock()
+                    .ok()
+                    .and_then(|mut engine| engine.take());
                 if let Some(child) = child {
                     stop_engine(child);
                 }

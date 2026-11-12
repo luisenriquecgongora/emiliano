@@ -953,10 +953,20 @@ function Composer(props: {
   onSend: () => void;
   onStop: () => void;
 }) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The summon shortcut (Ctrl+Shift+Space by default) brings the dock up ready to type
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen('summon', () => inputRef.current?.focus());
+    return () => {
+      unlisten.then((off) => off());
+    };
+  }, []);
   return (
     <div className="mt-3">
       <div className="bg-slate-900 border border-slate-700 rounded-xl focus-within:border-cyan-500">
         <textarea
+          ref={inputRef}
           value={props.draft}
           onChange={(e) => props.onDraft(e.target.value)}
           onKeyDown={(e) => {
