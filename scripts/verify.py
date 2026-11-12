@@ -31,6 +31,8 @@ CHECKS: list[tuple[str, str, str, list[str]]] = [
     ("python", "release retention tests", ".", ["{py}", "-m", "unittest", "scripts/test_prune_r2_releases.py"]),
     ("python", "cli sanity", ".", ["{py}", "-m", "emiliano.cli", "--help"]),
     ("desktop", "desktop typecheck", ".", ["{yarn}", "workspace", "@emiliano/desktop", "tsc", "--noEmit"]),
+    # Node 22+ runs .ts tests directly (type stripping), so the desktop needs no test runner dependency.
+    ("desktop", "desktop tests", ".", ["node", "--test", "apps/desktop/src/**/*.test.ts"]),
 ]
 # Linter run on each file an agent edits, by file extension ("{file}" is the file);
 # findings go back to the agent. Lint only, never formatters.

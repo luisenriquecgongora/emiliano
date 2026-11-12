@@ -36,6 +36,23 @@ def load_litellm():
     return litellm
 
 
+def to_openai_messages(messages: List[Dict]) -> List[Dict]:
+    """
+    Messages may carry screenshots as {"images": [base64 JPEG, ...]}, the format Ollama's /api/chat takes as-is.
+    Cloud APIs (through litellm) want OpenAI-style content parts instead, so this converts those messages.
+    """
+    out = []
+    for m in messages:
+        images = m.get("images")
+        if not images:
+            out.append(m)
+            continue
+        parts = [{"type": "text", "text": m.get("content") or ""}]
+        parts += [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}} for b64 in images]
+        out.append({k: v for k, v in m.items() if k not in ("images", "content")} | {"content": parts})
+    return out
+
+
 class UnifiedLLMClient:
     def __init__(
         self,
@@ -251,7 +268,7 @@ class UnifiedLLMClient:
         # into harness subprocesses (e.g. switching Claude Code to API billing)
         response = await litellm.acompletion(
             model=target_model,
-            messages=messages,
+            messages=to_openai_messages(messages),
             stream=True,
             api_base=api_base,
             api_key=self._provider_key(target_model),

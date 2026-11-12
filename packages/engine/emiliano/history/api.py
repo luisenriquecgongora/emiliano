@@ -9,7 +9,9 @@ REST:
     DELETE /api/chats            delete every chat
 
 WebSocket /api/chat:
-    client -> {"type": "send", "chat_id": "...", "content": "...", "mode": "auto" | "direct" | <harness>}
+    client -> {"type": "send", "chat_id": "...", "content": "...", "mode": "auto" | "direct" | <harness>,
+               "provider": optional, "model": optional}   provider (e.g. "ollama") + model pick one model,
+               overriding mode; see GET /api/models
               {"type": "cancel"}
               {"type": "permission_response", "request_id": "...", "option_id": "..." | null}   null = reject
     server -> {"type": "user_message", "message": {...}}
@@ -209,8 +211,10 @@ async def chat_socket(websocket: WebSocket):
         while True:
             await websocket.send_json(await outbox.get())
 
-    async def respond(chat_id: str, content: str, mode: Optional[str]) -> None:
-        policy, harness = resolve_mode(mode)
+    async def respond(chat_id: str, content: str, mode: Optional[str],
+                      provider: Optional[str] = None, model: Optional[str] = None) -> None:
+        # A model picked in the dock answers directly, whatever the mode says
+        policy, harness = (None, None) if provider else resolve_mode(mode)
         answer = []
 
         def on_chunk(text: str) -> None:
@@ -222,6 +226,8 @@ async def chat_socket(websocket: WebSocket):
                 goal=content,
                 policy=policy,
                 harness_override=harness,
+                provider_override=provider,
+                model_override=model if provider else None,
                 messages=store.conversation(chat_id),
                 on_chunk=on_chunk,
                 on_reasoning=lambda text: emit({"type": "reasoning", "content": text}),
@@ -274,7 +280,8 @@ async def chat_socket(websocket: WebSocket):
                 emit({"type": "error", "message": "Chat not found", "code": "CHAT_NOT_FOUND"})
                 continue
             emit({"type": "user_message", "message": user_message})
-            running = asyncio.create_task(respond(chat_id, content, data.get("mode")))
+            running = asyncio.create_task(respond(
+                chat_id, content, data.get("mode"), data.get("provider") or None, data.get("model") or None))
     except WebSocketDisconnect:
         pass
     finally:

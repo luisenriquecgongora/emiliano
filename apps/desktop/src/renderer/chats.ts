@@ -97,6 +97,74 @@ export const chatsApi = {
     request<CompactResult>(`/api/chats/${id}/compact`, { method: 'POST' }),
 };
 
+/** A provider or harness from GET /api/models. */
+export interface ModelProvider {
+  name: string;
+  displayName: string;
+  executionType: string;
+  status: string;
+  selectedModel?: string | null;
+  availableModels: string[];
+}
+
+/** A model the dock can pin a chat to; empty provider means "let the mode decide". */
+export interface ModelChoice {
+  provider: string;
+  model: string;
+}
+
+/** How a local model runs on this machine: in GPU memory (fast), split with RAM (slow), or not at all. */
+export type ModelFit = 'fits_gpu' | 'slow' | 'too_big';
+
+export interface LocalModel {
+  name: string;
+  sizeBytes: number;
+  tools: boolean | null;
+  fit: ModelFit;
+  recommended: boolean;
+  loaded: boolean;
+  vramBytes: number;
+}
+
+export interface ModelSuggestion {
+  name: string;
+  sizeGb: number;
+  fit: ModelFit;
+  note: string;
+  pull: string;
+}
+
+export interface ModelRecommendations {
+  hardware: { gpuName: string | null; vramBytes: number; ramBytes: number };
+  models: LocalModel[];
+  suggestions: ModelSuggestion[];
+}
+
+export const FIT_LABELS: Record<ModelFit, { icon: string; text: string }> = {
+  fits_gpu: { icon: '✅', text: 'Fits your GPU: fast' },
+  slow: { icon: '⚠️', text: 'Spills into RAM: slow' },
+  too_big: { icon: '❌', text: 'Too big for this machine' },
+};
+
+export const modelsApi = {
+  list: () => request<{ models: ModelProvider[] }>('/api/models'),
+  recommendations: () => request<ModelRecommendations>('/api/models/recommendations'),
+  load: (model: string) => request<{ status: string }>('/api/models/load', { method: 'POST', body: JSON.stringify({ model }) }),
+  unload: (model: string) =>
+    request<{ status: string }>('/api/models/unload', { method: 'POST', body: JSON.stringify({ model }) }),
+};
+
+export function formatGb(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/** Ready direct models (local Ollama and API providers with keys); harnesses pick their own model. */
+export function directModelGroups(providers: ModelProvider[]): ModelProvider[] {
+  return providers.filter(
+    (p) => p.executionType === 'direct_model' && p.status === 'ready' && p.availableModels.length > 0,
+  );
+}
+
 /** "2m", "3h", "Yesterday", "Oct 12" — compact enough for the 420px dock. */
 export function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);

@@ -9,9 +9,11 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -26,9 +28,10 @@ Your goal is to inspect the codebase, locate issues, make surgical code modifica
 
 You have access to the following workspace tools:
 - read_file(path, start_line=1, end_line=None): Read file contents with line numbers
-- edit_file(path, target, replacement): Replace exact target string with replacement string in path
+- edit_file(path, target, replacement): Replace target string with replacement string in path (supports indentation tolerance)
 - write_file(path, content): Create or overwrite a file with content
 - list_dir(path="."): List files in a directory
+- grep(pattern, path=".", glob=None): Search for regex pattern or text across codebase files
 - bash(command): Execute a shell command in the current directory and get stdout/stderr/exit code
 
 To invoke a tool, output a tool call block using one of these formats:
@@ -36,6 +39,7 @@ To invoke a tool, output a tool call block using one of these formats:
 Format 1 (XML - Recommended):
 <call:read_file path="calc.py"/>
 <call:list_dir path="."/>
+<call:grep pattern="def total" path="."/>
 <call:bash command="python check.py"/>
 <call:edit_file path="calc.py">
 <target>
@@ -83,30 +87,202 @@ def tool_read_file(path: str, start_line: int = 1, end_line: Optional[int] = Non
         return f"Error reading file '{path}': {e}"
 
 
+def _indent_width(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _smallest_step(widths: List[int]) -> int:
+    """The indent unit a block uses (2, 4, 1 tab...), from the gaps between its distinct indent widths."""
+    levels = sorted(set(widths))
+    steps = [b - a for a, b in zip(levels, levels[1:])] + [w for w in levels if w > 0]
+    return min(steps) if steps else 0
+
+
+def _reindent(target_lines: List[str], file_lines: List[str], repl_lines: List[str]) -> List[str]:
+    """
+    Re-indents the replacement to the file's indentation. The matched block pairs each target indent with the
+    file's indent at that line, so known levels map exactly ("    " -> "" when the model over-indented, 2 -> 4
+    spaces when it used a smaller unit); levels the target never used extend from the nearest known one,
+    converted by the ratio between the two indent units.
+    """
+    pairs: Dict[int, int] = {}
+    for t_line, f_line in zip(target_lines, file_lines):
+        if t_line.strip():
+            pairs.setdefault(_indent_width(t_line), _indent_width(f_line))
+    if not pairs:
+        return repl_lines
+    t_step, f_step = _smallest_step(list(pairs)), _smallest_step(list(pairs.values()))
+    ratio = f_step / t_step if t_step and f_step else 1.0
+    indent_char = "\t" if any(f.startswith("\t") for f in file_lines if f.strip()) else " "
+
+    out = []
+    for line in repl_lines:
+        if not line.strip():
+            out.append("")
+            continue
+        width = _indent_width(line)
+        known = [t for t in pairs if t <= width]
+        base = max(known) if known else min(pairs)
+        new_width = max(0, round(pairs[base] + (width - base) * ratio))
+        out.append(indent_char * new_width + line.lstrip())
+    return out
+
+
+def fuzzy_replace(content: str, target: str, replacement: str) -> Tuple[Optional[str], int]:
+    """
+    Replaces the first occurrence of target, tolerating what small models get wrong: CRLF vs LF line endings and
+    different indentation or trailing spaces (matched line by line, then re-indented to fit the file).
+    Returns (new content or None when nothing matched, how many places matched), so callers can warn when the
+    target was ambiguous.
+    """
+    if not target:
+        return None, 0
+
+    # 1. Exact match
+    if target in content:
+        return content.replace(target, replacement, 1), content.count(target)
+
+    # 2. Line ending normalization
+    content_lf = content.replace("\r\n", "\n")
+    target_lf = target.replace("\r\n", "\n")
+    replacement_lf = replacement.replace("\r\n", "\n")
+    crlf = "\r\n" in content
+    if target_lf in content_lf:
+        new_content_lf = content_lf.replace(target_lf, replacement_lf, 1)
+        return (new_content_lf.replace("\n", "\r\n") if crlf else new_content_lf), content_lf.count(target_lf)
+
+    # 3. Line by line, ignoring indentation and trailing whitespace
+    content_lines = content_lf.split("\n")
+    target_lines = target_lf.strip("\n").split("\n")
+    repl_lines = replacement_lf.strip("\n").split("\n") if replacement_lf.strip() else []
+    target_stripped = [line.strip() for line in target_lines]
+    if not any(target_stripped):
+        return None, 0
+    t_len = len(target_stripped)
+
+    starts = [i for i in range(len(content_lines) - t_len + 1)
+              if [line.strip() for line in content_lines[i:i + t_len]] == target_stripped]
+    if not starts:
+        return None, 0
+
+    first = starts[0]
+    new_block = _reindent(target_lines, content_lines[first:first + t_len], repl_lines)
+    new_content = "\n".join(content_lines[:first] + new_block + content_lines[first + t_len:])
+    return (new_content.replace("\n", "\r\n") if crlf else new_content), len(starts)
+
+
+def fuzzy_replace_text(content: str, target: str, replacement: str) -> Optional[str]:
+    """fuzzy_replace without the match count: the new content, or None when target was not found."""
+    return fuzzy_replace(content, target, replacement)[0]
+
+
 def tool_edit_file(path: str, target: str, replacement: str, cwd: str = ".") -> str:
-    """Replaces target string with replacement in path."""
+    """Replaces target string with replacement in path with fuzzy whitespace tolerance."""
     target_path = Path(cwd) / path if not Path(path).is_absolute() else Path(path)
     if not target_path.is_file():
         return f"Error: File '{path}' does not exist."
     try:
         content = target_path.read_text(encoding="utf-8", errors="replace")
-        if target not in content:
-            # Try normalizing line endings
-            content_lf = content.replace("\r\n", "\n")
-            target_lf = target.replace("\r\n", "\n")
-            if target_lf in content_lf:
-                new_content = content_lf.replace(target_lf, replacement.replace("\r\n", "\n"), 1)
-                target_path.write_text(new_content, encoding="utf-8")
-                return f"Successfully edited '{path}'."
-            return f"Error: Target text not found in '{path}'. Please inspect the file with read_file first."
+        new_content, matches = fuzzy_replace(content, target, replacement)
+        if new_content is None:
+            return f"Error: Target text not found in '{path}'. Please inspect the file with read_file or grep first."
 
-        count = content.count(target)
-        new_content = content.replace(target, replacement, 1)
         target_path.write_text(new_content, encoding="utf-8")
-        note = f" (1 of {count} matches replaced)" if count > 1 else ""
-        return f"Successfully edited '{path}'{note}."
+        # The model must know when its target was ambiguous, or it may believe it edited another place
+        note = (f" Warning: the target matched {matches} places and only the first was edited; include more "
+                "surrounding lines to edit a different one.") if matches > 1 else ""
+        return f"Successfully edited '{path}'.{note}"
     except Exception as e:
         return f"Error editing file '{path}': {e}"
+
+
+def tool_grep(
+    pattern: str,
+    path: str = ".",
+    glob_pattern: Optional[str] = None,
+    cwd: str = ".",
+    max_matches: int = 100,
+) -> str:
+    """Searches for regex pattern or text across codebase files using ripgrep or pure-python fallback."""
+    if not pattern:
+        return "Error: Grep pattern cannot be empty."
+
+    target_dir = Path(cwd) / path if not Path(path).is_absolute() else Path(path)
+    if not target_dir.exists():
+        return f"Error: Path '{path}' does not exist."
+
+    # 1. Try system ripgrep if installed
+    rg_exe = shutil.which("rg")
+    if rg_exe:
+        # Case-insensitive and relative to the workspace, like the Python fallback, so results look the same
+        cmd = [rg_exe, "-n", "-i", "--no-heading", "--color", "never", "-m", str(max_matches)]
+        if glob_pattern:
+            cmd.extend(["-g", glob_pattern])
+        cmd.extend(["--", pattern, path])
+        try:
+            res = subprocess.run(
+                cmd,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+            )
+            output = res.stdout.strip()
+            if output:
+                lines = []
+                for raw in output.splitlines():
+                    file_part, sep, rest = raw.partition(":")
+                    line_no, sep2, text = rest.partition(":")
+                    lines.append(f"{file_part}:{line_no}: {text.strip()}" if sep and sep2 else raw)
+                count = len(lines)
+                note = f" (showing first {max_matches} matches)" if count >= max_matches else ""
+                return f"Grep results for '{pattern}'{note}:\n" + "\n".join(lines[:max_matches])
+            elif res.returncode == 1:
+                return f"No matches found for '{pattern}' in '{path}'."
+        except Exception:
+            pass  # Fallback to python search
+
+    # 2. Pure-Python recursive search fallback
+    ignored_dirs = {".git", ".venv", "node_modules", "__pycache__", "dist", "build", ".pytest_cache", ".ruff_cache"}
+    matches = []
+    try:
+        regex = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        regex = None
+
+    try:
+        files = [target_dir] if target_dir.is_file() else sorted(target_dir.rglob(glob_pattern or "*"))
+        cwd_resolved = Path(cwd).resolve()
+        for f in files:
+            if any(part in ignored_dirs for part in f.parts):
+                continue
+            if not f.is_file() or f.stat().st_size > 1_000_000:
+                continue
+            try:
+                file_text = f.read_text(encoding="utf-8", errors="replace")
+                for line_no, line in enumerate(file_text.splitlines(), start=1):
+                    hit = regex.search(line) if regex else (pattern in line)
+                    if hit:
+                        try:
+                            rel_path = f.resolve().relative_to(cwd_resolved)
+                        except ValueError:
+                            rel_path = f
+                        matches.append(f"{rel_path}:{line_no}: {line.strip()}")
+                        if len(matches) >= max_matches:
+                            break
+            except Exception:
+                continue
+            if len(matches) >= max_matches:
+                break
+
+        if not matches:
+            return f"No matches found for '{pattern}' in '{path}'."
+        note = f" (showing first {max_matches} matches)" if len(matches) >= max_matches else ""
+        return f"Grep results for '{pattern}'{note}:\n" + "\n".join(matches)
+    except Exception as e:
+        return f"Error executing grep: {e}"
 
 
 def tool_write_file(path: str, content: str, cwd: str = ".") -> str:
@@ -192,7 +368,7 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
 
     # 2. XML call format: <call:name ...> or <name ...>
     xml_pattern = re.compile(
-        r"<(?:call:)?(read_file|edit_file|write_file|list_dir|bash)"
+        r"<(?:call:)?(read_file|edit_file|write_file|list_dir|bash|grep|search)"
         r"([^>]*?)(?:/>|>(.*?)</(?:call:)?\1>)",
         re.DOTALL | re.IGNORECASE,
     )
@@ -223,6 +399,9 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
         elif tool == "bash":
             if "command" not in args and body.strip():
                 args["command"] = body.strip()
+        elif tool in ("grep", "search"):
+            if "pattern" not in args and body.strip():
+                args["pattern"] = body.strip()
 
         if tool and (args or tool == "list_dir"):
             calls.append({"tool": tool, "args": args})
@@ -272,8 +451,11 @@ class DirectAgentLoop:
         max_turns: int = 10,
         timeout: float = 180.0,
         auto_verify: bool = True,
+        mcp: Optional[Any] = None,
     ):
         self.client = client
+        # McpManager whose tools are offered next to the built-in ones (None = built-in tools only)
+        self.mcp = mcp
         self.model_id = model_id
         self.max_turns = max_turns
         self.timeout = timeout
@@ -308,9 +490,18 @@ class DirectAgentLoop:
             path = args.get("path", ".")
             return tool_list_dir(path=path, cwd=cwd)
 
+        elif tool_name in ("grep", "search"):
+            pattern = args.get("pattern") or args.get("query") or ""
+            path = args.get("path") or "."
+            glob_pat = args.get("glob") or None
+            return tool_grep(pattern=pattern, path=path, glob_pattern=glob_pat, cwd=cwd)
+
         elif tool_name == "bash":
             command = args.get("command") or args.get("cmd") or ""
             return await tool_bash(command, cwd=cwd)
+
+        elif self.mcp is not None and self.mcp.has(tool_name):
+            return await self.mcp.acall(tool_name, args if isinstance(args, dict) else {})
 
         else:
             return f"Error: Unknown tool '{tool_name}'."
@@ -329,7 +520,8 @@ class DirectAgentLoop:
         Returns the final combined output text.
         """
         history: List[Dict[str, str]] = []
-        history.append({"role": "system", "content": AGENT_SYSTEM_PROMPT})
+        system_prompt = AGENT_SYSTEM_PROMPT + (self.mcp.prompt_section() if self.mcp is not None else "")
+        history.append({"role": "system", "content": system_prompt})
         if messages:
             # Include prior conversation history excluding existing system prompt
             for m in messages:

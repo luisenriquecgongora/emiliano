@@ -27,7 +27,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger("r2.pruner")
 
-MAX_RELEASES = 5
+MAX_RELEASES = 3
 DEFAULT_PREFIX = "emiliano"
 PROTECTED_FOLDERS = {"latest"}
 
@@ -146,7 +146,7 @@ def main():
     args = parser.parse_args()
 
     validate_max_keep(args.max_keep)
-    bucket = os.environ.get("R2_BUCKET_NAME", "plaatoos-downloads")
+    bucket = os.environ.get("R2_BUCKET_NAME", "luisenrique-releases")
     prune_prefix_releases(get_r2_client(), bucket, args.prefix, max_keep=args.max_keep, dry_run=args.dry_run)
 
 

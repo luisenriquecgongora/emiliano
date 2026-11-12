@@ -38,6 +38,13 @@ class TestRules(unittest.TestCase):
     def test_d_something_broken(self):
         self.check(["Why is the build failing?", "¿Por qué no funciona el servidor?"], True)
 
+    def test_f_find_how_to_run_something(self):
+        # From a real chat: the local model answered without files because this was routed as conversation
+        self.check(["can u help me find how can i run the HUD?", "Can you help me find how to start the dock?",
+                    "busca cómo arrancar el HUD", "ayúdame a encontrar cómo ejecutar el HUD"], True)
+        self.check(["can u help me find a good recipe", "Find out how to use git rebase",
+                    "can you tell me how to run a python script?", "How do I run a Python script?"], False)
+
     def test_questions_stay_direct(self):
         self.check(["How do I write a unit test in pytest?", "What does npm install do?",
                     "Explain the difference between git merge and git rebase", "¿Qué es una función recursiva?"],

@@ -167,6 +167,12 @@ yarn workspace @emiliano/desktop tauri dev  # runs the desktop app with hot relo
 
 To work on the UI against an engine you run yourself, start `emiliano server` and set `EMILIANO_EXTERNAL_ENGINE=1` before `tauri dev`. `yarn workspace @emiliano/desktop dev` serves the UI in a browser at `http://localhost:5173` without Rust.
 
+**MCP tools.** List MCP servers under `mcp_servers:` in `emiliano.yaml` and local and API models can call their tools (see `emiliano.example.yaml`; check them with `emiliano mcp`). Local servers start from a `command`; remote ones take a `url` and `headers`, where `${NAME}` is read from the environment. To use PlaatoOS, create an agent token (`pak_...`) in PlaatoOS under Admin > Storefront > Agent Commerce, set it as the `PLAATOOS_TOKEN` environment variable, and add a server with `url: https://api-takient.onrender.com/mcp` and `headers: {Authorization: "Bearer ${PLAATOOS_TOKEN}"}`.
+
+**Summon and diffs.** Press **Ctrl+Shift+Space** anywhere to bring up the dock with the cursor in the message box; press it again while the dock has focus to hide it. Set `EMILIANO_SUMMON_SHORTCUT` (e.g. `Ctrl+Alt+E`) to use other keys, or to an empty value to turn it off. Diffs in replies (```` ```diff ```` blocks or `git diff` output) open in a diff viewer: one section per file with +/- counts and line numbers, unified or side by side.
+
+**Picking a model.** Next to the mode dropdown in the dock, the model dropdown pins replies to one model; "Default model" lets the mode decide. Local models are labelled for your hardware: ✅ fits your GPU (fast), ⚠️ spills into RAM (slow), ❌ too big, and the best tool-capable fit is marked *recommended*. The chip button beside it opens **Local models**: your GPU and RAM, Load/Unload buttons (Load keeps a model in memory so replies start at once; Unload frees its memory), and suggested downloads that run on your machine with their `ollama pull` command. The rating is an estimate from file size, not a benchmark. In the terminal chat, `/models` shows the same ratings and suggestions, `/model` lists the models as a numbered list to pick from (or `/model 2`, `/model qwen3:4b`; `/model auto` goes back to routing), and `/load [name]` / `/unload [name]` load or free a local model (by default the recommended one, or every loaded one).
+
 **Chat history.** Chats are saved on your machine in `~/.emiliano/history.db` (set `EMILIANO_HISTORY_DB` to use another file). In the dock, the clock button lists them, newest first: click one to reopen it, or use the trash icon (or "Clear all history") to delete. Deleted chats cannot be restored. The engine serves them at `/api/chats` and streams replies over `/api/chat`; both only answer the desktop app (requests must address `127.0.0.1`/`localhost` and come from the app's origin).
 
 **Modes.** The dropdown under the message box picks who answers: *Auto* (Emiliano decides), *Local model* (Ollama), or a specific agent (Claude Code, Codex, Antigravity, OpenCode). Plain conversation is answered directly, with the model's step-by-step reasoning turned off for speed; tasks keep reasoning and also see the project's `EMILIANO.md`/`CLAUDE.md`.
@@ -185,11 +191,11 @@ Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which:
 1. Builds a standalone `Emiliano.exe` with PyInstaller (`scripts/build_windows_release.py`) and smoke-tests it.
 2. Packages `Emiliano-vX.Y.Z-windows-x64.zip` and a `version.json` manifest with SHA-256 checksums.
 3. Builds the desktop app with the same engine bundled inside (`scripts/build_desktop_release.py`): `Emiliano-Desktop-vX.Y.Z-windows-x64-setup.exe` and `.msi`, added to `version.json`.
-4. Uploads everything to Cloudflare R2 under `emiliano/vX.Y.Z/` and `emiliano/latest/` (`scripts/publish_release_to_r2.py`).
-5. Deletes all but the newest **5** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
-6. Creates a GitHub Release with the same files. The release fails unless the tag matches the version in `packages/engine/emiliano/__init__.py` and `apps/desktop/src-tauri/tauri.conf.json`; bump `pyproject.toml`, `apps/desktop/package.json` and `src-tauri/Cargo.toml` with them.
+4. Uploads the zip, the setup installer and `version.json` to Cloudflare R2 under `emiliano/vX.Y.Z/` and `emiliano/latest/` (`scripts/publish_release_to_r2.py`). The raw `Emiliano.exe` (already inside the zip) and the `.msi` (same app as the setup installer) are left out to keep the bucket inside the 10 GB free tier.
+5. Deletes all but the newest **3** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
+6. Creates a GitHub Release with all four files plus `version.json`; older versions stay downloadable there after R2 prunes them. The release fails unless the tag matches the version in `packages/engine/emiliano/__init__.py` and `apps/desktop/src-tauri/tauri.conf.json`; bump `pyproject.toml`, `apps/desktop/package.json` and `src-tauri/Cargo.toml` with them.
 
-The workflow needs these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME` (default `plaatoos-downloads`) and `R2_CUSTOM_DOMAIN`.
+The workflow needs these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME` (default `luisenrique-releases`) and `R2_CUSTOM_DOMAIN` (default `https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev`).
 
 To build locally without publishing:
 

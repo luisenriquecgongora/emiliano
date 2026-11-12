@@ -111,6 +111,42 @@ async def list_models():
     return {"models": results}
 
 
+@app.get("/api/models/recommendations")
+async def model_recommendations():
+    """
+    Local models rated for this machine: {hardware, models: [{name, sizeBytes, tools, fit, recommended, loaded,
+    vramBytes}], suggestions: [{name, sizeGb, fit, note, pull}]}. fit is fits_gpu | slow | too_big.
+    """
+    from ..direct.hardware import local_model_report
+
+    return await local_model_report(get_dispatcher().registry.ollama_mgr)
+
+
+class ModelPayload(BaseModel):
+    model: str
+
+
+@app.post("/api/models/load")
+async def load_model(payload: ModelPayload):
+    """Loads a local model into memory and keeps it there until unloaded, so replies start at once."""
+    dispatcher = get_dispatcher()
+    mgr = dispatcher.registry.ollama_mgr
+    if payload.model not in await mgr.list_installed_models():
+        raise HTTPException(status_code=404, detail=f"Model not installed: {payload.model}")
+    ok = await mgr.preload(payload.model, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=-1)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Ollama could not load {payload.model}")
+    return {"status": "loaded", "model": payload.model}
+
+
+@app.post("/api/models/unload")
+async def unload_model(payload: ModelPayload):
+    """Frees the memory a loaded local model holds."""
+    if not await get_dispatcher().registry.ollama_mgr.unload(payload.model):
+        raise HTTPException(status_code=502, detail=f"Ollama could not unload {payload.model}")
+    return {"status": "unloaded", "model": payload.model}
+
+
 # Cowork singletons
 pin_manager = WindowPinManager()
 screen_perceiver = ScreenPerceiver(pin_manager=pin_manager)
@@ -192,6 +228,8 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         fallback_chain=[model_name],
         config=dispatcher.config,
     )
+    from ..cowork.vision import vision_enabled
+    vision = await vision_enabled(dispatcher.config.cowork.vision, model_name, dispatcher.registry.ollama_mgr)
     agent = CoworkAgentLoop(
         client=client,
         model_id=model_name,
@@ -199,6 +237,9 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         screen_perceiver=screen_perceiver,
         action_synthesizer=action_synthesizer,
         timeout=payload.timeout,
+        vision=vision,
+        # The HUD overlay window listens on /ws and draws each target before it is acted on
+        on_highlight=lambda p: broadcast_event("HUD_HIGHLIGHT", p),
     )
     try:
         output = await agent.run(goal=payload.goal, hwnd=payload.hwnd)
@@ -206,6 +247,8 @@ async def run_cowork_agent(payload: CoworkRunPayload):
     except Exception as e:
         logger.error(f"[Server] Cowork agent failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await broadcast_event("HUD_CLEAR", {})
 
 
 @app.websocket("/ws")

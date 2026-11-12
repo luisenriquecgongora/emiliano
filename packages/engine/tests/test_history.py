@@ -142,6 +142,42 @@ class TestChatSocket(HistoryTestCase):
                          ["my name is Ana", "Nice to meet you, Ana!", "what is my name?"])
         self.assertEqual(seen["harness_override"], "claude")
 
+    def test_picked_model_overrides_mode(self):
+        chat = self.client.post("/api/chats", json={}).json()
+        seen = {}
+
+        async def fake_execute_task(**kwargs):
+            seen.update(kwargs)
+            return OLLAMA, "ok"
+
+        with patch.object(get_dispatcher(), "execute_task", side_effect=fake_execute_task):
+            with self.client.websocket_connect(WS_URL) as ws:
+                ws.send_json({"type": "send", "chat_id": chat["id"], "content": "hi", "mode": "claude_code",
+                              "provider": "ollama", "model": "qwen3:8b"})
+                self._receive_until(ws, {"done", "error"})
+
+        self.assertEqual(seen["provider_override"], "ollama")
+        self.assertEqual(seen["model_override"], "qwen3:8b")
+        self.assertIsNone(seen["harness_override"])
+        self.assertIsNone(seen["policy"])
+
+    def test_no_picked_model_keeps_routing(self):
+        chat = self.client.post("/api/chats", json={}).json()
+        seen = {}
+
+        async def fake_execute_task(**kwargs):
+            seen.update(kwargs)
+            return OLLAMA, "ok"
+
+        with patch.object(get_dispatcher(), "execute_task", side_effect=fake_execute_task):
+            with self.client.websocket_connect(WS_URL) as ws:
+                ws.send_json({"type": "send", "chat_id": chat["id"], "content": "hi", "mode": "direct", "model": "x"})
+                self._receive_until(ws, {"done", "error"})
+
+        self.assertIsNone(seen["provider_override"])
+        self.assertIsNone(seen["model_override"])
+        self.assertEqual(seen["policy"], "local")
+
     def test_cancel_keeps_partial_answer(self):
         chat = self.client.post("/api/chats", json={}).json()
 

@@ -6,9 +6,9 @@ Loads settings from emiliano.yaml, environment variables, or sensible defaults.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SummarizationConfig(BaseModel):
@@ -88,6 +88,33 @@ class HarnessPathsConfig(BaseModel):
     unattended_fallback: bool = True
 
 
+class McpServerConfig(BaseModel):
+    """
+    An MCP server: either a local one started over stdio (command "npx", args ["-y", "..."]) or a remote one
+    reached over HTTP (url "https://api-takient.onrender.com/mcp", headers {"Authorization": "Bearer ${PLAATOOS_TOKEN}"}).
+    ${NAME} in a header value is read from the environment, so tokens stay out of the config file.
+    """
+    command: Optional[str] = None
+    args: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)  # added to the engine's environment
+    url: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
+    enabled: bool = True
+    timeout: float = 60.0  # seconds a tool call may take
+
+    @model_validator(mode="after")
+    def _one_transport(self) -> "McpServerConfig":
+        if bool(self.command) == bool(self.url):
+            raise ValueError("an MCP server needs either 'command' (local) or 'url' (remote), not both")
+        return self
+
+
+class CoworkConfig(BaseModel):
+    # Screenshots for vision models in Cowork: "local" = only local (Ollama) vision models get them, so the screen
+    # never leaves this machine; "always" = cloud vision models too; "never" = UI Automation text only
+    vision: str = "local"
+
+
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
@@ -101,6 +128,9 @@ class EmilianoConfig(BaseModel):
     harnesses: HarnessPathsConfig = Field(default_factory=HarnessPathsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    # MCP servers whose tools local and API models can use (and ACP harnesses receive); name -> server
+    mcp_servers: Dict[str, McpServerConfig] = Field(default_factory=dict)
+    cowork: CoworkConfig = Field(default_factory=CoworkConfig)
     # Record one local trace per task (route, timings, tokens) in ~/.emiliano/traces.db; never uploaded
     traces: bool = True
 

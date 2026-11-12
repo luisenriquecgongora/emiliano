@@ -1,7 +1,12 @@
 # Engineering Standards & Observability Contract
 
-### 1. Pre-Change Invariant Manifest
-Before executing code modifications touching more than one file, output a compact change manifest table:
+### 1. Pre-Change Invariant Manifest & Autonomous Execution
+- **Autonomous Bias for Action:** Execute tasks end-to-end without pausing for conversational confirmation. Do NOT use interactive question tools or ask clarifying questions for routine technical decisions, naming, library choices, or architectural trade-offs. Apply the **"Convention over Consultation"** rule: pick the standard, simplest idiom, implement it, and document assumptions in commit messages.
+- **Inspect Before Inquiring:** Never ask a question that can be answered by searching the repository, reading existing tests, or checking config files.
+- **The Escalation Boundary (Approval Required):** Stop and request user approval ONLY if:
+  1. An action is **irreversible or destructive** (e.g., dropping databases/tables, deleting files or directories, destructive git commands like `push --force` or `reset --hard`, or purging untracked data). You **MUST analyze the impact, explain the blast radius, and require explicit confirmation** before running any such command.
+  2. Requirements are fundamentally contradictory with zero sensible default after inspecting the codebase.
+- **Pre-Change Invariant Manifest:** Before executing code modifications touching more than one file, output a compact change manifest table and **immediately proceed to implementation in the same turn without waiting for confirmation**:
 
 | Target File / Module | Nature of Change | Breaking / Invariant Impact |
 | :--- | :--- | :--- |
@@ -77,7 +82,7 @@ All commits must follow:
 
 ### 10. Supporting another coding agent
 Instructions live only in this file and skills only in `.agents/skills/`; every agent tool gets them from there.
-- **Tool reads `AGENTS.md` and `.agents/skills/`** (Codex, OpenCode, Cursor, Copilot, Antigravity): nothing to do.
+- **Tool reads `AGENTS.md` and `.agents/skills/`** (Codex, OpenCode, Cursor, Copilot, Antigravity): nothing to do. For Antigravity CLI (`agy`), run with `--mode auto` or configure `"agentMode": "auto"` in `~/.gemini/antigravity-cli/settings.json` to prevent interactive tool approval prompts.
 - **Tool reads only its own files** (like Claude Code: `CLAUDE.md`, `.claude/skills/`):
   1. Add a one-line pointer file to `AGENTS.md` in the tool's format (see `CLAUDE.md`).
   2. Add its skills folder to `SKILL_MIRRORS` in `scripts/verify.py`, then run `python scripts/verify.py --only skills --fix` to create the symlinks.

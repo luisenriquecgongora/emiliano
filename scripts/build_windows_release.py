@@ -29,7 +29,7 @@ BUILD_DIR = ROOT_DIR / "build"
 
 PRODUCT = "Emiliano"
 R2_PREFIX = "emiliano"
-DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
+DEFAULT_PUBLIC_DOMAIN = "https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev"
 
 # Packages that load data files, plugins, or submodules dynamically, which
 # PyInstaller's static analysis would otherwise miss.
