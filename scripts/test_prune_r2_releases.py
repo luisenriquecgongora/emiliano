@@ -42,17 +42,17 @@ def bucket_with(*versions):
 
 
 class TestRetentionCap(unittest.TestCase):
-    def test_keeps_only_newest_five(self):
+    def test_keeps_only_newest_three(self):
         s3 = bucket_with("0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.6.0", "0.7.0")
         deleted = prune_prefix_releases(s3, "b", "emiliano")
-        self.assertEqual(deleted, 4)
-        self.assertEqual(s3.versions(), ["latest", "v0.3.0", "v0.4.0", "v0.5.0", "v0.6.0", "v0.7.0"])
+        self.assertEqual(deleted, 8)  # 4 versions x 2 files
+        self.assertEqual(s3.versions(), ["latest", "v0.5.0", "v0.6.0", "v0.7.0"])
 
     def test_orders_by_semver_not_text(self):
         s3 = bucket_with("0.9.0", "0.10.0", "0.11.0", "0.12.0", "0.13.0", "0.8.0")
         prune_prefix_releases(s3, "b", "emiliano")
-        self.assertNotIn("v0.8.0", s3.versions())
-        self.assertIn("v0.10.0", s3.versions())
+        self.assertNotIn("v0.9.0", s3.versions())  # newest by text order, oldest-but-one by semver
+        self.assertIn("v0.11.0", s3.versions())
 
     def test_within_limit_deletes_nothing(self):
         s3 = bucket_with("0.1.0", "0.2.0")
@@ -69,7 +69,7 @@ class TestRetentionCap(unittest.TestCase):
 
     def test_dry_run_deletes_nothing(self):
         s3 = bucket_with("0.1.0", "0.2.0", "0.3.0", "0.4.0", "0.5.0", "0.6.0")
-        self.assertEqual(prune_prefix_releases(s3, "b", "emiliano", dry_run=True), 2)
+        self.assertEqual(prune_prefix_releases(s3, "b", "emiliano", dry_run=True), 6)  # 3 versions x 2 files
         self.assertEqual(len(s3.versions()), 7)
 
     def test_latest_and_unrelated_folders_untouched(self):

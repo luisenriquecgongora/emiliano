@@ -3,7 +3,7 @@
 Uploads the files from build_windows_release.py to two places in the bucket:
   emiliano/v<version>/  immutable, cached for a year
   emiliano/latest/      short cache, always the newest release
-then enforces the retention cap (at most 5 versioned releases). A failed prune fails the
+then enforces the retention cap (at most 3 versioned releases). A failed prune fails the
 publish, so the cap can never be silently skipped.
 
 Usage:

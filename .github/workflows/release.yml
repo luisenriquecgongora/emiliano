@@ -89,7 +89,7 @@ jobs:
           R2_CUSTOM_DOMAIN: ${{ secrets.R2_CUSTOM_DOMAIN || 'https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev' }}
         run: python scripts/build_desktop_release.py --version ${{ env.VERSION }} --reuse-cli-exe
 
-      - name: Publish to Cloudflare R2 (keeps the newest 5 releases)
+      - name: Publish to Cloudflare R2 (keeps the newest 3 releases)
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

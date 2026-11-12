@@ -188,7 +188,7 @@ Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which:
 2. Packages `Emiliano-vX.Y.Z-windows-x64.zip` and a `version.json` manifest with SHA-256 checksums.
 3. Builds the desktop app with the same engine bundled inside (`scripts/build_desktop_release.py`): `Emiliano-Desktop-vX.Y.Z-windows-x64-setup.exe` and `.msi`, added to `version.json`.
 4. Uploads everything to Cloudflare R2 under `emiliano/vX.Y.Z/` and `emiliano/latest/` (`scripts/publish_release_to_r2.py`).
-5. Deletes all but the newest **5** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
+5. Deletes all but the newest **3** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
 6. Creates a GitHub Release with the same files. The release fails unless the tag matches the version in `packages/engine/emiliano/__init__.py` and `apps/desktop/src-tauri/tauri.conf.json`; bump `pyproject.toml`, `apps/desktop/package.json` and `src-tauri/Cargo.toml` with them.
 
 The workflow needs these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME` (default `luisenrique-releases`) and `R2_CUSTOM_DOMAIN` (default `https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev`).

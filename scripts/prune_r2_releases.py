@@ -27,7 +27,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger("r2.pruner")
 
-MAX_RELEASES = 5
+MAX_RELEASES = 3
 DEFAULT_PREFIX = "emiliano"
 PROTECTED_FOLDERS = {"latest"}
 
