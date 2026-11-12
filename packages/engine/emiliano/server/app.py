@@ -111,6 +111,54 @@ async def list_models():
     return {"models": results}
 
 
+@app.get("/api/models/recommendations")
+async def model_recommendations():
+    """
+    Local models rated for this machine: {hardware, models: [{name, sizeBytes, tools, fit, recommended, loaded,
+    vramBytes}], suggestions: [{name, sizeGb, fit, note, pull}]}. fit is fits_gpu | slow | too_big.
+    """
+    from ..direct.hardware import detect_hardware, hardware_dict, rate_installed, suggest_downloads
+
+    mgr = get_dispatcher().registry.ollama_mgr
+    hw = await asyncio.to_thread(detect_hardware)
+    details, loaded = await asyncio.gather(mgr.list_model_details(), mgr.list_loaded())
+    models = rate_installed(details, hw)
+    for m in models:
+        info = loaded.get(m["name"])
+        m["loaded"] = info is not None
+        m["vramBytes"] = info["vramBytes"] if info else 0
+    return {
+        "hardware": hardware_dict(hw),
+        "models": models,
+        "suggestions": suggest_downloads([m["name"] for m in details], hw),
+    }
+
+
+class ModelPayload(BaseModel):
+    model: str
+
+
+@app.post("/api/models/load")
+async def load_model(payload: ModelPayload):
+    """Loads a local model into memory and keeps it there until unloaded, so replies start at once."""
+    dispatcher = get_dispatcher()
+    mgr = dispatcher.registry.ollama_mgr
+    if payload.model not in await mgr.list_installed_models():
+        raise HTTPException(status_code=404, detail=f"Model not installed: {payload.model}")
+    ok = await mgr.preload(payload.model, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=-1)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Ollama could not load {payload.model}")
+    return {"status": "loaded", "model": payload.model}
+
+
+@app.post("/api/models/unload")
+async def unload_model(payload: ModelPayload):
+    """Frees the memory a loaded local model holds."""
+    if not await get_dispatcher().registry.ollama_mgr.unload(payload.model):
+        raise HTTPException(status_code=502, detail=f"Ollama could not unload {payload.model}")
+    return {"status": "unloaded", "model": payload.model}
+
+
 # Cowork singletons
 pin_manager = WindowPinManager()
 screen_perceiver = ScreenPerceiver(pin_manager=pin_manager)
