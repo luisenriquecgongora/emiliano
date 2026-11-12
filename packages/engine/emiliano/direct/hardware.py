@@ -145,5 +145,26 @@ def hardware_dict(hw: Hardware) -> Dict:
     return {"gpuName": hw.gpu_name, "vramBytes": hw.vram_bytes, "ramBytes": hw.ram_bytes}
 
 
+async def local_model_report(mgr) -> Dict:
+    """
+    Installed local models rated for this machine, for the dock and the terminal: {hardware, models: [{name,
+    sizeBytes, tools, fit, recommended, loaded, vramBytes}], suggestions}. mgr is an OllamaManager.
+    """
+    import asyncio
+
+    hw = await asyncio.to_thread(detect_hardware)
+    details, loaded = await asyncio.gather(mgr.list_model_details(), mgr.list_loaded())
+    models = rate_installed(details, hw)
+    for m in models:
+        info = loaded.get(m["name"])
+        m["loaded"] = info is not None
+        m["vramBytes"] = info["vramBytes"] if info else 0
+    return {
+        "hardware": hardware_dict(hw),
+        "models": models,
+        "suggestions": suggest_downloads([m["name"] for m in details], hw),
+    }
+
+
 __all__ = ["FIT_GPU", "FIT_SLOW", "FIT_TOO_BIG", "Hardware", "detect_hardware", "rate_fit", "rate_installed",
-           "suggest_downloads", "hardware_dict"]
+           "suggest_downloads", "hardware_dict", "local_model_report"]

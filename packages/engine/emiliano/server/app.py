@@ -117,21 +117,9 @@ async def model_recommendations():
     Local models rated for this machine: {hardware, models: [{name, sizeBytes, tools, fit, recommended, loaded,
     vramBytes}], suggestions: [{name, sizeGb, fit, note, pull}]}. fit is fits_gpu | slow | too_big.
     """
-    from ..direct.hardware import detect_hardware, hardware_dict, rate_installed, suggest_downloads
+    from ..direct.hardware import local_model_report
 
-    mgr = get_dispatcher().registry.ollama_mgr
-    hw = await asyncio.to_thread(detect_hardware)
-    details, loaded = await asyncio.gather(mgr.list_model_details(), mgr.list_loaded())
-    models = rate_installed(details, hw)
-    for m in models:
-        info = loaded.get(m["name"])
-        m["loaded"] = info is not None
-        m["vramBytes"] = info["vramBytes"] if info else 0
-    return {
-        "hardware": hardware_dict(hw),
-        "models": models,
-        "suggestions": suggest_downloads([m["name"] for m in details], hw),
-    }
+    return await local_model_report(get_dispatcher().registry.ollama_mgr)
 
 
 class ModelPayload(BaseModel):
