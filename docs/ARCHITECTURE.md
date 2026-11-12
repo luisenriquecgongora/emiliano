@@ -295,7 +295,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
 | Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
 | Evals | `packages/engine/emiliano/evals` | Fixed tasks with automatic checks, run against a model or harness (`emiliano eval`) | Dispatcher |
-| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions | Other windows |
+| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions. With a vision model (`vision.py`, config `cowork.vision`), each observation also carries a window screenshot: numbered boxes on detected elements, or a screen-coordinate grid when none are readable | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
 
 ## Where to change what

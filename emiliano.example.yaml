@@ -60,3 +60,8 @@ server:
 #     command: npx
 #     args: ["-y", "@modelcontextprotocol/server-github"]
 #     env: {GITHUB_PERSONAL_ACCESS_TOKEN: "<token>"}
+
+cowork:
+  # Screenshots for vision models when operating windows: "local" = only local Ollama models that report
+  # vision (the screen never leaves this machine), "always" = cloud vision models too, "never" = text only
+  vision: "local"
