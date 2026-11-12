@@ -6,7 +6,7 @@ Loads settings from emiliano.yaml, environment variables, or sensible defaults.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field
 
@@ -88,6 +88,15 @@ class HarnessPathsConfig(BaseModel):
     unattended_fallback: bool = True
 
 
+class McpServerConfig(BaseModel):
+    """An MCP server started over stdio, e.g. command "npx", args ["-y", "@modelcontextprotocol/server-github"]."""
+    command: str
+    args: List[str] = Field(default_factory=list)
+    env: Dict[str, str] = Field(default_factory=dict)  # added to the engine's environment
+    enabled: bool = True
+    timeout: float = 60.0  # seconds a tool call may take
+
+
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
@@ -101,6 +110,8 @@ class EmilianoConfig(BaseModel):
     harnesses: HarnessPathsConfig = Field(default_factory=HarnessPathsConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    # MCP servers whose tools local and API models can use (and ACP harnesses receive); name -> server
+    mcp_servers: Dict[str, McpServerConfig] = Field(default_factory=dict)
     # Record one local trace per task (route, timings, tokens) in ~/.emiliano/traces.db; never uploaded
     traces: bool = True
 
