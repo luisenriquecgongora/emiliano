@@ -284,7 +284,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | :--- | :--- | :--- | :--- |
 | Desktop app | `apps/desktop` | Tauri 2 + React UI: chats, Dock (permission prompts), HUD overlay. Starts the bundled engine (sidecar); set `EMILIANO_EXTERNAL_ENGINE=1` to use one you started | Engine server |
 | Protocol | `packages/protocol` | Message schemas shared by both sides: `models.py` (Python) and `types.ts` (TypeScript) | — |
-| Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models`, cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
+| Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models` (plus `/api/models/recommendations` rating local models for this GPU/RAM, and `POST /api/models/load` / `/unload`), cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
 | Dispatcher and registry | `packages/engine/emiliano/core` | Routing policy, capability registry, configuration, workspace and context | Direct, harnesses |
 | Direct models | `packages/engine/emiliano/direct` | Unified client (Ollama directly, cloud APIs through litellm), DirectAgentLoop (file tools, ReAct loop), Ollama manager, credentials | Ollama, cloud APIs, workspace |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
