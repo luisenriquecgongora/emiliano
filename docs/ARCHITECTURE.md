@@ -49,6 +49,9 @@ flowchart LR
     direct --> ollama["Ollama<br/>local models"]
     direct --> apis["Cloud model APIs<br/>through litellm"]
     harn --> agents["Claude Code · Codex · OpenCode · Antigravity<br/>installed CLIs"]
+    direct --> mcp["MCP host<br/>emiliano/mcp"]
+    mcp --> mcpsrv["MCP servers<br/>config mcp_servers, stdio"]
+    harn -.->|same servers via ACP session/new| mcpsrv
     cowork --> screen["🖱️ Other windows<br/>mouse, keyboard, screen"]
     cli["CLI<br/>python -m emiliano.cli"] --> disp
 
@@ -58,9 +61,9 @@ flowchart LR
     classDef external fill:#f3f4f6,stroke:#6b7280,color:#374151
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     class user input
-    class ui,server,disp,cowork,direct,harn,cli,evals ours
+    class ui,server,disp,cowork,direct,harn,cli,evals,mcp ours
     class hist,traces output
-    class ollama,apis,agents external
+    class ollama,apis,agents,mcpsrv external
     class screen risk
     style desktop fill:#eff6ff,stroke:#2563eb
     style engine fill:#eff6ff,stroke:#2563eb
@@ -288,6 +291,7 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Dispatcher and registry | `packages/engine/emiliano/core` | Routing policy, capability registry, configuration, workspace and context | Direct, harnesses |
 | Direct models | `packages/engine/emiliano/direct` | Unified client (Ollama directly, cloud APIs through litellm), DirectAgentLoop (file tools, ReAct loop), Ollama manager, credentials | Ollama, cloud APIs, workspace |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
+| MCP host | `packages/engine/emiliano/mcp` | Starts the stdio MCP servers listed under `mcp_servers` in the config and offers their tools to DirectAgentLoop as `server__tool`; ACP harnesses get the same servers. `emiliano mcp` lists them | MCP servers |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
 | Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
 | Evals | `packages/engine/emiliano/evals` | Fixed tasks with automatic checks, run against a model or harness (`emiliano eval`) | Dispatcher |

@@ -49,3 +49,14 @@ server:
   host: "127.0.0.1"
   port: 8765
   mutex_port: 51838
+
+# MCP servers (stdio) whose tools local and API models can use; ACP harnesses get them too.
+# Check them with `emiliano mcp` (or /mcp in the chat).
+# mcp_servers:
+#   filesystem:
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+#   github:
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-github"]
+#     env: {GITHUB_PERSONAL_ACCESS_TOKEN: "<token>"}
