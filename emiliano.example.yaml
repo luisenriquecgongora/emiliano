@@ -60,6 +60,9 @@ server:
 #     command: npx
 #     args: ["-y", "@modelcontextprotocol/server-github"]
 #     env: {GITHUB_PERSONAL_ACCESS_TOKEN: "<token>"}
+#   plaatoos:                        # remote server over HTTP; the token comes from the environment
+#     url: https://api-takient.onrender.com/mcp
+#     headers: {Authorization: "Bearer ${PLAATOOS_TOKEN}"}
 
 cowork:
   # Screenshots for vision models when operating windows: "local" = only local Ollama models that report
