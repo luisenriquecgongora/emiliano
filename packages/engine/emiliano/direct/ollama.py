@@ -173,6 +173,19 @@ class OllamaManager:
             logger.debug(f"[Ollama] Error querying /api/tags: {e}")
         return []
 
+    async def capabilities(self, model: str) -> List[str]:
+        """What a model can do according to Ollama (/api/show): e.g. ["completion", "tools", "vision"].
+        Empty when unknown (older Ollama, model not installed, service down)."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(f"{self.base_url}/api/show", json={"model": model.removeprefix("ollama/")})
+                if res.status_code == 200:
+                    caps = res.json().get("capabilities")
+                    return [str(c) for c in caps] if isinstance(caps, list) else []
+        except Exception as e:
+            logger.debug(f"[Ollama] Error querying /api/show for {model}: {e}")
+        return []
+
     async def list_installed_models(self) -> List[str]:
         """Queries /api/tags and returns installed model names."""
         try:
