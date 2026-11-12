@@ -238,6 +238,8 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         action_synthesizer=action_synthesizer,
         timeout=payload.timeout,
         vision=vision,
+        # The HUD overlay window listens on /ws and draws each target before it is acted on
+        on_highlight=lambda p: broadcast_event("HUD_HIGHLIGHT", p),
     )
     try:
         output = await agent.run(goal=payload.goal, hwnd=payload.hwnd)
@@ -245,6 +247,8 @@ async def run_cowork_agent(payload: CoworkRunPayload):
     except Exception as e:
         logger.error(f"[Server] Cowork agent failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        await broadcast_event("HUD_CLEAR", {})
 
 
 @app.websocket("/ws")
