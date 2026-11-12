@@ -97,6 +97,12 @@ class McpServerConfig(BaseModel):
     timeout: float = 60.0  # seconds a tool call may take
 
 
+class CoworkConfig(BaseModel):
+    # Screenshots for vision models in Cowork: "local" = only local (Ollama) vision models get them, so the screen
+    # never leaves this machine; "always" = cloud vision models too; "never" = UI Automation text only
+    vision: str = "local"
+
+
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
@@ -112,6 +118,7 @@ class EmilianoConfig(BaseModel):
     context: ContextConfig = Field(default_factory=ContextConfig)
     # MCP servers whose tools local and API models can use (and ACP harnesses receive); name -> server
     mcp_servers: Dict[str, McpServerConfig] = Field(default_factory=dict)
+    cowork: CoworkConfig = Field(default_factory=CoworkConfig)
     # Record one local trace per task (route, timings, tokens) in ~/.emiliano/traces.db; never uploaded
     traces: bool = True
 

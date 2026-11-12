@@ -228,6 +228,8 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         fallback_chain=[model_name],
         config=dispatcher.config,
     )
+    from ..cowork.vision import vision_enabled
+    vision = await vision_enabled(dispatcher.config.cowork.vision, model_name, dispatcher.registry.ollama_mgr)
     agent = CoworkAgentLoop(
         client=client,
         model_id=model_name,
@@ -235,6 +237,7 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         screen_perceiver=screen_perceiver,
         action_synthesizer=action_synthesizer,
         timeout=payload.timeout,
+        vision=vision,
     )
     try:
         output = await agent.run(goal=payload.goal, hwnd=payload.hwnd)

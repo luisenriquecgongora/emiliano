@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -20,6 +20,7 @@ except ImportError:
 from .actions import ActionSynthesizer, SafetyInterruptedError
 from .perception import ScreenPerceiver
 from .pinning import WindowPinManager
+from .vision import annotated_window_image
 from ..direct.client import UnifiedLLMClient
 
 COWORK_SYSTEM_PROMPT = """You are Emiliano's Desktop Cowork Agent.
@@ -52,6 +53,14 @@ Workflow Guidelines:
 3. After taking an action, observe the updated UI elements to verify the action succeeded.
 4. When the goal is achieved, invoke finish(summary="...") or explain that the task is complete.
 """
+
+
+def latest_image_only(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A copy of history where only the newest message keeps its screenshot: older ones are out of date and
+    would fill a small model's context."""
+    last = max((i for i, m in enumerate(history) if m.get("images")), default=-1)
+    return [m if i == last or not m.get("images") else {k: v for k, v in m.items() if k != "images"}
+            for i, m in enumerate(history)]
 
 
 def format_ui_elements(elements: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
@@ -159,8 +168,11 @@ class CoworkAgentLoop:
         action_synthesizer: Optional[ActionSynthesizer] = None,
         max_turns: int = 12,
         timeout: float = 120.0,
+        vision: bool = False,
     ) -> None:
         self.client = client
+        # Attach an annotated screenshot to each observation (only for models that accept images)
+        self.vision = vision
         self.model_id = model_id
         self.pin_manager = pin_manager or WindowPinManager()
         self.screen_perceiver = screen_perceiver or ScreenPerceiver(pin_manager=self.pin_manager)
@@ -180,6 +192,17 @@ class CoworkAgentLoop:
         raw_elements = self.screen_perceiver.get_ui_elements(hwnd=target_hwnd)
         self.tagged_elements = format_ui_elements(raw_elements)
         return render_elements_text(self.tagged_elements)
+
+    def snapshot(self, hwnd: Optional[int] = None) -> Optional[Tuple[str, str]]:
+        """(base64 screenshot, prompt note) of the window as last observed, or None without vision."""
+        if not self.vision:
+            return None
+        try:
+            return annotated_window_image(self.screen_perceiver, self.pin_manager,
+                                          hwnd or self.pin_manager.pinned_hwnd, self.tagged_elements)
+        except Exception as e:  # a failed capture must never stop the task: the element list still works
+            logger.warning(f"[CoworkAgent] Screenshot failed: {e}")
+            return None
 
     async def execute_tool(self, tool_name: str, args: Dict[str, Any], hwnd: Optional[int] = None) -> str:
         """Executes a cowork action and observes resulting UI state."""
@@ -260,9 +283,14 @@ class CoworkAgentLoop:
             f"Plan and execute the actions needed to achieve the goal."
         )
 
-        history: List[Dict[str, str]] = [
+        first: Dict[str, Any] = {"role": "user", "content": prompt}
+        snap = self.snapshot(target_hwnd)
+        if snap:
+            first["content"] += f"\n\n{snap[1]}"
+            first["images"] = [snap[0]]
+        history: List[Dict[str, Any]] = [
             {"role": "system", "content": COWORK_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            first,
         ]
 
         full_output_parts: List[str] = []
@@ -272,7 +300,7 @@ class CoworkAgentLoop:
             turn_chunks: List[str] = []
 
             async for chunk in self.client.stream_completion(
-                messages=history,
+                messages=latest_image_only(history),
                 model_name=self.model_id,
                 timeout=self.timeout,
                 on_reasoning=on_reasoning,
@@ -316,6 +344,11 @@ class CoworkAgentLoop:
             if on_chunk:
                 on_chunk(f"\n{tool_feedback}\n")
 
-            history.append({"role": "user", "content": tool_feedback})
+            feedback: Dict[str, Any] = {"role": "user", "content": tool_feedback}
+            snap = self.snapshot(target_hwnd)
+            if snap:
+                feedback["content"] += f"\n\n{snap[1]}"
+                feedback["images"] = [snap[0]]
+            history.append(feedback)
 
         return "\n".join(full_output_parts)
