@@ -143,10 +143,23 @@ class UiaReader:
             return False
 
     def close(self) -> None:
-        """Shuts down the background UIA worker executor."""
+        """Shuts down the background UIA worker. The COM objects are released on that worker, the thread that
+        created them: releasing them later from whatever thread the garbage collector runs on can crash the
+        process with an access violation."""
         if self._executor is not None:
-            self._executor.shutdown(wait=False, cancel_futures=True)
-            self._executor = None
+            executor, self._executor = self._executor, None
+            try:
+                executor.submit(self._release)
+            except RuntimeError:  # already shut down
+                pass
+            executor.shutdown(wait=False)
+
+    def _release(self) -> None:
+        self._cache_request = None
+        self._uia = None
+        self._mod = None
+        import gc
+        gc.collect()
 
     def __del__(self) -> None:
         self.close()
