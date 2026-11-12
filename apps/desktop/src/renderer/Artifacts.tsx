@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, CheckSquare, ChevronDown, ChevronRight, Code, Copy, Eye, GitBranch, Layers, Sparkles } from 'lucide-react';
+import { parseMessageParts, splitInlineCode } from './messageParts';
 
 // -------------------------------------------------------------
 // 1. MERMAID FLOWCHART PARSER & SVG RENDERER
@@ -517,70 +518,51 @@ export function InteractivePlan({ content, title }: { content: string; title?: s
 // -------------------------------------------------------------
 // 3. PARSED MESSAGE CONTENT COMPONENT
 // -------------------------------------------------------------
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
+  return (
+    <div className="my-1 rounded-lg border border-slate-700/70 bg-slate-950/90 overflow-hidden">
+      <div className="px-3 py-1 flex items-center justify-between bg-slate-900/90 border-b border-slate-800 text-[10px] text-slate-400">
+        <span className="font-mono">{lang || 'code'}</span>
+        <button onClick={copy} className="flex items-center space-x-1 hover:text-cyan-300" title="Copy code">
+          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <pre className="px-3 py-2 overflow-x-auto text-[11px] leading-relaxed text-slate-200 select-text">
+        <code className="font-mono">{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function ProseWithInlineCode({ text }: { text: string }) {
+  return (
+    <div className="whitespace-pre-wrap leading-relaxed select-text">
+      {splitInlineCode(text).map((seg, i) =>
+        seg.code ? (
+          <code key={i} className="px-1 py-0.5 rounded bg-slate-950/80 text-cyan-200 font-mono text-[0.92em]">
+            {seg.text}
+          </code>
+        ) : (
+          <React.Fragment key={i}>{seg.text}</React.Fragment>
+        ),
+      )}
+    </div>
+  );
+}
+
 export function ParsedMessageContent({ content }: { content: string }) {
-  const parts = useMemo(() => {
-    // Break into tokens: mermaid blocks, checklist blocks, and markdown text
-    const tokens: Array<{ type: 'text' | 'mermaid' | 'plan'; content: string }> = [];
-    const mermaidRegex = /```mermaid\s*\n([\s\S]*?)\n```/g;
-
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = mermaidRegex.exec(content)) !== null) {
-      if (match.index > lastIndex) {
-        tokens.push({ type: 'text', content: content.substring(lastIndex, match.index) });
-      }
-      tokens.push({ type: 'mermaid', content: match[1].trim() });
-      lastIndex = match.index + match[0].length;
-    }
-
-    if (lastIndex < content.length) {
-      tokens.push({ type: 'text', content: content.substring(lastIndex) });
-    }
-
-    // Now scan text tokens for checklist blocks
-    const finalTokens: Array<{ type: 'text' | 'mermaid' | 'plan'; content: string }> = [];
-    tokens.forEach((token) => {
-      if (token.type !== 'text') {
-        finalTokens.push(token);
-        return;
-      }
-
-      const lines = token.content.split('\n');
-      let currentText: string[] = [];
-      let currentPlan: string[] = [];
-
-      lines.forEach((line) => {
-        if (/^\s*-\s*\[[ xX]\]\s+/.test(line)) {
-          if (currentText.length > 0) {
-            finalTokens.push({ type: 'text', content: currentText.join('\n') });
-            currentText = [];
-          }
-          currentPlan.push(line);
-        } else {
-          if (currentPlan.length >= 2) {
-            finalTokens.push({ type: 'plan', content: currentPlan.join('\n') });
-            currentPlan = [];
-          } else if (currentPlan.length > 0) {
-            currentText.push(...currentPlan);
-            currentPlan = [];
-          }
-          currentText.push(line);
-        }
-      });
-
-      if (currentPlan.length >= 2) {
-        finalTokens.push({ type: 'plan', content: currentPlan.join('\n') });
-      } else if (currentPlan.length > 0) {
-        currentText.push(...currentPlan);
-      }
-      if (currentText.length > 0) {
-        finalTokens.push({ type: 'text', content: currentText.join('\n') });
-      }
-    });
-
-    return finalTokens;
-  }, [content]);
+  const parts = useMemo(() => parseMessageParts(content), [content]);
 
   return (
     <div className="space-y-2">
@@ -591,13 +573,12 @@ export function ParsedMessageContent({ content }: { content: string }) {
         if (part.type === 'plan') {
           return <InteractivePlan key={idx} content={part.content} />;
         }
+        if (part.type === 'code') {
+          return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
+        }
         const text = part.content.trim();
         if (!text) return null;
-        return (
-          <div key={idx} className="whitespace-pre-wrap leading-relaxed select-text">
-            {text}
-          </div>
-        );
+        return <ProseWithInlineCode key={idx} text={text} />;
       })}
     </div>
   );
