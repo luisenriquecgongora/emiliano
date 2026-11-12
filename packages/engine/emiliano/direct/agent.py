@@ -451,8 +451,11 @@ class DirectAgentLoop:
         max_turns: int = 10,
         timeout: float = 180.0,
         auto_verify: bool = True,
+        mcp: Optional[Any] = None,
     ):
         self.client = client
+        # McpManager whose tools are offered next to the built-in ones (None = built-in tools only)
+        self.mcp = mcp
         self.model_id = model_id
         self.max_turns = max_turns
         self.timeout = timeout
@@ -497,6 +500,9 @@ class DirectAgentLoop:
             command = args.get("command") or args.get("cmd") or ""
             return await tool_bash(command, cwd=cwd)
 
+        elif self.mcp is not None and self.mcp.has(tool_name):
+            return await self.mcp.acall(tool_name, args if isinstance(args, dict) else {})
+
         else:
             return f"Error: Unknown tool '{tool_name}'."
 
@@ -514,7 +520,8 @@ class DirectAgentLoop:
         Returns the final combined output text.
         """
         history: List[Dict[str, str]] = []
-        history.append({"role": "system", "content": AGENT_SYSTEM_PROMPT})
+        system_prompt = AGENT_SYSTEM_PROMPT + (self.mcp.prompt_section() if self.mcp is not None else "")
+        history.append({"role": "system", "content": system_prompt})
         if messages:
             # Include prior conversation history excluding existing system prompt
             for m in messages:

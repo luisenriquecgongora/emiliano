@@ -17,7 +17,7 @@ import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import click
 
 try:
@@ -59,6 +59,8 @@ class BaseHarness(ABC):
         # ACP agent command line ("binary [args]"); when the binary resolves, run_task talks ACP
         self.acp_command = acp_command
         self.permission_handler: Optional[PermissionHandler] = None
+        # MCP servers handed to the ACP agent's session (config mcp_servers, in ACP's format)
+        self.mcp_servers: List[Dict[str, Any]] = []
         # Fallback (non-ACP) runs pass the CLI's skip-approval flag, since nobody can answer prompts
         self.unattended = True
         # The task run_task is executing, so cancel() can stop it from another thread
@@ -206,6 +208,7 @@ class BaseHarness(ABC):
                     permission_handler=permission_handler or self.permission_handler,
                     shell=sys.platform == "win32" and acp_exe.lower().endswith((".cmd", ".bat")),
                     enable_fs=True,
+                    mcp_servers=self.mcp_servers,
                     keep_alive=True,
                 )
                 self._active_acp = session

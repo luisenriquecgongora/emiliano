@@ -47,6 +47,7 @@ class SlashCommandCompleter(Completer):
         "/doctor": "Run diagnostic check of models, credentials, and harnesses",
         "/models": "List models, rated for this machine's GPU and RAM, plus suggested downloads",
         "/harnesses": "List external CLI agent harnesses and auth status",
+        "/mcp": "Start the configured MCP servers and list their tools",
         "/clear": "Reset conversation memory context",
         "/history": "Show current conversation turn count",
         "/help": "Display command list and keyboard shortcuts",
@@ -238,6 +239,40 @@ def models():
             click.echo(f"  • {click.style(a.display_name, bold=True)}: {status_str}")
 
     asyncio.run(_check_models())
+
+
+@cli.command(name="mcp")
+def mcp_command():
+    """Start the MCP servers in the config and list the tools each one offers."""
+    from .mcp import McpManager
+
+    config = load_config()
+    if not config.mcp_servers:
+        click.echo("No MCP servers configured. Add some to emiliano.yaml (or ~/.emiliano/config.yaml), e.g.:\n")
+        click.echo("mcp_servers:\n  filesystem:\n    command: npx\n"
+                   "    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \".\"]")
+        return
+
+    click.echo(click.style("MCP Servers:", bold=True))
+    for name, cfg in config.mcp_servers.items():
+        if not cfg.enabled:
+            click.echo(f"  - {click.style(name, bold=True)}: {click.style('disabled', fg='yellow')}")
+    manager = McpManager(config.mcp_servers, cwd=os.getcwd())
+    try:
+        click.echo(click.style("  Starting servers (the first npx run downloads the package)...", dim=True))
+        manager.start()
+        for status in manager.statuses.values():
+            if status.ok:
+                click.echo(f"  ✓ {click.style(status.name, bold=True)}: "
+                           f"{click.style(f'{len(status.tools)} tools', fg='green')}")
+            else:
+                click.echo(f"  ✗ {click.style(status.name, bold=True)}: {click.style(status.error, fg='red')}")
+        if manager.tools:
+            click.echo(click.style("\nTools local and API models can call:", bold=True))
+            for line in manager.describe_tools().splitlines():
+                click.echo(f"  {line}")
+    finally:
+        manager.close()
 
 
 @cli.command(name="eval")
@@ -577,6 +612,7 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             click.echo("  • /doctor          : Run diagnostic check")
             click.echo("  • /models          : List available models and providers")
             click.echo("  • /harnesses       : List external agent harnesses")
+            click.echo("  • /mcp             : List MCP servers and the tools they give the models")
             click.echo("  • /context         : Show context window usage (Phase 1)")
             click.echo("  • /compact         : Compact conversation history (Phase 1)")
             click.echo("  • /exit, exit      : Exit interactive session\n")
@@ -758,6 +794,11 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             runner = CliRunner()
             result = runner.invoke(models)
             click.echo(result.output)
+            continue
+
+        if cmd_lower == "/mcp":
+            from click.testing import CliRunner
+            click.echo(CliRunner().invoke(mcp_command).output)
             continue
 
         if cmd_lower in ("/harnesses", "harnesses"):

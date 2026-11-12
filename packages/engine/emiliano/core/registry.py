@@ -48,8 +48,11 @@ class CapabilityRegistry:
             "antigravity": AntigravityHarness(command=paths.antigravity_cmd),
             "opencode": OpenCodeHarness(command=paths.opencode_cmd, acp_command=paths.opencode_acp_cmd),
         }
+        from ..mcp import acp_server_list
+        mcp_servers = acp_server_list(self.config.mcp_servers)
         for harness in harnesses.values():
             harness.unattended = paths.unattended_fallback
+            harness.mcp_servers = mcp_servers
         return harnesses
 
     async def discover_all(self, test_harness_usability: bool = True,
