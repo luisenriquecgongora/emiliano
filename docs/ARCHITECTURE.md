@@ -243,7 +243,8 @@ flowchart LR
 flowchart TD
     subgraph loop["Autonomous Cowork Loop (cowork/agent.py)"]
         observe["1. Observe (ScreenPerceiver)<br/>Number elements [1], [2], ..."] --> plan["2. Plan (Local / Direct Model)<br/>Select element tag and action"]
-        plan --> act{"3. Safety & Bounds Check"}
+        plan --> hud["2b. Show the target on the HUD overlay<br/>HUD_HIGHLIGHT over /ws, then a short pause"]
+        hud --> act{"3. Safety & Bounds Check"}
         act -->|"inside pinned window"| mode{"Ghost Mode Pattern<br/>Supported?"}
         act -->|"outside or Esc pressed"| stop["⛔ SafetyInterruptedError"]
         mode -->|"yes (Invoke / Value / Toggle)"| ghost["👻 Ghost Action (uia.py)<br/>Direct COM without cursor move"]
@@ -257,7 +258,9 @@ flowchart TD
     classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     classDef agent fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
     class observe,ghost,verify ours
+    class hud output
     class act,mode gate
     class stop risk
     class plan,synth agent
@@ -277,6 +280,14 @@ it cleanly falls back to smooth cursor movements and synthetic events via `pyaut
 **Autonomous Cowork Loop.** `CoworkAgentLoop` runs an Observe-Plan-Act-Verify cycle on a pinned window. The model plans actions
 using numeric tags (`<call:click_element id="1"/>`, `<call:type_into_element id="2" text="..."/>`), the engine executes the action,
 re-observes the window's UI tree to verify the outcome, and provides feedback until completion.
+
+**HUD overlay: showing what is about to happen.** Right before each `click_element`, `click_at` or `type_into_element`,
+the loop calls its `on_highlight` callback with a `HUD_HIGHLIGHT` payload (element name, role, bounds, action; built by
+`hud_highlight_payload`) and pauses `HUD_LEAD_SECONDS` so a person can see the target first. `POST /api/cowork/run`
+broadcasts it to every `/ws` client, and the full-screen, click-through overlay window draws a pulsing cyan box with an
+`ACTION • name` label; `HUD_CLEAR` is sent when the run ends. Bounds are physical pixels (the engine is per-monitor DPI
+aware); the overlay divides by `devicePixelRatio` (`renderer/hudGeometry.ts`). A failing overlay never stops the action.
+Green in the diagram: what the person sees.
 
 HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GET /api/cowork/elements`,
 `POST /api/cowork/click`, `POST /api/cowork/type`, `POST /api/cowork/run`. **Esc must always stop it**: never weaken the emergency stop.
