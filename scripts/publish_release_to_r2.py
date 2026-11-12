@@ -27,7 +27,7 @@ logger = logging.getLogger("r2.publisher")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DIST_DIR = ROOT_DIR / "dist"
 PRODUCT = "Emiliano"
-DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
+DEFAULT_PUBLIC_DOMAIN = "https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev"
 
 
 def upload_with_retry(s3, src: Path, bucket: str, key: str, content_type: str, cache_control: str) -> None:
@@ -45,7 +45,7 @@ def upload_with_retry(s3, src: Path, bucket: str, key: str, content_type: str, c
 
 def publish_release(version: str, prefix: str = "emiliano", max_keep: int = MAX_RELEASES) -> None:
     validate_max_keep(max_keep)
-    bucket = os.environ.get("R2_BUCKET_NAME", "plaatoos-downloads")
+    bucket = os.environ.get("R2_BUCKET_NAME", "luisenrique-releases")
     public = os.environ.get("R2_CUSTOM_DOMAIN", DEFAULT_PUBLIC_DOMAIN).rstrip("/")
 
     exe_file = DIST_DIR / f"{PRODUCT}.exe"
