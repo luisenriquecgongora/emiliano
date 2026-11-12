@@ -48,10 +48,11 @@ def publish_release(version: str, prefix: str = "emiliano", max_keep: int = MAX_
     bucket = os.environ.get("R2_BUCKET_NAME", "luisenrique-releases")
     public = os.environ.get("R2_CUSTOM_DOMAIN", DEFAULT_PUBLIC_DOMAIN).rstrip("/")
 
-    exe_file = DIST_DIR / f"{PRODUCT}.exe"
+    # The raw Emiliano.exe (already inside the zip) and the .msi (same app as the setup.exe)
+    # go to GitHub Releases only, to keep the bucket inside the R2 free tier.
     zip_file = DIST_DIR / f"{PRODUCT}-v{version}-windows-x64.zip"
     manifest_file = DIST_DIR / "version.json"
-    for required in (exe_file, zip_file, manifest_file):
+    for required in (zip_file, manifest_file):
         if not required.exists():
             raise SystemExit(f"Missing {required.name} in {DIST_DIR}. Run build_windows_release.py first.")
 
@@ -59,17 +60,14 @@ def publish_release(version: str, prefix: str = "emiliano", max_keep: int = MAX_
     version_dir, latest_dir = f"{prefix}/v{version}", f"{prefix}/latest"
     immutable, short = "public, max-age=31536000, immutable", "public, max-age=300"
     uploads = [
-        (exe_file, f"{version_dir}/{exe_file.name}", "application/octet-stream", immutable),
         (zip_file, f"{version_dir}/{zip_file.name}", "application/zip", immutable),
         (manifest_file, f"{version_dir}/version.json", "application/json", "public, max-age=86400"),
-        (exe_file, f"{latest_dir}/{exe_file.name}", "application/octet-stream", short),
         (zip_file, f"{latest_dir}/{PRODUCT}-windows-x64.zip", "application/zip", short),
         (manifest_file, f"{latest_dir}/version.json", "application/json", "no-cache, must-revalidate"),
     ]
-    # Desktop installers from build_desktop_release.py, when this release includes them
+    # Desktop installer from build_desktop_release.py, when this release includes it
     desktop = [
         (f"{PRODUCT}-Desktop-v{version}-windows-x64-setup.exe", f"{PRODUCT}-Desktop-windows-x64-setup.exe", "application/octet-stream"),
-        (f"{PRODUCT}-Desktop-v{version}-windows-x64.msi", f"{PRODUCT}-Desktop-windows-x64.msi", "application/x-msi"),
     ]
     for versioned_name, latest_name, content_type in desktop:
         src = DIST_DIR / versioned_name
