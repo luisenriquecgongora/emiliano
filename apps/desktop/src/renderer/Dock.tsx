@@ -12,8 +12,12 @@ import {
   ContextMetrics,
   MODES,
   Mode,
+  ModelChoice,
+  ModelProvider,
   PermissionRequest,
   chatsApi,
+  directModelGroups,
+  modelsApi,
   relativeTime,
 } from './chats';
 import { DesktopWindow, UIElement, coworkApi } from './cowork';
@@ -28,6 +32,8 @@ export default function Dock() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<Mode>('auto');
+  const [model, setModel] = useState<ModelChoice>({ provider: '', model: '' });
+  const [modelGroups, setModelGroups] = useState<ModelProvider[]>([]);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -240,7 +246,7 @@ export default function Dock() {
         { id: `user-${Date.now()}`, role: 'user', content },
         { id: PENDING_ID, role: 'assistant', content: '', pending: true },
       ]);
-      ws.send(JSON.stringify({ type: 'send', chat_id: chatId, content, mode }));
+      ws.send(JSON.stringify({ type: 'send', chat_id: chatId, content, mode, ...(model.provider ? model : {}) }));
     } catch (e) {
       setError(String(e));
       setBusy(false);
@@ -255,6 +261,15 @@ export default function Dock() {
     ws?.send(JSON.stringify({ type: 'permission_response', request_id: permission.request_id, option_id: optionId }));
     setPermission(null);
   };
+
+  // The models to pick from: refreshed whenever the engine (re)connects, e.g. after `ollama pull`
+  useEffect(() => {
+    if (!ws) return;
+    modelsApi
+      .list()
+      .then(({ models }) => setModelGroups(directModelGroups(models)))
+      .catch((e) => console.error('Models:', e));
+  }, [ws]);
 
   // Emergency kill switch: the desktop shell sends this when Esc is pressed anywhere
   useEffect(() => {
@@ -416,6 +431,9 @@ export default function Dock() {
           onDraft={setDraft}
           mode={mode}
           onMode={setMode}
+          model={model}
+          modelGroups={modelGroups}
+          onModel={setModel}
           busy={busy}
           connected={!!ws}
           onSend={send}
@@ -739,11 +757,42 @@ function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onA
   );
 }
 
+/** Pins replies to one model; "Default model" lets the mode dropdown decide. Value is "provider|model". */
+function ModelPicker(props: { value: ModelChoice; groups: ModelProvider[]; onChange: (model: ModelChoice) => void }) {
+  const current = props.value.provider ? `${props.value.provider}|${props.value.model}` : '';
+  return (
+    <label className="relative flex items-center text-[11px] text-slate-300 ml-1 mr-auto min-w-0">
+      <select
+        value={current}
+        onChange={(e) => {
+          const [provider, ...rest] = e.target.value.split('|');
+          props.onChange({ provider, model: rest.join('|') });
+        }}
+        title="Model that answers: a picked model replaces the mode on the left"
+        className="appearance-none bg-slate-800 hover:bg-slate-700 rounded-lg pl-2 pr-6 py-1 focus:outline-none cursor-pointer max-w-[160px] truncate"
+      >
+        <option value="">Default model</option>
+        {props.groups.map((g) => (
+          <optgroup key={g.name} label={g.displayName}>
+            {g.availableModels.map((m) => (
+              <option key={`${g.name}|${m}`} value={`${g.name}|${m}`}>{m}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
+    </label>
+  );
+}
+
 function Composer(props: {
   draft: string;
   onDraft: (value: string) => void;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  model: ModelChoice;
+  modelGroups: ModelProvider[];
+  onModel: (model: ModelChoice) => void;
   busy: boolean;
   connected: boolean;
   onSend: () => void;
@@ -780,6 +829,7 @@ function Composer(props: {
             </select>
             <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
           </label>
+          <ModelPicker value={props.model} groups={props.modelGroups} onChange={props.onModel} />
           {props.busy ? (
             <button onClick={props.onStop} title="Stop (Esc)" className="flex items-center space-x-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg px-3 py-1 text-[11px]">
               <Square className="w-3 h-3 fill-current" />

@@ -97,6 +97,33 @@ export const chatsApi = {
     request<CompactResult>(`/api/chats/${id}/compact`, { method: 'POST' }),
 };
 
+/** A provider or harness from GET /api/models. */
+export interface ModelProvider {
+  name: string;
+  displayName: string;
+  executionType: string;
+  status: string;
+  selectedModel?: string | null;
+  availableModels: string[];
+}
+
+/** A model the dock can pin a chat to; empty provider means "let the mode decide". */
+export interface ModelChoice {
+  provider: string;
+  model: string;
+}
+
+export const modelsApi = {
+  list: () => request<{ models: ModelProvider[] }>('/api/models'),
+};
+
+/** Ready direct models (local Ollama and API providers with keys); harnesses pick their own model. */
+export function directModelGroups(providers: ModelProvider[]): ModelProvider[] {
+  return providers.filter(
+    (p) => p.executionType === 'direct_model' && p.status === 'ready' && p.availableModels.length > 0,
+  );
+}
+
 /** "2m", "3h", "Yesterday", "Oct 12" — compact enough for the 420px dock. */
 export function relativeTime(iso: string): string {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
