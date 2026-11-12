@@ -7,7 +7,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from emiliano.direct.agent import (
     DirectAgentLoop,
@@ -15,6 +15,7 @@ from emiliano.direct.agent import (
     parse_tool_calls,
     tool_bash,
     tool_edit_file,
+    tool_grep,
     tool_list_dir,
     tool_read_file,
     tool_write_file,
@@ -51,6 +52,99 @@ class TestDirectAgentTools(unittest.TestCase):
         # Target not found
         err = tool_edit_file("calc.py", "bogus_target", "new", cwd=self.cwd)
         self.assertIn("Target text not found", err)
+
+    def test_fuzzy_edit_indentation_and_whitespace(self):
+        # File has 4-space indentation and trailing space
+        f = Path(self.cwd, "service.py")
+        f.write_text(
+            "class Service:\n"
+            "    def run(self): \n"
+            "        return False\n",
+            encoding="utf-8",
+        )
+
+        # Model proposes edit with 2-space indentation and no trailing space
+        target = "  def run(self):\n    return False"
+        replacement = "  def run(self):\n    return True"
+
+        res = tool_edit_file("service.py", target, replacement, cwd=self.cwd)
+        self.assertIn("Successfully edited 'service.py'", res)
+        # Should be re-indented to 4 spaces cleanly
+        self.assertEqual(
+            f.read_text(encoding="utf-8"),
+            "class Service:\n"
+            "    def run(self):\n"
+            "        return True\n",
+        )
+
+    def test_fuzzy_edit_over_indented_target_keeps_nesting(self):
+        # Small models often indent the whole target one level too deep; nesting must survive the re-indent
+        f = Path(self.cwd, "nest.py")
+        f.write_text("def f():\n    if x:\n        return 1\n", encoding="utf-8")
+        target = "    def f():\n        if x:\n            return 1"
+        replacement = "    def f():\n        if x:\n            return 2\n        return 0"
+        self.assertIn("Successfully edited", tool_edit_file("nest.py", target, replacement, cwd=self.cwd))
+        self.assertEqual(f.read_text(encoding="utf-8"), "def f():\n    if x:\n        return 2\n    return 0\n")
+
+    def test_fuzzy_edit_new_deeper_line_uses_file_indent_unit(self):
+        # Target in 2-space indentation, file in 4: a new line nested deeper than the target must use 4 too
+        f = Path(self.cwd, "deep.py")
+        f.write_text("class A:\n    def run(self):\n        pass\n", encoding="utf-8")
+        target = "  def run(self):\n    pass"
+        replacement = "  def run(self):\n    if ok:\n      go()"
+        tool_edit_file("deep.py", target, replacement, cwd=self.cwd)
+        self.assertEqual(f.read_text(encoding="utf-8"),
+                         "class A:\n    def run(self):\n        if ok:\n            go()\n")
+
+    def test_fuzzy_edit_tabs(self):
+        f = Path(self.cwd, "tabs.py")
+        f.write_text("def f():\n\treturn 1\n", encoding="utf-8")
+        tool_edit_file("tabs.py", "def f():\n    return 1", "def f():\n    return 2", cwd=self.cwd)
+        self.assertEqual(f.read_text(encoding="utf-8"), "def f():\n\treturn 2\n")
+
+    def test_edit_warns_when_target_is_ambiguous(self):
+        f = Path(self.cwd, "dup.py")
+        f.write_text("a = 1\nb = 2\na = 1\n", encoding="utf-8")
+        exact = tool_edit_file("dup.py", "a = 1", "a = 9", cwd=self.cwd)
+        self.assertIn("matched 2 places", exact)
+        fuzzy = tool_edit_file("dup.py", "  b = 2", "  b = 3", cwd=self.cwd)
+        self.assertNotIn("Warning", fuzzy)
+        self.assertEqual(f.read_text(encoding="utf-8"), "a = 9\nb = 3\na = 1\n")
+
+    def test_grep_python_fallback_matches_ripgrep_format(self):
+        Path(self.cwd, "m.py").write_text("def Alpha():\n    pass\n", encoding="utf-8")
+        with patch("emiliano.direct.agent.shutil.which", return_value=None):
+            out = tool_grep("def alpha", cwd=self.cwd)
+        self.assertIn("m.py:1: def Alpha():", out)
+
+    def test_grep_ripgrep_output_is_normalized(self):
+        Path(self.cwd, "src").mkdir()
+        fake = MagicMock(stdout="src\\m.py:3:    def Alpha():\n", returncode=0)
+        with patch("emiliano.direct.agent.shutil.which", return_value="rg"), \
+                patch("emiliano.direct.agent.subprocess.run", return_value=fake) as run:
+            out = tool_grep("def alpha", path="src", cwd=self.cwd)
+        self.assertIn("src\\m.py:3: def Alpha():", out)
+        cmd = run.call_args.args[0]
+        self.assertIn("-i", cmd)
+        self.assertEqual(cmd[-3:], ["--", "def alpha", "src"])
+        self.assertEqual(run.call_args.kwargs["cwd"], self.cwd)
+
+    def test_grep(self):
+        Path(self.cwd, "file1.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+        Path(self.cwd, "file2.py").write_text("def beta():\n    return 2\n", encoding="utf-8")
+        sub = Path(self.cwd, "sub")
+        sub.mkdir()
+        Path(sub, "file3.py").write_text("def alpha_prime():\n    return 3\n", encoding="utf-8")
+
+        # 1. Matching pattern across multiple files
+        out = tool_grep("def alpha", cwd=self.cwd)
+        self.assertIn("file1.py:1: def alpha():", out)
+        self.assertIn("file3.py:1: def alpha_prime():", out)
+        self.assertNotIn("file2.py", out)
+
+        # 2. No matches found
+        no_match = tool_grep("nonexistent_pattern_12345", cwd=self.cwd)
+        self.assertIn("No matches found", no_match)
 
     def test_write_file(self):
         res = tool_write_file("sub/dir/new.py", "x = 42\n", cwd=self.cwd)
@@ -105,10 +199,20 @@ class TestParseToolCalls(unittest.TestCase):
         calls = parse_tool_calls(text)
         self.assertEqual(calls, [{"tool": "bash", "args": {"command": "python check.py"}}])
 
+    def test_xml_grep(self):
+        text = '<call:grep pattern="def total" path="src"/>'
+        calls = parse_tool_calls(text)
+        self.assertEqual(calls, [{"tool": "grep", "args": {"pattern": "def total", "path": "src"}}])
+
     def test_json_tool_call(self):
         text = '<tool_call>{"name": "read_file", "arguments": {"path": "main.py"}}</tool_call>'
         calls = parse_tool_calls(text)
         self.assertEqual(calls, [{"tool": "read_file", "args": {"path": "main.py"}}])
+
+    def test_json_grep_call(self):
+        text = '<tool_call>{"name": "grep", "arguments": {"pattern": "total"}}</tool_call>'
+        calls = parse_tool_calls(text)
+        self.assertEqual(calls, [{"tool": "grep", "args": {"pattern": "total"}}])
 
     def test_no_tool_calls(self):
         text = "I have reviewed the code and everything looks correct."
