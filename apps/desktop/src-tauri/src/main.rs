@@ -94,6 +94,24 @@ fn stop_engine(child: CommandChild) {
             .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
+    // On macOS and Linux the launcher passes SIGTERM on to the Python process, but a
+    // SIGKILL (child.kill) would leave that process running, so ask politely first.
+    #[cfg(unix)]
+    {
+        let pid = child.pid().to_string();
+        if std::process::Command::new("kill").args(["-TERM", &pid]).status().is_ok_and(|s| s.success()) {
+            for _ in 0..30 {
+                let alive = std::process::Command::new("kill")
+                    .args(["-0", &pid])
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if !alive {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
     let _ = child.kill();
 }
 
