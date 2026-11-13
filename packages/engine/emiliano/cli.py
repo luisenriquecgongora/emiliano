@@ -265,8 +265,10 @@ def mcp_command():
         manager.start()
         for status in manager.statuses.values():
             if status.ok:
+                hidden = (f" ({status.hidden} hidden by tools / exclude_tools / allow_destructive)"
+                          if status.hidden else "")
                 click.echo(f"  ✓ {click.style(status.name, bold=True)}: "
-                           f"{click.style(f'{len(status.tools)} tools', fg='green')}")
+                           f"{click.style(f'{len(status.tools)} tools', fg='green')}{hidden}")
             else:
                 click.echo(f"  ✗ {click.style(status.name, bold=True)}: {click.style(status.error, fg='red')}")
         if manager.tools:

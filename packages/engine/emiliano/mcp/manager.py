@@ -9,6 +9,7 @@ skipped; the others still work.
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import json
 import re
 import threading
@@ -24,8 +25,31 @@ except ImportError:
 from .client import McpHttpClient, McpStdioClient
 
 # Built-in tools of the direct agent; an MCP tool may not take one of these names
-BUILTIN_TOOLS = {"read_file", "edit_file", "write_file", "list_dir", "grep", "search", "bash"}
+BUILTIN_TOOLS = {"read_file", "edit_file", "write_file", "list_dir", "grep", "search", "bash", "mcp_describe"}
 _DESCRIPTION_CHARS = 200
+# Above this many MCP tools the prompt lists names and short descriptions only; the model fetches a tool's
+# parameters with mcp_describe. A big catalog (PlaatoOS has 100+) would otherwise fill a small model's context.
+COMPACT_ABOVE = 25
+_COMPACT_DESCRIPTION_CHARS = 70
+DESCRIBE_TOOL = "mcp_describe"
+
+
+def is_destructive(tool: Dict[str, Any]) -> bool:
+    """MCP puts hints under "annotations"; some servers (PlaatoOS) put them on the tool itself."""
+    annotations = tool.get("annotations") if isinstance(tool.get("annotations"), dict) else {}
+    return bool(annotations.get("destructiveHint", tool.get("destructiveHint", False)))
+
+
+def keep_tool(tool: Dict[str, Any], cfg: Any) -> bool:
+    """Whether a listed tool passes the server's tools / exclude_tools patterns and destructive setting."""
+    name = tool["name"]
+    include = list(getattr(cfg, "tools", None) or [])
+    exclude = list(getattr(cfg, "exclude_tools", None) or [])
+    if include and not any(fnmatch.fnmatchcase(name, p) for p in include):
+        return False
+    if any(fnmatch.fnmatchcase(name, p) for p in exclude):
+        return False
+    return bool(getattr(cfg, "allow_destructive", False)) or not is_destructive(tool)
 
 
 @dataclass
@@ -43,6 +67,7 @@ class McpServerStatus:
     ok: bool
     tools: List[str] = field(default_factory=list)
     error: str = ""
+    hidden: int = 0  # tools the server offered that its tools / exclude_tools / destructive settings left out
 
 
 def qualify(server: str, tool: str) -> str:
@@ -96,7 +121,11 @@ class McpManager:
             return
         self.clients[name] = client
         names = []
+        hidden = 0
         for t in listed:
+            if not keep_tool(t, cfg):
+                hidden += 1
+                continue
             qualified = qualify(name, t["name"])
             if qualified in BUILTIN_TOOLS or qualified in self.tools:
                 logger.warning(f"[MCP] Skipping tool '{t['name']}' of '{name}': name '{qualified}' is taken")
@@ -104,13 +133,31 @@ class McpManager:
             self.tools[qualified] = McpTool(qualified, name, t["name"], (t.get("description") or "").strip(),
                                             t.get("inputSchema") or {})
             names.append(qualified)
-        self.statuses[name] = McpServerStatus(name, ok=True, tools=names)
-        logger.info(f"[MCP] Server '{name}' ready with {len(names)} tools")
+        self.statuses[name] = McpServerStatus(name, ok=True, tools=names, hidden=hidden)
+        logger.info(f"[MCP] Server '{name}' ready with {len(names)} tools ({hidden} hidden by its filters)")
+
+    @property
+    def compact(self) -> bool:
+        return len(self.tools) > COMPACT_ABOVE
 
     def has(self, qualified_name: str) -> bool:
-        return qualified_name in self.tools
+        return qualified_name in self.tools or (qualified_name == DESCRIBE_TOOL and self.compact)
+
+    def describe_one(self, qualified_name: str) -> str:
+        """A tool's full description and parameter schema, for mcp_describe."""
+        wanted = (qualified_name or "").strip()
+        tool = self.tools.get(wanted)
+        if tool is None:
+            close = [q for q in self.tools if wanted.lower() and wanted.lower() in q]
+            hint = f" Similar: {', '.join(close[:8])}." if close else ""
+            return f"Error: Unknown tool '{wanted}'.{hint}"
+        schema = json.dumps(tool.input_schema, ensure_ascii=False, indent=1)
+        return f"{tool.qualified_name}: {tool.description}\nParameters (JSON schema):\n{schema}"
 
     def call(self, qualified_name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
+        if qualified_name == DESCRIBE_TOOL:
+            args = arguments or {}
+            return self.describe_one(str(args.get("name") or args.get("tool") or ""))
         tool = self.tools.get(qualified_name)
         if tool is None:
             return f"Error: Unknown tool '{qualified_name}'."
@@ -133,8 +180,16 @@ class McpManager:
         return await asyncio.to_thread(self.call, qualified_name, arguments)
 
     def describe_tools(self) -> str:
-        """The tool list for the agent's system prompt, with each tool's parameters ('?' marks optional ones)."""
+        """The tool list for the agent's system prompt, with each tool's parameters ('?' marks optional ones);
+        in compact mode names and short descriptions only."""
         lines = []
+        if self.compact:
+            for tool in self.tools.values():
+                desc = " ".join(tool.description.split())
+                if len(desc) > _COMPACT_DESCRIPTION_CHARS:
+                    desc = desc[:_COMPACT_DESCRIPTION_CHARS].rstrip() + "..."
+                lines.append(f"- {tool.qualified_name}: {desc}" if desc else f"- {tool.qualified_name}")
+            return "\n".join(lines)
         for tool in self.tools.values():
             props = (tool.input_schema.get("properties") or {}) if isinstance(tool.input_schema, dict) else {}
             required = set(tool.input_schema.get("required") or []) if isinstance(tool.input_schema, dict) else set()
@@ -152,9 +207,14 @@ class McpManager:
             return ""
         example = next(iter(self.tools.values()))
         example_args = {p: "..." for p in list((example.input_schema.get("properties") or {}))[:1]}
+        lookup = ""
+        if self.compact:
+            describe = json.dumps({"name": DESCRIBE_TOOL, "arguments": {"name": example.qualified_name}})
+            lookup = f"Their parameters are not listed: before calling one, get them with\n<tool_call>{describe}</tool_call>\n"
         return (
             "\n\nYou also have these external tools (from MCP servers):\n"
             f"{self.describe_tools()}\n"
+            f"{lookup}"
             "Call them with the JSON format, passing arguments by name:\n"
             f"<tool_call>{json.dumps({'name': example.qualified_name, 'arguments': example_args})}</tool_call>\n"
         )
