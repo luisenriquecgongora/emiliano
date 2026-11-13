@@ -1,6 +1,6 @@
 [package]
 name = "emiliano-desktop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Emiliano desktop cowork app (Tauri shell around the Python engine)"
 authors = ["Luis Enrique"]
 license = "MIT"

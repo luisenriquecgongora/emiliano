@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.2.0...v0.3.0) (2026-11-13)
+
+
+### Features
+
+* **ci:** build the desktop app as a macOS dmg ([bd42974](https://github.com/luisenriquecgongora/emiliano/commit/bd42974d33910ec6eb99f45ce00ff01e60914669))
+* **ci:** publish the macOS dmg with the release ([025bc61](https://github.com/luisenriquecgongora/emiliano/commit/025bc616150cdb6c1e9e32fde134e3e9cfd21c39))
+* **cli:** connect PlaatoOS in one step ([58ec566](https://github.com/luisenriquecgongora/emiliano/commit/58ec566f710e73107826a7749fc41b439fb6e3a4))
+* **core:** choose which MCP tools models see ([3ecc808](https://github.com/luisenriquecgongora/emiliano/commit/3ecc80868889ddbbf5f53bd5b8e735501658ee61))
+* **core:** sign in to OAuth MCP servers ([bd47dea](https://github.com/luisenriquecgongora/emiliano/commit/bd47deafe21ad8e07d5a41ef975c298f02bc60f7))
+* **desktop:** build and publish a macOS app ([ad598d0](https://github.com/luisenriquecgongora/emiliano/commit/ad598d0f0b9018a9ae683ba431806e5c5c076615))
+* **desktop:** connect PlaatoOS from the dock ([8e62999](https://github.com/luisenriquecgongora/emiliano/commit/8e6299947aba9a6cdbe60958a5a681a21410b95b))
+* **desktop:** support macOS windows and signing ([264b618](https://github.com/luisenriquecgongora/emiliano/commit/264b618407149f9505a78a921d47d917eeb4ad76))
+
+
+### Bug Fixes
+
+* **desktop:** stop the engine cleanly on macOS ([786ca43](https://github.com/luisenriquecgongora/emiliano/commit/786ca43b054b2f45b7d6e36ba0f2bd5dfbd21f23))
+* **engine:** install ptyprocess off Windows ([808adae](https://github.com/luisenriquecgongora/emiliano/commit/808adae6a010d45867e3361f86c37b191bb3856a))
+
 ## [0.2.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.1.0...v0.2.0) (2026-11-12)
 
 
