@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "dock",
@@ -57,6 +58,10 @@
       "binaries/emiliano-engine"
     ],
     "shortDescription": "Unified meta-harness and desktop coworker",
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

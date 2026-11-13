@@ -29,6 +29,7 @@ CHECKS: list[tuple[str, str, str, list[str]]] = [
     ("python", "ruff", ".", ["{ruff}", "check", "packages/engine", "scripts"]),
     ("python", "engine tests", "packages/engine", ["{py}", "-m", "pytest", "tests", "-q"]),
     ("python", "release retention tests", ".", ["{py}", "-m", "unittest", "scripts/test_prune_r2_releases.py"]),
+    ("python", "release manifest tests", ".", ["{py}", "-m", "unittest", "scripts/test_publish_release_to_r2.py"]),
     ("python", "cli sanity", ".", ["{py}", "-m", "emiliano.cli", "--help"]),
     ("desktop", "desktop typecheck", ".", ["{yarn}", "workspace", "@emiliano/desktop", "tsc", "--noEmit"]),
     # Node 22+ runs .ts tests directly (type stripping), so the desktop needs no test runner dependency.

@@ -263,11 +263,14 @@ class McpHttpClient(_McpClient):
     system's store, which also trusts the TLS-inspecting proxies some networks use.
     """
 
-    def __init__(self, name: str, url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 30.0):
+    def __init__(self, name: str, url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 30.0,
+                 token_provider: Any = None):
         self.name = name
         self.url = url
         self.raw_headers = dict(headers or {})
         self.timeout = timeout
+        # Supplies the bearer token from stored credentials (mcp.auth.TokenProvider); None = headers only
+        self.token_provider = token_provider
         self.server_info: Dict[str, Any] = {}
         self.protocol_version: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -280,6 +283,8 @@ class McpHttpClient(_McpClient):
 
     def _headers(self) -> Dict[str, str]:
         headers = {k: expand_env(v) for k, v in self.raw_headers.items()}
+        if self.token_provider is not None and not any(k.lower() == "authorization" for k in headers):
+            headers["Authorization"] = f"Bearer {self.token_provider.token()}"
         headers.update({"Accept": "application/json, text/event-stream", "Content-Type": "application/json"})
         if self.protocol_version:
             headers["MCP-Protocol-Version"] = self.protocol_version
@@ -287,7 +292,7 @@ class McpHttpClient(_McpClient):
             headers["Mcp-Session-Id"] = self.session_id
         return headers
 
-    def _post(self, message: Dict[str, Any], timeout: float):
+    def _post(self, message: Dict[str, Any], timeout: float, retried: bool = False):
         import httpx
         message["jsonrpc"] = "2.0"
         try:
@@ -296,9 +301,15 @@ class McpHttpClient(_McpClient):
             raise McpError(f"MCP server '{self.name}' unreachable at {self.url}: {e}") from e
         if res.headers.get("mcp-session-id"):
             self.session_id = res.headers["mcp-session-id"]
+        if res.status_code == 401 and not retried and self.token_provider is not None \
+                and self.token_provider.can_refresh():
+            # The access token expired early or was rotated: get a new one once, then give up
+            self.token_provider.refresh()
+            return self._post(message, timeout, retried=True)
         if res.status_code in (401, 403):
-            raise McpError(f"MCP server '{self.name}' refused the credentials (HTTP {res.status_code}). "
-                           "Check the token in its headers.")
+            hint = (f"Run: emiliano connect {self.name}" if self.token_provider is not None
+                    else "Check the token in its headers.")
+            raise McpError(f"MCP server '{self.name}' refused the credentials (HTTP {res.status_code}). {hint}")
         return res
 
     def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 30.0) -> Dict[str, Any]:

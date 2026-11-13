@@ -99,6 +99,13 @@ class McpServerConfig(BaseModel):
     env: Dict[str, str] = Field(default_factory=dict)  # added to the engine's environment
     url: Optional[str] = None
     headers: Dict[str, str] = Field(default_factory=dict)
+    # "oauth" or "token": the bearer token comes from the credential store, saved by `emiliano connect <name>`
+    auth: Optional[str] = None
+    # Which of the server's tools models get: name patterns ("query_*"); empty keeps every tool
+    tools: List[str] = Field(default_factory=list)
+    exclude_tools: List[str] = Field(default_factory=list)
+    # Tools the server marks destructive (destructiveHint) stay hidden unless this is true
+    allow_destructive: bool = False
     enabled: bool = True
     timeout: float = 60.0  # seconds a tool call may take
 

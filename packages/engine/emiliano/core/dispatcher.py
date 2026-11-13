@@ -623,6 +623,14 @@ class ExecutionDispatcher:
         preferred = HARNESS_ALIASES.get(preferred, preferred)
         return (cap.name != preferred, cap.priority)
 
+    def reload_mcp(self) -> None:
+        """Re-reads mcp_servers from the config file and drops running servers, so a new connection (or a removed
+        one) applies to the next task without restarting."""
+        self.config.mcp_servers = load_config().mcp_servers
+        if getattr(self, "_mcp", None) is not None:
+            self._mcp.close()
+            self._mcp = None
+
     async def _mcp_tools(self, workspace: str):
         """The MCP manager for a tool task, or None when no MCP servers are configured. Servers start once and
         keep running for later tasks; one that fails is reported in the logs and skipped."""
