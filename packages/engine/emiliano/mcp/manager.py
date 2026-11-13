@@ -108,7 +108,12 @@ class McpManager:
         for qualified in [q for q, t in self.tools.items() if t.server == name]:
             del self.tools[qualified]
         url = getattr(cfg, "url", None)
-        client = (McpHttpClient(name, url, getattr(cfg, "headers", {}), timeout=getattr(cfg, "timeout", 30.0))
+        provider = None
+        if url and getattr(cfg, "auth", None):
+            from .auth import TokenProvider
+            provider = TokenProvider(name)
+        client = (McpHttpClient(name, url, getattr(cfg, "headers", {}), timeout=getattr(cfg, "timeout", 30.0),
+                                token_provider=provider)
                   if url else McpStdioClient(name, cfg.command, cfg.args, cfg.env, cwd=self.cwd))
         try:
             client.start()
