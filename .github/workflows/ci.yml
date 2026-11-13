@@ -41,7 +41,7 @@ jobs:
         run: python -m pytest tests -q --timeout=120
 
       - name: Run release retention tests
-        run: python -m unittest scripts/test_prune_r2_releases.py
+        run: python -m unittest scripts/test_prune_r2_releases.py scripts/test_publish_release_to_r2.py
 
       - name: Run CLI sanity checks
         run: |

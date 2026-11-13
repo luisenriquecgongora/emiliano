@@ -33,8 +33,11 @@ DEFAULT_PUBLIC_DOMAIN = "https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev"
 
 # Packages that load data files, plugins, or submodules dynamically, which
 # PyInstaller's static analysis would otherwise miss.
-COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext", "winpty"]
-COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite", "comtypes"]
+# The terminal for coding agents uses winpty on Windows and ptyprocess elsewhere; UI
+# Automation (comtypes) exists only on Windows.
+IS_WINDOWS = sys.platform == "win32"
+COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext"] + (["winpty"] if IS_WINDOWS else ["ptyprocess"])
+COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite"] + (["comtypes"] if IS_WINDOWS else [])
 COPY_METADATA = ["litellm"]
 
 
