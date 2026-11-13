@@ -122,6 +122,42 @@ async def model_recommendations():
     return await local_model_report(get_dispatcher().registry.ollama_mgr)
 
 
+class ConnectPayload(BaseModel):
+    service: str
+    token: Optional[str] = None  # a pak_ agent token instead of the browser sign-in
+
+
+@app.get("/api/mcp/connections")
+async def mcp_connections():
+    """Known MCP services and whether each is connected: {"connections": [{service, title, connected, auth}]}."""
+    from ..mcp.connect import SERVICES, status
+    return {"connections": [{**status(name), "title": info["title"]} for name, info in SERVICES.items()]}
+
+
+@app.post("/api/mcp/connect")
+async def mcp_connect(payload: ConnectPayload):
+    """Connects a service. Without a token this opens the browser sign-in and waits (up to 5 minutes) for it."""
+    from ..mcp.connect import SERVICES, connect
+    if payload.service not in SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {payload.service}")
+    try:
+        result = await asyncio.to_thread(connect, payload.service, payload.token or None)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    get_dispatcher().reload_mcp()
+    return result
+
+
+@app.post("/api/mcp/disconnect")
+async def mcp_disconnect(payload: ConnectPayload):
+    from ..mcp.connect import SERVICES, disconnect
+    if payload.service not in SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {payload.service}")
+    result = await asyncio.to_thread(disconnect, payload.service)
+    get_dispatcher().reload_mcp()
+    return result
+
+
 class ModelPayload(BaseModel):
     model: str
 

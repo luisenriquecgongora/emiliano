@@ -279,6 +279,42 @@ def mcp_command():
         manager.close()
 
 
+@cli.command(name="connect")
+@click.argument("service", type=click.Choice(["plaatoos"], case_sensitive=False))
+@click.option("--token", default=None, help="Use an agent token (pak_...) instead of signing in with the browser")
+def connect_command(service: str, token: Optional[str]):
+    """Connect an MCP service (PlaatoOS) so models can use its tools."""
+    from .mcp.connect import connect
+
+    service = service.lower()
+    if not token:
+        click.echo(f"Opening your browser to sign in to {service}. Pick the business to connect and approve.")
+    try:
+        result = connect(service, token=token,
+                         on_url=lambda url: click.echo(click.style(f"If the browser did not open, go to:\n  {url}",
+                                                                   dim=True)))
+    except Exception as e:
+        click.echo(click.style(f"Could not connect {service}: {e}", fg="red"))
+        sys.exit(1)
+    click.echo(click.style(f"✓ Connected {service} ({result['auth']}); saved in {result['config']}", fg="green"))
+    if result["ok"]:
+        hidden = f" ({result['hidden']} hidden by filters)" if result["hidden"] else ""
+        click.echo(f"  {result['tools']} tools available{hidden}. Run `emiliano mcp` to list them.")
+    else:
+        click.echo(click.style(f"  But its tools could not be loaded: {result['error']}", fg="yellow"))
+
+
+@cli.command(name="disconnect")
+@click.argument("service", type=click.Choice(["plaatoos"], case_sensitive=False))
+def disconnect_command(service: str):
+    """Sign out of an MCP service and remove it from the config."""
+    from .mcp.connect import disconnect
+
+    result = disconnect(service.lower())
+    note = "signed out and credentials removed" if result["removed_credentials"] else "no stored credentials"
+    click.echo(click.style(f"✓ Disconnected {service} ({note}); updated {result['config']}", fg="green"))
+
+
 @cli.command(name="eval")
 @click.argument("suites", nargs=-1)
 @click.option("--target", "-t", default="ollama", show_default=True,
