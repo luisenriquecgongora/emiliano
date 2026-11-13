@@ -53,12 +53,12 @@
     ],
     "externalBin": ["binaries/emiliano-engine"],
     "shortDescription": "Unified meta-harness and desktop coworker",
-    "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" }
-    },
     "macOS": {
       "signingIdentity": "-",
       "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
     }
   }
 }
