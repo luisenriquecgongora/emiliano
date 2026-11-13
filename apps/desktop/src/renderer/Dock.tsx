@@ -18,7 +18,9 @@ import {
   ModelProvider,
   ModelRecommendations,
   PermissionRequest,
+  ServiceConnection,
   chatsApi,
+  connectionsApi,
   directModelGroups,
   formatGb,
   modelsApi,
@@ -41,6 +43,9 @@ export default function Dock() {
   const [localModels, setLocalModels] = useState<ModelRecommendations | null>(null);
   const [showModels, setShowModels] = useState(false);
   const [modelAction, setModelAction] = useState<string | null>(null);
+  const [connections, setConnections] = useState<ServiceConnection[]>([]);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectNote, setConnectNote] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -278,7 +283,36 @@ export default function Dock() {
       .recommendations()
       .then(setLocalModels)
       .catch((e) => console.error('Model recommendations:', e));
+    connectionsApi
+      .list()
+      .then(({ connections }) => setConnections(connections))
+      .catch((e) => console.error('Connections:', e));
   }, []);
+
+  // Connect opens the service's sign-in in the browser; the engine waits for the approval (up to 5 minutes)
+  const toggleConnection = async (c: ServiceConnection) => {
+    setConnecting(c.service);
+    setConnectNote(c.connected ? null : `Approve the connection in your browser, then come back here.`);
+    try {
+      if (c.connected) {
+        await connectionsApi.disconnect(c.service);
+        setConnectNote(`${c.title} disconnected.`);
+      } else {
+        const r = await connectionsApi.connect(c.service);
+        setConnectNote(
+          r.ok
+            ? `${c.title} connected: ${r.tools} tools available to the models.`
+            : `${c.title} connected, but its tools did not load: ${r.error}`,
+        );
+      }
+    } catch (e) {
+      setConnectNote(null);
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  };
 
   // The models to pick from: refreshed whenever the engine (re)connects, e.g. after `ollama pull`
   useEffect(() => {
@@ -459,6 +493,10 @@ export default function Dock() {
             busyModel={modelAction}
             onRefresh={refreshModels}
             onToggleLoaded={toggleLoaded}
+            connections={connections}
+            connecting={connecting}
+            connectNote={connectNote}
+            onToggleConnection={toggleConnection}
             onClose={() => setShowModels(false)}
           />
         )}
@@ -807,6 +845,10 @@ function ModelsPanel(props: {
   busyModel: string | null;
   onRefresh: () => void;
   onToggleLoaded: (m: LocalModel) => void;
+  connections: ServiceConnection[];
+  connecting: string | null;
+  connectNote: string | null;
+  onToggleConnection: (c: ServiceConnection) => void;
   onClose: () => void;
 }) {
   const hw = props.data?.hardware;
@@ -827,6 +869,34 @@ function ModelsPanel(props: {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
+        {props.connections.length > 0 && (
+          <div className="border-b border-slate-800">
+            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-slate-400">Services (tools for the models)</div>
+            {props.connections.map((c) => (
+              <div key={c.service} className="px-3 py-2 flex items-center justify-between">
+                <div className="min-w-0 pr-2">
+                  <div className="text-xs text-slate-200 font-medium">{c.title}</div>
+                  <div className="text-[10px] text-slate-500">
+                    {c.connected
+                      ? `Connected${c.auth === 'token' ? ' with an agent token' : ''}`
+                      : 'Sign in to let the models use its tools'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => props.onToggleConnection(c)}
+                  disabled={props.connecting !== null}
+                  title={c.connected ? 'Sign out and remove the service' : 'Opens the sign-in in your browser'}
+                  className={`shrink-0 px-2 py-0.5 rounded text-[10px] disabled:opacity-40 ${
+                    c.connected ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
+                  }`}
+                >
+                  {props.connecting === c.service ? 'Waiting…' : c.connected ? 'Disconnect' : 'Connect'}
+                </button>
+              </div>
+            ))}
+            {props.connectNote && <div className="px-3 pb-2 text-[10px] text-cyan-300">{props.connectNote}</div>}
+          </div>
+        )}
         {!props.data ? (
           <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
         ) : (

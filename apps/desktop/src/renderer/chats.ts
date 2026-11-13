@@ -154,6 +154,30 @@ export const modelsApi = {
     request<{ status: string }>('/api/models/unload', { method: 'POST', body: JSON.stringify({ model }) }),
 };
 
+/** An MCP service Emiliano can sign in to (GET /api/mcp/connections). */
+export interface ServiceConnection {
+  service: string;
+  title: string;
+  connected: boolean;
+  auth: 'oauth' | 'token' | null;
+}
+
+export interface ConnectResult {
+  ok: boolean;
+  tools: number;
+  hidden: number;
+  error: string;
+}
+
+export const connectionsApi = {
+  list: () => request<{ connections: ServiceConnection[] }>('/api/mcp/connections'),
+  // Opens the browser sign-in on this computer and resolves once the user approves (or it fails)
+  connect: (service: string) =>
+    request<ConnectResult>('/api/mcp/connect', { method: 'POST', body: JSON.stringify({ service }) }),
+  disconnect: (service: string) =>
+    request<{ service: string }>('/api/mcp/disconnect', { method: 'POST', body: JSON.stringify({ service }) }),
+};
+
 export function formatGb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
