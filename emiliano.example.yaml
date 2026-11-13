@@ -63,6 +63,9 @@ server:
 #   plaatoos:                        # remote server over HTTP; the token comes from the environment
 #     url: https://api-takient.onrender.com/mcp
 #     headers: {Authorization: "Bearer ${PLAATOOS_TOKEN}"}
+#     tools: ["query_*", "search_*", "get_*"]   # optional: only these (name patterns); default every tool
+#     exclude_tools: ["query_finances"]       # optional: never these
+#     allow_destructive: false                # tools the server marks destructive stay hidden unless true
 
 cowork:
   # Screenshots for vision models when operating windows: "local" = only local Ollama models that report
