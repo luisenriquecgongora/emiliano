@@ -1,9 +1,10 @@
 """Cloudflare R2 Release Publisher for Emiliano.
 
-Uploads the files from build_windows_release.py to two places in the bucket:
+Merges the macOS desktop entry (dist/desktop-macos-*.json, from build_desktop_release.py
+on a Mac) into dist/version.json, then uploads the release files to two places in the bucket:
   emiliano/v<version>/  immutable, cached for a year
   emiliano/latest/      short cache, always the newest release
-then enforces the retention cap (at most 5 versioned releases). A failed prune fails the
+then enforces the retention cap (at most 3 versioned releases). A failed prune fails the
 publish, so the cap can never be silently skipped.
 
 Usage:
@@ -12,6 +13,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -27,7 +29,7 @@ logger = logging.getLogger("r2.publisher")
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DIST_DIR = ROOT_DIR / "dist"
 PRODUCT = "Emiliano"
-DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
+DEFAULT_PUBLIC_DOMAIN = "https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev"
 
 
 def upload_with_retry(s3, src: Path, bucket: str, key: str, content_type: str, cache_control: str) -> None:
@@ -43,33 +45,50 @@ def upload_with_retry(s3, src: Path, bucket: str, key: str, content_type: str, c
             time.sleep(2)
 
 
+def merge_manifest_fragments(dist: Path, version: str) -> list:
+    """Adds the platforms from dist/desktop-*.json to dist/version.json; returns the fragments merged."""
+    manifest_path = dist / "version.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    merged = []
+    for fragment_path in sorted(dist.glob("desktop-*.json")):
+        fragment = json.loads(fragment_path.read_text(encoding="utf-8"))
+        if fragment.get("version") != version or manifest.get("version") != version:
+            raise SystemExit(f"{fragment_path.name} is for {fragment.get('version')} and version.json for {manifest.get('version')}, not {version}")
+        manifest["platforms"].update(fragment["platforms"])
+        merged.append(fragment_path)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return merged
+
+
 def publish_release(version: str, prefix: str = "emiliano", max_keep: int = MAX_RELEASES) -> None:
     validate_max_keep(max_keep)
-    bucket = os.environ.get("R2_BUCKET_NAME", "plaatoos-downloads")
+    bucket = os.environ.get("R2_BUCKET_NAME", "luisenrique-releases")
     public = os.environ.get("R2_CUSTOM_DOMAIN", DEFAULT_PUBLIC_DOMAIN).rstrip("/")
 
-    exe_file = DIST_DIR / f"{PRODUCT}.exe"
+    # The raw Emiliano.exe (already inside the zip) and the .msi (same app as the setup.exe)
+    # go to GitHub Releases only, to keep the bucket inside the R2 free tier.
     zip_file = DIST_DIR / f"{PRODUCT}-v{version}-windows-x64.zip"
     manifest_file = DIST_DIR / "version.json"
-    for required in (exe_file, zip_file, manifest_file):
+    for required in (zip_file, manifest_file):
         if not required.exists():
             raise SystemExit(f"Missing {required.name} in {DIST_DIR}. Run build_windows_release.py first.")
+
+    for fragment in merge_manifest_fragments(DIST_DIR, version):
+        logger.info("Merged %s into version.json", fragment.name)
 
     s3 = get_r2_client()
     version_dir, latest_dir = f"{prefix}/v{version}", f"{prefix}/latest"
     immutable, short = "public, max-age=31536000, immutable", "public, max-age=300"
     uploads = [
-        (exe_file, f"{version_dir}/{exe_file.name}", "application/octet-stream", immutable),
         (zip_file, f"{version_dir}/{zip_file.name}", "application/zip", immutable),
         (manifest_file, f"{version_dir}/version.json", "application/json", "public, max-age=86400"),
-        (exe_file, f"{latest_dir}/{exe_file.name}", "application/octet-stream", short),
         (zip_file, f"{latest_dir}/{PRODUCT}-windows-x64.zip", "application/zip", short),
         (manifest_file, f"{latest_dir}/version.json", "application/json", "no-cache, must-revalidate"),
     ]
-    # Desktop installers from build_desktop_release.py, when this release includes them
+    # Desktop installer from build_desktop_release.py, when this release includes it
     desktop = [
         (f"{PRODUCT}-Desktop-v{version}-windows-x64-setup.exe", f"{PRODUCT}-Desktop-windows-x64-setup.exe", "application/octet-stream"),
-        (f"{PRODUCT}-Desktop-v{version}-windows-x64.msi", f"{PRODUCT}-Desktop-windows-x64.msi", "application/x-msi"),
+        (f"{PRODUCT}-Desktop-v{version}-macos-arm64.dmg", f"{PRODUCT}-Desktop-macos-arm64.dmg", "application/x-apple-diskimage"),
     ]
     for versioned_name, latest_name, content_type in desktop:
         src = DIST_DIR / versioned_name

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "emiliano"
-version = "0.1.0"
+version = "0.3.0"
 description = "Unified Meta-Harness & Autonomous Desktop Cowork Platform"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,7 @@ dependencies = [
     "loguru>=0.7.2",
     "pywinpty>=2.0.13; sys_platform == 'win32'",
     "comtypes>=1.4; sys_platform == 'win32'",
+    "ptyprocess>=0.7.0; sys_platform != 'win32'",
     "pyautogui>=0.9.54",
     "pillow>=10.3.0",
     "click>=8.1.7",
@@ -35,6 +36,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.0",
     "black>=24.0.0",
     "ruff>=0.4.0",
 ]

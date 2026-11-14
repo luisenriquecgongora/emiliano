@@ -7,9 +7,10 @@ perception and non-intrusive programmatic Ghost UIA actions.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 try:
     from loguru import logger
@@ -20,6 +21,7 @@ except ImportError:
 from .actions import ActionSynthesizer, SafetyInterruptedError
 from .perception import ScreenPerceiver
 from .pinning import WindowPinManager
+from .vision import annotated_window_image
 from ..direct.client import UnifiedLLMClient
 
 COWORK_SYSTEM_PROMPT = """You are Emiliano's Desktop Cowork Agent.
@@ -52,6 +54,49 @@ Workflow Guidelines:
 3. After taking an action, observe the updated UI elements to verify the action succeeded.
 4. When the goal is achieved, invoke finish(summary="...") or explain that the task is complete.
 """
+
+
+# How long the HUD overlay shows a target, and how long the agent waits after showing it
+# so a person can see what is about to be clicked before it happens.
+HUD_HIGHLIGHT_MS = 1500
+HUD_LEAD_SECONDS = 0.35
+# click_at has no element, so the overlay marks a small square around the point.
+_POINT_BOX = 24
+
+HighlightCallback = Callable[[Dict[str, Any]], Union[Awaitable[None], None]]
+
+
+def hud_highlight_payload(el: Dict[str, Any], action: str, reasoning: str,
+                          duration_ms: int = HUD_HIGHLIGHT_MS) -> Dict[str, Any]:
+    """HUD_HIGHLIGHT payload (protocol HUDHighlightPayload) for a tagged element.
+    Bounds are physical screen pixels, as UI Automation reports them; the overlay converts."""
+    b = el.get("bounds") or {}
+    return {
+        "element": {
+            "id": str(el.get("id", "")),
+            "name": el.get("name") or el.get("role") or "element",
+            "role": el.get("role"),
+            "bounds": {k: int(b.get(k, 0)) for k in ("x", "y", "width", "height")},
+            "action": action,
+        },
+        "reasoning": reasoning,
+        "durationMs": duration_ms,
+    }
+
+
+def point_element(x: float, y: float) -> Dict[str, Any]:
+    """A pseudo-element for click_at: a small box centred on the clicked point."""
+    half = _POINT_BOX // 2
+    return {"name": f"({int(x)}, {int(y)})", "role": "Point",
+            "bounds": {"x": int(x) - half, "y": int(y) - half, "width": _POINT_BOX, "height": _POINT_BOX}}
+
+
+def latest_image_only(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A copy of history where only the newest message keeps its screenshot: older ones are out of date and
+    would fill a small model's context."""
+    last = max((i for i, m in enumerate(history) if m.get("images")), default=-1)
+    return [m if i == last or not m.get("images") else {k: v for k, v in m.items() if k != "images"}
+            for i, m in enumerate(history)]
 
 
 def format_ui_elements(elements: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
@@ -159,8 +204,15 @@ class CoworkAgentLoop:
         action_synthesizer: Optional[ActionSynthesizer] = None,
         max_turns: int = 12,
         timeout: float = 120.0,
+        vision: bool = False,
+        on_highlight: Optional[HighlightCallback] = None,
     ) -> None:
         self.client = client
+        # Called with a HUD_HIGHLIGHT payload right before each click or type, so the
+        # desktop overlay can show the target; None (CLI, tests) shows nothing.
+        self.on_highlight = on_highlight
+        # Attach an annotated screenshot to each observation (only for models that accept images)
+        self.vision = vision
         self.model_id = model_id
         self.pin_manager = pin_manager or WindowPinManager()
         self.screen_perceiver = screen_perceiver or ScreenPerceiver(pin_manager=self.pin_manager)
@@ -181,6 +233,30 @@ class CoworkAgentLoop:
         self.tagged_elements = format_ui_elements(raw_elements)
         return render_elements_text(self.tagged_elements)
 
+    def snapshot(self, hwnd: Optional[int] = None) -> Optional[Tuple[str, str]]:
+        """(base64 screenshot, prompt note) of the window as last observed, or None without vision."""
+        if not self.vision:
+            return None
+        try:
+            return annotated_window_image(self.screen_perceiver, self.pin_manager,
+                                          hwnd or self.pin_manager.pinned_hwnd, self.tagged_elements)
+        except Exception as e:  # a failed capture must never stop the task: the element list still works
+            logger.warning(f"[CoworkAgent] Screenshot failed: {e}")
+            return None
+
+    async def highlight(self, el: Dict[str, Any], action: str, reasoning: str) -> None:
+        """Shows the target on the HUD overlay, then pauses briefly. Never raises: a missing or
+        broken overlay must not stop the action."""
+        if not self.on_highlight:
+            return
+        try:
+            result = self.on_highlight(hud_highlight_payload(el, action, reasoning))
+            if inspect.isawaitable(result):
+                await result
+            await asyncio.sleep(HUD_LEAD_SECONDS)
+        except Exception as e:
+            logger.warning(f"[CoworkAgent] HUD highlight failed: {e}")
+
     async def execute_tool(self, tool_name: str, args: Dict[str, Any], hwnd: Optional[int] = None) -> str:
         """Executes a cowork action and observes resulting UI state."""
         try:
@@ -189,6 +265,7 @@ class CoworkAgentLoop:
                 if el_id not in self.tagged_elements:
                     return f"Error: Element tag [{el_id}] not found. Current elements:\n{render_elements_text(self.tagged_elements)}"
                 el = self.tagged_elements[el_id]
+                await self.highlight(el, "click", f"Clicking {el['role']} '{el['name']}'")
                 self.action_synthesizer.click(x=el["cx"], y=el["cy"])
                 await asyncio.sleep(0.3)
                 new_state = self.observe(hwnd=hwnd)
@@ -197,6 +274,7 @@ class CoworkAgentLoop:
             elif tool_name == "click_at":
                 x = float(args.get("x", 0))
                 y = float(args.get("y", 0))
+                await self.highlight(point_element(x, y), "click", f"Clicking at ({int(x)}, {int(y)})")
                 self.action_synthesizer.click(x=x, y=y)
                 await asyncio.sleep(0.3)
                 new_state = self.observe(hwnd=hwnd)
@@ -208,6 +286,7 @@ class CoworkAgentLoop:
                 if el_id not in self.tagged_elements:
                     return f"Error: Element tag [{el_id}] not found."
                 el = self.tagged_elements[el_id]
+                await self.highlight(el, "type", f"Typing into {el['role']} '{el['name']}'")
                 self.action_synthesizer.type_text(text=text, x=el["cx"], y=el["cy"])
                 await asyncio.sleep(0.3)
                 new_state = self.observe(hwnd=hwnd)
@@ -260,9 +339,14 @@ class CoworkAgentLoop:
             f"Plan and execute the actions needed to achieve the goal."
         )
 
-        history: List[Dict[str, str]] = [
+        first: Dict[str, Any] = {"role": "user", "content": prompt}
+        snap = self.snapshot(target_hwnd)
+        if snap:
+            first["content"] += f"\n\n{snap[1]}"
+            first["images"] = [snap[0]]
+        history: List[Dict[str, Any]] = [
             {"role": "system", "content": COWORK_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            first,
         ]
 
         full_output_parts: List[str] = []
@@ -272,7 +356,7 @@ class CoworkAgentLoop:
             turn_chunks: List[str] = []
 
             async for chunk in self.client.stream_completion(
-                messages=history,
+                messages=latest_image_only(history),
                 model_name=self.model_id,
                 timeout=self.timeout,
                 on_reasoning=on_reasoning,
@@ -316,6 +400,11 @@ class CoworkAgentLoop:
             if on_chunk:
                 on_chunk(f"\n{tool_feedback}\n")
 
-            history.append({"role": "user", "content": tool_feedback})
+            feedback: Dict[str, Any] = {"role": "user", "content": tool_feedback}
+            snap = self.snapshot(target_hwnd)
+            if snap:
+                feedback["content"] += f"\n\n{snap[1]}"
+                feedback["images"] = [snap[0]]
+            history.append(feedback)
 
         return "\n".join(full_output_parts)

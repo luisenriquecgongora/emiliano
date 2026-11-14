@@ -10,16 +10,20 @@ jobs:
   python-engine-check:
     name: Python Engine Check
     runs-on: ${{ matrix.os }}
+    # A healthy run takes about 3 minutes; a hang must not hold a runner for an hour
+    timeout-minutes: 20
     strategy:
+      # Keep the other OS/Python jobs running when one fails, so their results stay visible
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -33,10 +37,11 @@ jobs:
 
       - name: Run engine tests
         working-directory: packages/engine
-        run: python -m pytest tests -q
+        # Fail any single test that runs over 2 minutes and print every thread's stack
+        run: python -m pytest tests -q --timeout=120
 
       - name: Run release retention tests
-        run: python -m unittest scripts/test_prune_r2_releases.py
+        run: python -m unittest scripts/test_prune_r2_releases.py scripts/test_publish_release_to_r2.py
 
       - name: Run CLI sanity checks
         run: |
@@ -47,12 +52,13 @@ jobs:
     name: Desktop UI & Protocol Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # 22: runs the desktop .ts unit tests natively (type stripping)
+          node-version: 22
           cache: "yarn"
 
       - name: Install dependencies
@@ -61,6 +67,9 @@ jobs:
       - name: Typecheck Desktop App
         run: yarn workspace @emiliano/desktop tsc --noEmit
 
+      - name: Desktop unit tests
+        run: node --test "apps/desktop/src/**/*.test.ts"
+
       - name: Check agent skills are valid and linked for every harness
         run: python3 scripts/verify.py --only skills
 
@@ -68,11 +77,11 @@ jobs:
     name: Secret Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Scan history for leaked secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

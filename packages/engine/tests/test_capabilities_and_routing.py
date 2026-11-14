@@ -530,6 +530,10 @@ class TestHarnessPromptSafety(unittest.TestCase):
             with patch("subprocess.Popen") as mock_popen:
                 proc = MagicMock()
                 proc.pid = 12345
+                # End of output, like a real pipe: otherwise run_task's reader thread reads a new MagicMock
+                # forever, outliving the test and slowing (and eventually hanging) the rest of the suite
+                proc.stdout.readline.side_effect = [""]
+                proc.stderr.read.return_value = ""
                 proc.wait.side_effect = KeyboardInterrupt("Interrupted")
                 mock_popen.return_value = proc
                 with patch.object(claude, "_kill_process_tree") as mock_kill:

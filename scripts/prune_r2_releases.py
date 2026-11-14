@@ -1,13 +1,13 @@
 """Cloudflare R2 Release Retention Pruner for Emiliano.
 
-Keeps at most MAX_RELEASES (5) versioned releases under the emiliano/ prefix and deletes
+Keeps at most MAX_RELEASES (3) versioned releases under the emiliano/ prefix and deletes
 older ones so the bucket does not grow without bound. The canonical latest/ folder is
 never touched. Same rule as the Yapper release flow, with a hard ceiling: the limit
-cannot be raised above 5 or switched off.
+cannot be raised above 3 or switched off.
 
 Usage:
     python scripts/prune_r2_releases.py --dry-run
-    python scripts/prune_r2_releases.py --max-keep 5
+    python scripts/prune_r2_releases.py --max-keep 3
 """
 
 import argparse
@@ -27,7 +27,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s]: %(message)s")
 logger = logging.getLogger("r2.pruner")
 
-MAX_RELEASES = 5
+MAX_RELEASES = 3
 DEFAULT_PREFIX = "emiliano"
 PROTECTED_FOLDERS = {"latest"}
 
@@ -146,7 +146,7 @@ def main():
     args = parser.parse_args()
 
     validate_max_keep(args.max_keep)
-    bucket = os.environ.get("R2_BUCKET_NAME", "plaatoos-downloads")
+    bucket = os.environ.get("R2_BUCKET_NAME", "luisenrique-releases")
     prune_prefix_releases(get_r2_client(), bucket, args.prefix, max_keep=args.max_keep, dry_run=args.dry_run)
 
 

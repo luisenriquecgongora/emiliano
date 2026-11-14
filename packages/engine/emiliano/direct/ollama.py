@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 
 import httpx
 try:
@@ -113,12 +113,16 @@ class OllamaManager:
         logger.warning("[Ollama] Timed out waiting for Ollama service to become ready.")
         return False
 
-    async def preload(self, model: str, num_ctx: Optional[int] = None, timeout: float = 180.0) -> bool:
+    async def preload(self, model: str, num_ctx: Optional[int] = None, timeout: float = 180.0,
+                      keep_alive: Optional[Union[int, str]] = None) -> bool:
         """Has Ollama load the model into memory now: an empty prompt only loads it. Uses the same context
-        window as later calls ask for, since a different num_ctx would make Ollama load the model again."""
+        window as later calls ask for, since a different num_ctx would make Ollama load the model again.
+        keep_alive sets how long it stays loaded (-1 = until unloaded); None keeps Ollama's default."""
         payload: dict = {"model": model, "prompt": ""}
         if num_ctx:
             payload["options"] = {"num_ctx": num_ctx}
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 res = await client.post(f"{self.base_url}/api/generate", json=payload)
@@ -126,6 +130,61 @@ class OllamaManager:
         except Exception as e:
             logger.debug(f"[Ollama] Preloading {model} failed: {e}")
             return False
+
+    async def unload(self, model: str) -> bool:
+        """Frees the memory (VRAM and RAM) a loaded model holds; it loads again on next use."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(f"{self.base_url}/api/generate", json={"model": model, "keep_alive": 0})
+                return res.status_code == 200
+        except Exception as e:
+            logger.debug(f"[Ollama] Unloading {model} failed: {e}")
+            return False
+
+    async def list_loaded(self) -> Dict[str, Dict]:
+        """Models in memory now (/api/ps): name -> {sizeBytes, vramBytes, expiresAt}."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.get(f"{self.base_url}/api/ps")
+                if res.status_code == 200:
+                    return {m["name"]: {"sizeBytes": m.get("size", 0), "vramBytes": m.get("size_vram", 0),
+                                        "expiresAt": m.get("expires_at")}
+                            for m in res.json().get("models", []) if m.get("name")}
+        except Exception as e:
+            logger.debug(f"[Ollama] Error querying /api/ps: {e}")
+        return {}
+
+    async def list_model_details(self) -> List[Dict]:
+        """Installed models with size and tool support: [{name, sizeBytes, tools}]. tools is None when this
+        Ollama does not report capabilities (older than 0.6)."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.get(f"{self.base_url}/api/tags")
+                if res.status_code == 200:
+                    out = []
+                    for m in res.json().get("models", []):
+                        if not m.get("name"):
+                            continue
+                        caps = m.get("capabilities")
+                        out.append({"name": m["name"], "sizeBytes": m.get("size", 0),
+                                    "tools": ("tools" in caps) if isinstance(caps, list) else None})
+                    return out
+        except Exception as e:
+            logger.debug(f"[Ollama] Error querying /api/tags: {e}")
+        return []
+
+    async def capabilities(self, model: str) -> List[str]:
+        """What a model can do according to Ollama (/api/show): e.g. ["completion", "tools", "vision"].
+        Empty when unknown (older Ollama, model not installed, service down)."""
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                res = await client.post(f"{self.base_url}/api/show", json={"model": model.removeprefix("ollama/")})
+                if res.status_code == 200:
+                    caps = res.json().get("capabilities")
+                    return [str(c) for c in caps] if isinstance(caps, list) else []
+        except Exception as e:
+            logger.debug(f"[Ollama] Error querying /api/show for {model}: {e}")
+        return []
 
     async def list_installed_models(self) -> List[str]:
         """Queries /api/tags and returns installed model names."""

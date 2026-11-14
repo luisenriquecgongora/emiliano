@@ -29,12 +29,15 @@ BUILD_DIR = ROOT_DIR / "build"
 
 PRODUCT = "Emiliano"
 R2_PREFIX = "emiliano"
-DEFAULT_PUBLIC_DOMAIN = "https://pub-091afdf4a9bd47fa9b641aae923852e1.r2.dev"
+DEFAULT_PUBLIC_DOMAIN = "https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev"
 
 # Packages that load data files, plugins, or submodules dynamically, which
 # PyInstaller's static analysis would otherwise miss.
-COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext", "winpty"]
-COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite", "comtypes"]
+# The terminal for coding agents uses winpty on Windows and ptyprocess elsewhere; UI
+# Automation (comtypes) exists only on Windows.
+IS_WINDOWS = sys.platform == "win32"
+COLLECT_ALL = ["litellm", "tiktoken", "tiktoken_ext"] + (["winpty"] if IS_WINDOWS else ["ptyprocess"])
+COLLECT_SUBMODULES = ["emiliano", "uvicorn", "sqlalchemy.dialects.sqlite"] + (["comtypes"] if IS_WINDOWS else [])
 COPY_METADATA = ["litellm"]
 
 

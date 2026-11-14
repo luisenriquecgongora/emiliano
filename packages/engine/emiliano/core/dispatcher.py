@@ -83,6 +83,7 @@ class ExecutionDispatcher:
         )
         self.traces = TraceStore()
         self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
+        self._mcp = None  # McpManager, started on the first tool task when mcp_servers are configured
 
     async def route_task(
         self,
@@ -375,8 +376,9 @@ class ExecutionDispatcher:
                             )
 
                     if is_task:
-                        agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout)
                         active_ws = workspace or os.getcwd()
+                        agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout,
+                                                mcp=await self._mcp_tools(active_ws))
                         output = await agent.run(
                             goal=goal,
                             workspace=active_ws,
@@ -620,6 +622,28 @@ class ExecutionDispatcher:
         preferred = (self.config.preferred_harness or "").lower().replace("-", "_")
         preferred = HARNESS_ALIASES.get(preferred, preferred)
         return (cap.name != preferred, cap.priority)
+
+    def reload_mcp(self) -> None:
+        """Re-reads mcp_servers from the config file and drops running servers, so a new connection (or a removed
+        one) applies to the next task without restarting."""
+        self.config.mcp_servers = load_config().mcp_servers
+        if getattr(self, "_mcp", None) is not None:
+            self._mcp.close()
+            self._mcp = None
+
+    async def _mcp_tools(self, workspace: str):
+        """The MCP manager for a tool task, or None when no MCP servers are configured. Servers start once and
+        keep running for later tasks; one that fails is reported in the logs and skipped."""
+        servers = getattr(self.config, "mcp_servers", None)
+        if not servers:
+            return None
+        if getattr(self, "_mcp", None) is None:
+            import atexit
+            from ..mcp import McpManager
+            self._mcp = McpManager(servers, cwd=workspace)
+            atexit.register(self._mcp.close)
+        await self._mcp.astart()
+        return self._mcp if self._mcp.tools else None
 
     @staticmethod
     def _litellm_model_id(candidate: Capability) -> str:

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Compass, Crosshair, History, Monitor, Pin, PinOff, Plus, RefreshCw, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ChevronDown, Compass, Copy, Cpu, Crosshair, History, Monitor, Pin, PinOff, Plus, RefreshCw, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -10,10 +10,20 @@ import {
   ChatMessage,
   ChatSummary,
   ContextMetrics,
+  FIT_LABELS,
+  LocalModel,
   MODES,
   Mode,
+  ModelChoice,
+  ModelProvider,
+  ModelRecommendations,
   PermissionRequest,
+  ServiceConnection,
   chatsApi,
+  connectionsApi,
+  directModelGroups,
+  formatGb,
+  modelsApi,
   relativeTime,
 } from './chats';
 import { DesktopWindow, UIElement, coworkApi } from './cowork';
@@ -28,6 +38,14 @@ export default function Dock() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<Mode>('auto');
+  const [model, setModel] = useState<ModelChoice>({ provider: '', model: '' });
+  const [modelGroups, setModelGroups] = useState<ModelProvider[]>([]);
+  const [localModels, setLocalModels] = useState<ModelRecommendations | null>(null);
+  const [showModels, setShowModels] = useState(false);
+  const [modelAction, setModelAction] = useState<string | null>(null);
+  const [connections, setConnections] = useState<ServiceConnection[]>([]);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectNote, setConnectNote] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -240,7 +258,7 @@ export default function Dock() {
         { id: `user-${Date.now()}`, role: 'user', content },
         { id: PENDING_ID, role: 'assistant', content: '', pending: true },
       ]);
-      ws.send(JSON.stringify({ type: 'send', chat_id: chatId, content, mode }));
+      ws.send(JSON.stringify({ type: 'send', chat_id: chatId, content, mode, ...(model.provider ? model : {}) }));
     } catch (e) {
       setError(String(e));
       setBusy(false);
@@ -254,6 +272,64 @@ export default function Dock() {
     if (!permission) return;
     ws?.send(JSON.stringify({ type: 'permission_response', request_id: permission.request_id, option_id: optionId }));
     setPermission(null);
+  };
+
+  const refreshModels = useCallback(() => {
+    modelsApi
+      .list()
+      .then(({ models }) => setModelGroups(directModelGroups(models)))
+      .catch((e) => console.error('Models:', e));
+    modelsApi
+      .recommendations()
+      .then(setLocalModels)
+      .catch((e) => console.error('Model recommendations:', e));
+    connectionsApi
+      .list()
+      .then(({ connections }) => setConnections(connections))
+      .catch((e) => console.error('Connections:', e));
+  }, []);
+
+  // Connect opens the service's sign-in in the browser; the engine waits for the approval (up to 5 minutes)
+  const toggleConnection = async (c: ServiceConnection) => {
+    setConnecting(c.service);
+    setConnectNote(c.connected ? null : `Approve the connection in your browser, then come back here.`);
+    try {
+      if (c.connected) {
+        await connectionsApi.disconnect(c.service);
+        setConnectNote(`${c.title} disconnected.`);
+      } else {
+        const r = await connectionsApi.connect(c.service);
+        setConnectNote(
+          r.ok
+            ? `${c.title} connected: ${r.tools} tools available to the models.`
+            : `${c.title} connected, but its tools did not load: ${r.error}`,
+        );
+      }
+    } catch (e) {
+      setConnectNote(null);
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  };
+
+  // The models to pick from: refreshed whenever the engine (re)connects, e.g. after `ollama pull`
+  useEffect(() => {
+    if (ws) refreshModels();
+  }, [ws, refreshModels]);
+
+  // Load keeps a local model in memory so replies start at once; Unload frees its VRAM and RAM
+  const toggleLoaded = async (m: LocalModel) => {
+    setModelAction(m.name);
+    try {
+      await (m.loaded ? modelsApi.unload(m.name) : modelsApi.load(m.name));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setModelAction(null);
+      refreshModels();
+    }
   };
 
   // Emergency kill switch: the desktop shell sends this when Esc is pressed anywhere
@@ -411,11 +487,35 @@ export default function Dock() {
 
         {permission && <PermissionCard request={permission} onAnswer={answerPermission} />}
 
+        {showModels && (
+          <ModelsPanel
+            data={localModels}
+            busyModel={modelAction}
+            onRefresh={refreshModels}
+            onToggleLoaded={toggleLoaded}
+            connections={connections}
+            connecting={connecting}
+            connectNote={connectNote}
+            onToggleConnection={toggleConnection}
+            onClose={() => setShowModels(false)}
+          />
+        )}
+
         <Composer
           draft={draft}
           onDraft={setDraft}
           mode={mode}
           onMode={setMode}
+          model={model}
+          modelGroups={modelGroups}
+          localModels={localModels?.models ?? []}
+          onModel={setModel}
+          onToggleModels={() => {
+            setShowModels((open) => {
+              if (!open) refreshModels();
+              return !open;
+            });
+          }}
           busy={busy}
           connected={!!ws}
           onSend={send}
@@ -739,20 +839,204 @@ function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onA
   );
 }
 
+/** Local models rated for this machine, with Load/Unload, plus models worth downloading. */
+function ModelsPanel(props: {
+  data: ModelRecommendations | null;
+  busyModel: string | null;
+  onRefresh: () => void;
+  onToggleLoaded: (m: LocalModel) => void;
+  connections: ServiceConnection[];
+  connecting: string | null;
+  connectNote: string | null;
+  onToggleConnection: (c: ServiceConnection) => void;
+  onClose: () => void;
+}) {
+  const hw = props.data?.hardware;
+  return (
+    <div className="absolute inset-x-3 top-14 bottom-28 z-10 bg-slate-950 border border-slate-700 rounded-xl flex flex-col overflow-hidden shadow-2xl">
+      <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center space-x-1.5">
+          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Local models</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button onClick={props.onRefresh} title="Refresh" className="text-slate-400 hover:text-white">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={props.onClose} className="text-slate-400 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {props.connections.length > 0 && (
+          <div className="border-b border-slate-800">
+            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-slate-400">Services (tools for the models)</div>
+            {props.connections.map((c) => (
+              <div key={c.service} className="px-3 py-2 flex items-center justify-between">
+                <div className="min-w-0 pr-2">
+                  <div className="text-xs text-slate-200 font-medium">{c.title}</div>
+                  <div className="text-[10px] text-slate-500">
+                    {c.connected
+                      ? `Connected${c.auth === 'token' ? ' with an agent token' : ''}`
+                      : 'Sign in to let the models use its tools'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => props.onToggleConnection(c)}
+                  disabled={props.connecting !== null}
+                  title={c.connected ? 'Sign out and remove the service' : 'Opens the sign-in in your browser'}
+                  className={`shrink-0 px-2 py-0.5 rounded text-[10px] disabled:opacity-40 ${
+                    c.connected ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
+                  }`}
+                >
+                  {props.connecting === c.service ? 'Waiting…' : c.connected ? 'Disconnect' : 'Connect'}
+                </button>
+              </div>
+            ))}
+            {props.connectNote && <div className="px-3 pb-2 text-[10px] text-cyan-300">{props.connectNote}</div>}
+          </div>
+        )}
+        {!props.data ? (
+          <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
+        ) : (
+          <>
+            <div className="px-3 py-2 text-[10px] text-slate-400 border-b border-slate-800/60">
+              {hw?.gpuName ? `${hw.gpuName}, ${formatGb(hw.vramBytes)} VRAM` : 'No NVIDIA GPU found'} ·{' '}
+              {formatGb(hw?.ramBytes ?? 0)} RAM
+            </div>
+            {props.data.models.length === 0 && (
+              <div className="p-3 text-xs text-slate-500">No local models installed.</div>
+            )}
+            <div className="divide-y divide-slate-800/60">
+              {props.data.models.map((m) => (
+                <div key={m.name} className="p-2.5 flex items-center justify-between">
+                  <div className="min-w-0 pr-2">
+                    <div className="text-xs text-slate-200 truncate font-medium">
+                      {FIT_LABELS[m.fit].icon} {m.name}
+                      {m.recommended && (
+                        <span className="ml-1.5 text-[9px] text-cyan-300 bg-cyan-950 rounded px-1">recommended</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {formatGb(m.sizeBytes)} · {FIT_LABELS[m.fit].text} ·{' '}
+                      {m.tools === null ? 'tool support unknown' : m.tools ? 'uses file tools' : 'no tool support'}
+                      {m.loaded && <span className="text-emerald-400"> · in memory ({formatGb(m.vramBytes)} on GPU)</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => props.onToggleLoaded(m)}
+                    disabled={props.busyModel !== null || (!m.loaded && m.fit === 'too_big')}
+                    title={m.loaded ? 'Free the memory this model holds' : 'Load into memory now so replies start at once'}
+                    className={`shrink-0 px-2 py-0.5 rounded text-[10px] disabled:opacity-40 ${
+                      m.loaded ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
+                    }`}
+                  >
+                    {props.busyModel === m.name ? '…' : m.loaded ? 'Unload' : 'Load'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {props.data.suggestions.length > 0 && (
+              <>
+                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">Suggested downloads for this PC</div>
+                <div className="divide-y divide-slate-800/60">
+                  {props.data.suggestions.map((s) => (
+                    <div key={s.name} className="px-3 py-2 flex items-center justify-between">
+                      <div className="min-w-0 pr-2">
+                        <div className="text-xs text-slate-200 truncate">
+                          {FIT_LABELS[s.fit].icon} {s.name} <span className="text-[10px] text-slate-500">~{s.sizeGb} GB</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 truncate">{s.note}</div>
+                      </div>
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(s.pull).catch(() => undefined)}
+                        title={`Copy "${s.pull}", then run it in a terminal`}
+                        className="shrink-0 flex items-center space-x-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 font-mono"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>pull</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Pins replies to one model; "Default model" lets the mode dropdown decide. Value is "provider|model". */
+function ModelPicker(props: {
+  value: ModelChoice;
+  groups: ModelProvider[];
+  localModels: LocalModel[];
+  onChange: (model: ModelChoice) => void;
+}) {
+  // Local models get their hardware rating, e.g. "✅ qwen3.5:2b (recommended)"
+  const label = (provider: string, name: string) => {
+    const local = provider === 'ollama' ? props.localModels.find((m) => m.name === name) : undefined;
+    if (!local) return name;
+    return `${FIT_LABELS[local.fit].icon} ${name}${local.recommended ? ' (recommended)' : ''}`;
+  };
+  const current = props.value.provider ? `${props.value.provider}|${props.value.model}` : '';
+  return (
+    <label className="relative flex items-center text-[11px] text-slate-300 ml-1 min-w-0">
+      <select
+        value={current}
+        onChange={(e) => {
+          const [provider, ...rest] = e.target.value.split('|');
+          props.onChange({ provider, model: rest.join('|') });
+        }}
+        title="Model that answers: a picked model replaces the mode on the left"
+        className="appearance-none bg-slate-800 hover:bg-slate-700 rounded-lg pl-2 pr-6 py-1 focus:outline-none cursor-pointer max-w-[160px] truncate"
+      >
+        <option value="">Default model</option>
+        {props.groups.map((g) => (
+          <optgroup key={g.name} label={g.displayName}>
+            {g.availableModels.map((m) => (
+              <option key={`${g.name}|${m}`} value={`${g.name}|${m}`}>{label(g.name, m)}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
+    </label>
+  );
+}
+
 function Composer(props: {
   draft: string;
   onDraft: (value: string) => void;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  model: ModelChoice;
+  modelGroups: ModelProvider[];
+  localModels: LocalModel[];
+  onModel: (model: ModelChoice) => void;
+  onToggleModels: () => void;
   busy: boolean;
   connected: boolean;
   onSend: () => void;
   onStop: () => void;
 }) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The summon shortcut (Ctrl+Shift+Space by default) brings the dock up ready to type
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen('summon', () => inputRef.current?.focus());
+    return () => {
+      unlisten.then((off) => off());
+    };
+  }, []);
   return (
     <div className="mt-3">
       <div className="bg-slate-900 border border-slate-700 rounded-xl focus-within:border-cyan-500">
         <textarea
+          ref={inputRef}
           value={props.draft}
           onChange={(e) => props.onDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -780,6 +1064,19 @@ function Composer(props: {
             </select>
             <ChevronDown className="w-3 h-3 absolute right-1.5 pointer-events-none text-slate-400" />
           </label>
+          <ModelPicker
+            value={props.model}
+            groups={props.modelGroups}
+            localModels={props.localModels}
+            onChange={props.onModel}
+          />
+          <button
+            onClick={props.onToggleModels}
+            title="Local models: hardware fit, load and unload, suggested downloads"
+            className="p-1 mr-auto ml-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+          </button>
           {props.busy ? (
             <button onClick={props.onStop} title="Stop (Esc)" className="flex items-center space-x-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg px-3 py-1 text-[11px]">
               <Square className="w-3 h-3 fill-current" />

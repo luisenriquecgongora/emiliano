@@ -165,7 +165,15 @@ python scripts/build_engine_sidecar.py      # once, and after engine changes: bu
 yarn workspace @emiliano/desktop tauri dev  # runs the desktop app with hot reload
 ```
 
+**On a Mac.** The desktop app also comes as a `.dmg` for Apple Silicon (M1 or newer, macOS 11+). It is not signed with an Apple Developer ID, so the first time macOS blocks it: open **System Settings → Privacy & Security** and click **Open Anyway**. Cowork needs two permissions there as well, **Screen Recording** (to see the screen) and **Accessibility** (to move the mouse and type); macOS asks the first time. On a Mac, Cowork works from screenshots plus mouse and keyboard; the window list, window pinning and reading a window's buttons and fields use Windows UI Automation, so they are Windows-only for now. PlaatoOS sign-ins are kept in `~/.emiliano/mcp-credentials.json`, readable only by you, instead of Windows Credential Manager.
+
 To work on the UI against an engine you run yourself, start `emiliano server` and set `EMILIANO_EXTERNAL_ENGINE=1` before `tauri dev`. `yarn workspace @emiliano/desktop dev` serves the UI in a browser at `http://localhost:5173` without Rust.
+
+**MCP tools.** List MCP servers under `mcp_servers:` in `emiliano.yaml` and local and API models can call their tools (see `emiliano.example.yaml`; check them with `emiliano mcp`). Local servers start from a `command`; remote ones take a `url` and `headers`, where `${NAME}` is read from the environment. To use PlaatoOS, click **Connect** next to PlaatoOS in the dock's chip panel, or run `emiliano connect plaatoos`: your browser opens PlaatoOS, you pick the business and approve, and Emiliano adds the server for you. It keeps the sign-in in Windows Credential Manager (never in a file) and renews it on its own; `emiliano disconnect plaatoos` signs out and revokes it. Scripts can use an agent token instead: `emiliano connect plaatoos --token pak_...` (create it in PlaatoOS under Admin > Storefront > Agent Commerce). PlaatoOS offers its whole catalog (100+ tools); to keep a small model on track, limit a server with `tools` (name patterns such as `"query_*"`) and `exclude_tools`. Tools a server marks destructive stay hidden unless `allow_destructive: true`. Past 25 MCP tools, models see names and short descriptions only and look up a tool's parameters with `mcp_describe`.
+
+**Summon and diffs.** Press **Ctrl+Shift+Space** anywhere to bring up the dock with the cursor in the message box; press it again while the dock has focus to hide it. Set `EMILIANO_SUMMON_SHORTCUT` (e.g. `Ctrl+Alt+E`) to use other keys, or to an empty value to turn it off. Diffs in replies (```` ```diff ```` blocks or `git diff` output) open in a diff viewer: one section per file with +/- counts and line numbers, unified or side by side.
+
+**Picking a model.** Next to the mode dropdown in the dock, the model dropdown pins replies to one model; "Default model" lets the mode decide. Local models are labelled for your hardware: ✅ fits your GPU (fast), ⚠️ spills into RAM (slow), ❌ too big, and the best tool-capable fit is marked *recommended*. The chip button beside it opens **Local models**: your GPU and RAM, Load/Unload buttons (Load keeps a model in memory so replies start at once; Unload frees its memory), and suggested downloads that run on your machine with their `ollama pull` command. The rating is an estimate from file size, not a benchmark. In the terminal chat, `/models` shows the same ratings and suggestions, `/model` lists the models as a numbered list to pick from (or `/model 2`, `/model qwen3:4b`; `/model auto` goes back to routing), and `/load [name]` / `/unload [name]` load or free a local model (by default the recommended one, or every loaded one).
 
 **Chat history.** Chats are saved on your machine in `~/.emiliano/history.db` (set `EMILIANO_HISTORY_DB` to use another file). In the dock, the clock button lists them, newest first: click one to reopen it, or use the trash icon (or "Clear all history") to delete. Deleted chats cannot be restored. The engine serves them at `/api/chats` and streams replies over `/api/chat`; both only answer the desktop app (requests must address `127.0.0.1`/`localhost` and come from the app's origin).
 
@@ -180,16 +188,29 @@ Agent permission requests appear in the dock only. The terminal chat approves th
 
 ## Releases
 
-Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which:
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. PyInstaller only builds for the system it runs on, so a Windows machine and a Mac each build their part, and one publish job runs once both succeed (if either fails, nothing is published):
 
-1. Builds a standalone `Emiliano.exe` with PyInstaller (`scripts/build_windows_release.py`) and smoke-tests it.
-2. Packages `Emiliano-vX.Y.Z-windows-x64.zip` and a `version.json` manifest with SHA-256 checksums.
-3. Builds the desktop app with the same engine bundled inside (`scripts/build_desktop_release.py`): `Emiliano-Desktop-vX.Y.Z-windows-x64-setup.exe` and `.msi`, added to `version.json`.
-4. Uploads everything to Cloudflare R2 under `emiliano/vX.Y.Z/` and `emiliano/latest/` (`scripts/publish_release_to_r2.py`).
-5. Deletes all but the newest **5** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
-6. Creates a GitHub Release with the same files. The release fails unless the tag matches the version in `packages/engine/emiliano/__init__.py` and `apps/desktop/src-tauri/tauri.conf.json`; bump `pyproject.toml`, `apps/desktop/package.json` and `src-tauri/Cargo.toml` with them.
+1. **Windows:** builds a standalone `Emiliano.exe` with PyInstaller (`scripts/build_windows_release.py`), smoke-tests it, and packages `Emiliano-vX.Y.Z-windows-x64.zip` and a `version.json` manifest with SHA-256 checksums.
+2. **Windows:** builds the desktop app with the same engine bundled inside (`scripts/build_desktop_release.py`): `Emiliano-Desktop-vX.Y.Z-windows-x64-setup.exe` and `.msi`, added to `version.json`.
+3. **macOS:** the same script builds `Emiliano-Desktop-vX.Y.Z-macos-arm64.dmg` (Apple Silicon, ad-hoc signed), mounts it and smoke-tests the engine inside the app, and writes its `version.json` entry to `desktop-macos-arm64.json`.
+4. **Publish:** merges the Mac entry into `version.json`, then uploads the zip, the Windows setup installer, the `.dmg` and `version.json` to Cloudflare R2 under `emiliano/vX.Y.Z/` and `emiliano/latest/` (`scripts/publish_release_to_r2.py`). The raw `Emiliano.exe` (already inside the zip) and the `.msi` (same app as the setup installer) are left out to keep the bucket inside the 10 GB free tier.
+5. Deletes all but the newest **3** versioned releases (`scripts/prune_r2_releases.py`). The cap cannot be raised or disabled, and a failed prune fails the release. `latest/` is never deleted.
+6. Creates a GitHub Release with all five files plus `version.json`; older versions stay downloadable there after R2 prunes them. The release fails unless the tag matches the version in `packages/engine/emiliano/__init__.py` and `apps/desktop/src-tauri/tauri.conf.json`; bump `pyproject.toml`, `apps/desktop/package.json` and `src-tauri/Cargo.toml` with them.
 
-The workflow needs these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME` (default `plaatoos-downloads`) and `R2_CUSTOM_DOMAIN`.
+The workflow needs these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and optionally `R2_BUCKET_NAME` (default `luisenrique-releases`) and `R2_CUSTOM_DOMAIN` (default `https://pub-fb9de4da4f48439ebb34b3795d05ab11.r2.dev`).
+
+```mermaid
+flowchart LR
+    tag["Merge the release PR<br/>(tag vX.Y.Z)"]:::input --> win["Windows machine<br/>CLI zip + setup.exe + msi"]:::ours
+    tag --> mac["Mac machine<br/>.dmg, engine smoke-tested inside"]:::ours
+    win & mac --> pub["publish job<br/>one version.json for both"]:::ours
+    pub --> r2["R2 emiliano/vX.Y.Z + latest<br/>(newest 3 kept)"]:::output
+    pub --> gh["GitHub Release<br/>every file"]:::output
+    classDef input fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef ours fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
+```
+Legend: purple = what you do, blue = workflow jobs, green = where the files end up.
 
 To build locally without publishing:
 
@@ -197,6 +218,8 @@ To build locally without publishing:
 packages/engine/.venv/Scripts/python.exe -m pip install pyinstaller  # or: uv pip install pyinstaller
 packages/engine/.venv/Scripts/python.exe scripts/build_windows_release.py --version 0.1.0
 ```
+
+On a Mac, `python scripts/build_desktop_release.py --version X.Y.Z` builds the `.dmg` (needs Rust, Node.js with Yarn, and PyInstaller in the engine's environment).
 
 To preview what the cap would delete: `python scripts/prune_r2_releases.py --dry-run` (needs the R2 variables).
 

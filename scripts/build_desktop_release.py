@@ -1,23 +1,29 @@
 """Desktop Release Builder for Emiliano (Tauri app with the Python engine bundled inside).
 
 Puts the engine into apps/desktop/src-tauri/binaries as the sidecar, runs `tauri build`,
-copies the NSIS and MSI installers into dist/ under versioned names, and records them
-with SHA-256 checksums in dist/version.json next to the CLI release.
+and copies the installers into dist/ under versioned names with SHA-256 checksums:
+  Windows: NSIS setup.exe + MSI, recorded in dist/version.json next to the CLI release.
+  macOS:   a .dmg (Apple Silicon, ad-hoc signed). The engine inside the mounted .dmg is
+           smoke-tested, and the entry goes to dist/desktop-macos-arm64.json, which
+           publish_release_to_r2.py merges into version.json (the Mac build runs on its
+           own machine, because PyInstaller only builds for the system it runs on).
 
 Usage:
     python scripts/build_desktop_release.py --version 0.1.0 [--reuse-cli-exe]
 
---reuse-cli-exe copies dist/Emiliano.exe (from build_windows_release.py) as the sidecar
-instead of building the engine again; both are the same PyInstaller build.
+--reuse-cli-exe (Windows) copies dist/Emiliano.exe (from build_windows_release.py) as the
+sidecar instead of building the engine again; both are the same PyInstaller build.
 """
 
 import argparse
 import json
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -29,6 +35,7 @@ from build_windows_release import (  # noqa: E402
     R2_PREFIX,
     ROOT_DIR,
     compute_sha256,
+    smoke_test,
 )
 
 logger = logging.getLogger("release.desktop")
@@ -36,6 +43,11 @@ logger = logging.getLogger("release.desktop")
 DESKTOP_DIR = ROOT_DIR / "apps" / "desktop"
 TAURI_CONF = DESKTOP_DIR / "src-tauri" / "tauri.conf.json"
 BUNDLE_DIR = DESKTOP_DIR / "src-tauri" / "target" / "release" / "bundle"
+IS_MAC = sys.platform == "darwin"
+
+
+def mac_platform() -> str:
+    return "macos-arm64" if platform.machine() == "arm64" else "macos-x64"
 
 
 def check_app_version(version: str) -> None:
@@ -47,7 +59,7 @@ def check_app_version(version: str) -> None:
 
 def install_sidecar(target: str, reuse_cli_exe: bool) -> Path:
     cli_exe = DIST_DIR / f"{PRODUCT}.exe"
-    if not reuse_cli_exe:
+    if not reuse_cli_exe or IS_MAC:
         return build_sidecar(target)
     if not cli_exe.exists():
         raise SystemExit(f"--reuse-cli-exe needs {cli_exe}. Run build_windows_release.py first.")
@@ -63,7 +75,9 @@ def run_tauri_build() -> None:
     if not yarn:
         raise SystemExit("yarn not found. Install Node.js and Yarn, then run `yarn install`.")
     logger.info("Running tauri build (first build compiles Rust dependencies and takes several minutes)...")
-    res = subprocess.run([yarn, "tauri", "build"], cwd=str(DESKTOP_DIR))
+    # tauri.conf.json lists the Windows bundles; on macOS ask for the .dmg instead
+    extra = ["--bundles", "dmg"] if IS_MAC else []
+    res = subprocess.run([yarn, "tauri", "build", *extra], cwd=str(DESKTOP_DIR))
     if res.returncode != 0:
         raise RuntimeError(f"tauri build failed with exit code {res.returncode}")
 
@@ -94,6 +108,45 @@ def collect_installers(version: str) -> dict:
     return entry
 
 
+def collect_mac_dmg(version: str) -> dict:
+    """Copies the .dmg into dist/, smoke-tests the engine inside it, and returns its manifest entry."""
+    public = os.environ.get("R2_CUSTOM_DOMAIN", DEFAULT_PUBLIC_DOMAIN).rstrip("/")
+    name = mac_platform()
+    dest_name = f"{PRODUCT}-Desktop-v{version}-{name}.dmg"
+    dest = DIST_DIR / dest_name
+    shutil.copy2(find_bundle("dmg", f"{PRODUCT}_{version}_*.dmg"), dest)
+    smoke_test_dmg(dest)
+    logger.info("Packaged %s (%.1f MB)", dest_name, dest.stat().st_size / 2**20)
+    return {
+        "installer": dest_name,
+        "installer_sha256": compute_sha256(dest),
+        "download_url": f"{public}/{R2_PREFIX}/v{version}/{dest_name}",
+        "latest_url": f"{public}/{R2_PREFIX}/latest/{PRODUCT}-Desktop-{name}.dmg",
+    }
+
+
+def smoke_test_dmg(dmg: Path) -> None:
+    """Mounts the .dmg read-only and runs the engine as the installed app has it."""
+    mount = Path(tempfile.mkdtemp(prefix="emiliano-dmg-"))
+    subprocess.run(["hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)], check=True)
+    try:
+        engines = sorted(mount.glob(f"*.app/Contents/MacOS/{SIDECAR_NAME}"))
+        if len(engines) != 1:
+            raise SystemExit(f"Expected the engine inside the app in {dmg.name}, found {[str(e) for e in engines]}")
+        logger.info("Smoke-testing the engine inside %s", dmg.name)
+        smoke_test(engines[0])
+    finally:
+        subprocess.run(["hdiutil", "detach", str(mount)], check=False)
+
+
+def write_mac_fragment(version: str, entry: dict) -> Path:
+    """The Mac part of version.json, merged in by publish_release_to_r2.py."""
+    path = DIST_DIR / f"desktop-{mac_platform()}.json"
+    path.write_text(json.dumps({"version": version, "platforms": {f"desktop-{mac_platform()}": entry}}, indent=2), encoding="utf-8")
+    logger.info("Wrote %s", path.name)
+    return path
+
+
 def update_manifest(version: str, entry: dict) -> None:
     manifest_path = DIST_DIR / "version.json"
     if manifest_path.exists():
@@ -112,7 +165,10 @@ def build_desktop_release(version: str, reuse_cli_exe: bool = False) -> None:
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     install_sidecar(host_target(), reuse_cli_exe)
     run_tauri_build()
-    update_manifest(version, collect_installers(version))
+    if IS_MAC:
+        write_mac_fragment(version, collect_mac_dmg(version))
+    else:
+        update_manifest(version, collect_installers(version))
 
 
 if __name__ == "__main__":

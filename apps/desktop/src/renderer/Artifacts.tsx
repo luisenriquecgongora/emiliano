@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Check, CheckSquare, ChevronDown, ChevronRight, Code, Copy, Eye, GitBranch, Layers, Sparkles } from 'lucide-react';
+import { parseMessageParts, splitInlineCode } from './messageParts';
+import { DiffFile, DiffLine, looksLikeUnifiedDiff, parseUnifiedDiff, toSplitRows } from './diffParse';
 
 // -------------------------------------------------------------
 // 1. MERMAID FLOWCHART PARSER & SVG RENDERER
@@ -517,70 +519,186 @@ export function InteractivePlan({ content, title }: { content: string; title?: s
 // -------------------------------------------------------------
 // 3. PARSED MESSAGE CONTENT COMPONENT
 // -------------------------------------------------------------
+function CodeBlock({ code, lang, plain = false }: { code: string; lang: string; plain?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  // Diffs get the diff viewer: a ```diff/```patch block, or any block that holds a unified diff
+  if (!plain && (lang === 'diff' || lang === 'patch' || looksLikeUnifiedDiff(code))) {
+    return <DiffViewer code={code} />;
+  }
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
+  return (
+    <div className="my-1 rounded-lg border border-slate-700/70 bg-slate-950/90 overflow-hidden">
+      <div className="px-3 py-1 flex items-center justify-between bg-slate-900/90 border-b border-slate-800 text-[10px] text-slate-400">
+        <span className="font-mono">{lang || 'code'}</span>
+        <button onClick={copy} className="flex items-center space-x-1 hover:text-cyan-300" title="Copy code">
+          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          <span>{copied ? 'Copied' : 'Copy'}</span>
+        </button>
+      </div>
+      <pre className="px-3 py-2 overflow-x-auto text-[11px] leading-relaxed text-slate-200 select-text">
+        <code className="font-mono">{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+// -------------------------------------------------------------
+// 4. DIFF VIEWER (unified or side-by-side)
+// -------------------------------------------------------------
+const DIFF_ROW: Record<DiffLine['kind'], string> = {
+  add: 'bg-emerald-950/60 text-emerald-100',
+  del: 'bg-rose-950/60 text-rose-100',
+  context: 'text-slate-300',
+};
+const DIFF_SIGN: Record<DiffLine['kind'], string> = { add: '+', del: '-', context: ' ' };
+
+function LineNo({ n }: { n: number | null }) {
+  return <span className="inline-block w-8 shrink-0 pr-1.5 text-right text-slate-600 select-none">{n ?? ''}</span>;
+}
+
+function UnifiedHunk({ lines }: { lines: DiffLine[] }) {
+  return (
+    <>
+      {lines.map((l, i) => (
+        <div key={i} className={`flex whitespace-pre ${DIFF_ROW[l.kind]}`}>
+          <LineNo n={l.oldNo} />
+          <LineNo n={l.newNo} />
+          <span className="w-3 shrink-0 select-none opacity-70">{DIFF_SIGN[l.kind]}</span>
+          <span>{l.text}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function SplitCell({ line, side }: { line: DiffLine | null; side: 'old' | 'new' }) {
+  if (!line) return <div className="flex-1 min-w-0 bg-slate-900/40" />;
+  return (
+    <div className={`flex-1 min-w-0 flex whitespace-pre overflow-hidden ${DIFF_ROW[line.kind]}`}>
+      <LineNo n={side === 'old' ? line.oldNo : line.newNo} />
+      <span className="truncate">{line.text}</span>
+    </div>
+  );
+}
+
+function DiffFileView({ file, split }: { file: DiffFile; split: boolean }) {
+  const [open, setOpen] = useState(true);
+  const name = file.status === 'deleted' ? file.oldPath : file.newPath;
+  const badge = { added: 'new', deleted: 'deleted', renamed: `from ${file.oldPath}`, modified: '' }[file.status];
+  return (
+    <div className="border-t border-slate-800 first:border-t-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full px-2 py-1 flex items-center justify-between text-left bg-slate-900/70 hover:bg-slate-900 text-[10px]"
+      >
+        <span className="flex items-center space-x-1 min-w-0">
+          {open ? <ChevronDown className="w-3 h-3 shrink-0" /> : <ChevronRight className="w-3 h-3 shrink-0" />}
+          <span className="font-mono text-slate-200 truncate">{name}</span>
+          {badge && <span className="text-slate-500 truncate">{badge}</span>}
+        </span>
+        <span className="font-mono shrink-0 ml-2">
+          <span className="text-emerald-400">+{file.additions}</span>{' '}
+          <span className="text-rose-400">-{file.deletions}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="overflow-x-auto font-mono text-[10.5px] leading-[1.45] select-text">
+          {file.hunks.map((hunk, h) => (
+            <div key={h}>
+              <div className="px-2 py-0.5 text-cyan-400/80 bg-cyan-950/30 whitespace-pre">{hunk.header}</div>
+              {split ? (
+                toSplitRows(hunk).map((row, r) => (
+                  <div key={r} className="flex divide-x divide-slate-800">
+                    <SplitCell line={row.left} side="old" />
+                    <SplitCell line={row.right} side="new" />
+                  </div>
+                ))
+              ) : (
+                <UnifiedHunk lines={hunk.lines} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A unified diff as files with colored lines and line numbers; falls back to plain code if it does not parse. */
+export function DiffViewer({ code }: { code: string }) {
+  const files = useMemo(() => parseUnifiedDiff(code), [code]);
+  const [split, setSplit] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (files.length === 0) return <CodeBlock code={code} lang="diff" plain />;
+  const additions = files.reduce((n, f) => n + f.additions, 0);
+  const deletions = files.reduce((n, f) => n + f.deletions, 0);
+  const copy = () => {
+    navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => undefined);
+  };
+  return (
+    <div className="my-1 rounded-lg border border-slate-700/70 bg-slate-950/90 overflow-hidden">
+      <div className="px-3 py-1 flex items-center justify-between bg-slate-900/90 border-b border-slate-800 text-[10px] text-slate-400">
+        <span className="flex items-center space-x-1.5">
+          <GitBranch className="w-3 h-3 text-cyan-400" />
+          <span>
+            {files.length} file{files.length === 1 ? '' : 's'} <span className="text-emerald-400">+{additions}</span>{' '}
+            <span className="text-rose-400">-{deletions}</span>
+          </span>
+        </span>
+        <span className="flex items-center space-x-2">
+          <button
+            onClick={() => setSplit((s) => !s)}
+            title={split ? 'Show as one column' : 'Show old and new side by side'}
+            className="flex items-center space-x-1 hover:text-cyan-300"
+          >
+            <Layers className="w-3 h-3" />
+            <span>{split ? 'Unified' : 'Split'}</span>
+          </button>
+          <button onClick={copy} className="flex items-center space-x-1 hover:text-cyan-300" title="Copy diff">
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
+          </button>
+        </span>
+      </div>
+      {files.map((file, i) => (
+        <DiffFileView key={i} file={file} split={split} />
+      ))}
+    </div>
+  );
+}
+
+function ProseWithInlineCode({ text }: { text: string }) {
+  return (
+    <div className="whitespace-pre-wrap leading-relaxed select-text">
+      {splitInlineCode(text).map((seg, i) =>
+        seg.code ? (
+          <code key={i} className="px-1 py-0.5 rounded bg-slate-950/80 text-cyan-200 font-mono text-[0.92em]">
+            {seg.text}
+          </code>
+        ) : (
+          <React.Fragment key={i}>{seg.text}</React.Fragment>
+        ),
+      )}
+    </div>
+  );
+}
+
 export function ParsedMessageContent({ content }: { content: string }) {
-  const parts = useMemo(() => {
-    // Break into tokens: mermaid blocks, checklist blocks, and markdown text
-    const tokens: Array<{ type: 'text' | 'mermaid' | 'plan'; content: string }> = [];
-    const mermaidRegex = /```mermaid\s*\n([\s\S]*?)\n```/g;
-
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = mermaidRegex.exec(content)) !== null) {
-      if (match.index > lastIndex) {
-        tokens.push({ type: 'text', content: content.substring(lastIndex, match.index) });
-      }
-      tokens.push({ type: 'mermaid', content: match[1].trim() });
-      lastIndex = match.index + match[0].length;
-    }
-
-    if (lastIndex < content.length) {
-      tokens.push({ type: 'text', content: content.substring(lastIndex) });
-    }
-
-    // Now scan text tokens for checklist blocks
-    const finalTokens: Array<{ type: 'text' | 'mermaid' | 'plan'; content: string }> = [];
-    tokens.forEach((token) => {
-      if (token.type !== 'text') {
-        finalTokens.push(token);
-        return;
-      }
-
-      const lines = token.content.split('\n');
-      let currentText: string[] = [];
-      let currentPlan: string[] = [];
-
-      lines.forEach((line) => {
-        if (/^\s*-\s*\[[ xX]\]\s+/.test(line)) {
-          if (currentText.length > 0) {
-            finalTokens.push({ type: 'text', content: currentText.join('\n') });
-            currentText = [];
-          }
-          currentPlan.push(line);
-        } else {
-          if (currentPlan.length >= 2) {
-            finalTokens.push({ type: 'plan', content: currentPlan.join('\n') });
-            currentPlan = [];
-          } else if (currentPlan.length > 0) {
-            currentText.push(...currentPlan);
-            currentPlan = [];
-          }
-          currentText.push(line);
-        }
-      });
-
-      if (currentPlan.length >= 2) {
-        finalTokens.push({ type: 'plan', content: currentPlan.join('\n') });
-      } else if (currentPlan.length > 0) {
-        currentText.push(...currentPlan);
-      }
-      if (currentText.length > 0) {
-        finalTokens.push({ type: 'text', content: currentText.join('\n') });
-      }
-    });
-
-    return finalTokens;
-  }, [content]);
+  const parts = useMemo(() => parseMessageParts(content), [content]);
 
   return (
     <div className="space-y-2">
@@ -591,13 +709,12 @@ export function ParsedMessageContent({ content }: { content: string }) {
         if (part.type === 'plan') {
           return <InteractivePlan key={idx} content={part.content} />;
         }
+        if (part.type === 'code') {
+          return <CodeBlock key={idx} code={part.content} lang={part.lang} />;
+        }
         const text = part.content.trim();
         if (!text) return null;
-        return (
-          <div key={idx} className="whitespace-pre-wrap leading-relaxed select-text">
-            {text}
-          </div>
-        );
+        return <ProseWithInlineCode key={idx} text={text} />;
       })}
     </div>
   );

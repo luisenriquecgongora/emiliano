@@ -1,6 +1,6 @@
 [package]
 name = "emiliano-desktop"
-version = "0.1.0"
+version = "0.3.0"
 description = "Emiliano desktop cowork app (Tauri shell around the Python engine)"
 authors = ["Luis Enrique"]
 license = "MIT"
@@ -10,7 +10,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 

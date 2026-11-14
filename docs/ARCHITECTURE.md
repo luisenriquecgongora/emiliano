@@ -49,6 +49,9 @@ flowchart LR
     direct --> ollama["Ollama<br/>local models"]
     direct --> apis["Cloud model APIs<br/>through litellm"]
     harn --> agents["Claude Code · Codex · OpenCode · Antigravity<br/>installed CLIs"]
+    direct --> mcp["MCP host<br/>emiliano/mcp"]
+    mcp --> mcpsrv["MCP servers<br/>config mcp_servers, stdio"]
+    harn -.->|same servers via ACP session/new| mcpsrv
     cowork --> screen["🖱️ Other windows<br/>mouse, keyboard, screen"]
     cli["CLI<br/>python -m emiliano.cli"] --> disp
 
@@ -58,9 +61,9 @@ flowchart LR
     classDef external fill:#f3f4f6,stroke:#6b7280,color:#374151
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     class user input
-    class ui,server,disp,cowork,direct,harn,cli,evals ours
+    class ui,server,disp,cowork,direct,harn,cli,evals,mcp ours
     class hist,traces output
-    class ollama,apis,agents external
+    class ollama,apis,agents,mcpsrv external
     class screen risk
     style desktop fill:#eff6ff,stroke:#2563eb
     style engine fill:#eff6ff,stroke:#2563eb
@@ -240,7 +243,8 @@ flowchart LR
 flowchart TD
     subgraph loop["Autonomous Cowork Loop (cowork/agent.py)"]
         observe["1. Observe (ScreenPerceiver)<br/>Number elements [1], [2], ..."] --> plan["2. Plan (Local / Direct Model)<br/>Select element tag and action"]
-        plan --> act{"3. Safety & Bounds Check"}
+        plan --> hud["2b. Show the target on the HUD overlay<br/>HUD_HIGHLIGHT over /ws, then a short pause"]
+        hud --> act{"3. Safety & Bounds Check"}
         act -->|"inside pinned window"| mode{"Ghost Mode Pattern<br/>Supported?"}
         act -->|"outside or Esc pressed"| stop["⛔ SafetyInterruptedError"]
         mode -->|"yes (Invoke / Value / Toggle)"| ghost["👻 Ghost Action (uia.py)<br/>Direct COM without cursor move"]
@@ -254,7 +258,9 @@ flowchart TD
     classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
     classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
     classDef agent fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
     class observe,ghost,verify ours
+    class hud output
     class act,mode gate
     class stop risk
     class plan,synth agent
@@ -275,6 +281,14 @@ it cleanly falls back to smooth cursor movements and synthetic events via `pyaut
 using numeric tags (`<call:click_element id="1"/>`, `<call:type_into_element id="2" text="..."/>`), the engine executes the action,
 re-observes the window's UI tree to verify the outcome, and provides feedback until completion.
 
+**HUD overlay: showing what is about to happen.** Right before each `click_element`, `click_at` or `type_into_element`,
+the loop calls its `on_highlight` callback with a `HUD_HIGHLIGHT` payload (element name, role, bounds, action; built by
+`hud_highlight_payload`) and pauses `HUD_LEAD_SECONDS` so a person can see the target first. `POST /api/cowork/run`
+broadcasts it to every `/ws` client, and the full-screen, click-through overlay window draws a pulsing cyan box with an
+`ACTION • name` label; `HUD_CLEAR` is sent when the run ends. Bounds are physical pixels (the engine is per-monitor DPI
+aware); the overlay divides by `devicePixelRatio` (`renderer/hudGeometry.ts`). A failing overlay never stops the action.
+Green in the diagram: what the person sees.
+
 HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GET /api/cowork/elements`,
 `POST /api/cowork/click`, `POST /api/cowork/type`, `POST /api/cowork/run`. **Esc must always stop it**: never weaken the emergency stop.
 
@@ -284,14 +298,15 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | :--- | :--- | :--- | :--- |
 | Desktop app | `apps/desktop` | Tauri 2 + React UI: chats, Dock (permission prompts), HUD overlay. Starts the bundled engine (sidecar); set `EMILIANO_EXTERNAL_ENGINE=1` to use one you started | Engine server |
 | Protocol | `packages/protocol` | Message schemas shared by both sides: `models.py` (Python) and `types.ts` (TypeScript) | — |
-| Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models`, cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
+| Server | `packages/engine/emiliano/server` | FastAPI on port 8765: `/health`, `/api/models` (plus `/api/models/recommendations` rating local models for this GPU/RAM, and `POST /api/models/load` / `/unload`), cowork endpoints, WebSocket `/ws`; chat history at `/api/chats` and WebSocket `/api/chat` | Dispatcher, history, cowork |
 | Dispatcher and registry | `packages/engine/emiliano/core` | Routing policy, capability registry, configuration, workspace and context | Direct, harnesses |
 | Direct models | `packages/engine/emiliano/direct` | Unified client (Ollama directly, cloud APIs through litellm), DirectAgentLoop (file tools, ReAct loop), Ollama manager, credentials | Ollama, cloud APIs, workspace |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
+| MCP host | `packages/engine/emiliano/mcp` | Starts the stdio MCP servers listed under `mcp_servers` in the config and offers their tools to DirectAgentLoop as `server__tool`; ACP harnesses get the same servers. `emiliano mcp` lists them | MCP servers |
 | History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
 | Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
 | Evals | `packages/engine/emiliano/evals` | Fixed tasks with automatic checks, run against a model or harness (`emiliano eval`) | Dispatcher |
-| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions | Other windows |
+| Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions. With a vision model (`vision.py`, config `cowork.vision`), each observation also carries a window screenshot: numbered boxes on detected elements, or a screen-coordinate grid when none are readable | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
 
 ## Where to change what

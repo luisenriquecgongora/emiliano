@@ -41,10 +41,13 @@ class SlashCommandCompleter(Completer):
     COMMANDS = {
         "/switch": "Switch active harness or provider (claude, agy, codex, ollama, auto)",
         "/policy": "Change execution routing policy (auto, local, harness, api)",
-        "/model": "Override the active model name (e.g. qwen3.5:2b)",
+        "/model": "Pick the model that answers: no name shows a numbered list rated for this machine",
+        "/load": "Load a local model into memory now, so replies start at once",
+        "/unload": "Free the memory a loaded local model holds",
         "/doctor": "Run diagnostic check of models, credentials, and harnesses",
-        "/models": "List detected local Ollama models and remote API providers",
+        "/models": "List models, rated for this machine's GPU and RAM, plus suggested downloads",
         "/harnesses": "List external CLI agent harnesses and auth status",
+        "/mcp": "Start the configured MCP servers and list their tools",
         "/clear": "Reset conversation memory context",
         "/history": "Show current conversation turn count",
         "/help": "Display command list and keyboard shortcuts",
@@ -70,6 +73,10 @@ class SlashCommandCompleter(Completer):
         "harness": "Prioritize external agent harnesses",
         "api": "Direct remote frontier APIs",
     }
+
+    def __init__(self):
+        # Installed model names for /model, /load and /unload; filled once the chat has listed them
+        self.model_names: list = []
 
     def get_completions(self, document, complete_event=None):
         text = document.text_before_cursor
@@ -115,6 +122,15 @@ class SlashCommandCompleter(Completer):
                         display_meta=desc,
                     )
             return
+
+        # 4. Model names for /model, /load and /unload
+        for cmd in ("/model ", "/load ", "/unload "):
+            if stripped.startswith(cmd):
+                current_arg = stripped[len(cmd):]
+                for name in self.model_names:
+                    if name.lower().startswith(current_arg.lower()):
+                        yield Completion(name, start_position=-len(current_arg), display=name)
+                return
 
 
 @click.group(invoke_without_command=True)
@@ -205,6 +221,14 @@ def models():
             msg = ollama_cap.status_message if ollama_cap else "Not available"
             click.echo(f"  Status: {click.style(msg, fg='yellow')}")
 
+        if ollama_cap and ollama_cap.status == CapabilityStatus.READY:
+            from .cli_models import format_local_report
+            from .direct.hardware import local_model_report
+
+            click.echo(click.style("\nFit for This Machine:", bold=True))
+            for line in format_local_report(await local_model_report(registry.ollama_mgr)):
+                click.echo(line)
+
         click.echo(click.style("\nRemote API Providers:", bold=True))
         api_caps = [c for c in caps.values() if c.execution_type.value == "direct_model" and c.name != "ollama"]
         for a in api_caps:
@@ -215,6 +239,80 @@ def models():
             click.echo(f"  • {click.style(a.display_name, bold=True)}: {status_str}")
 
     asyncio.run(_check_models())
+
+
+@cli.command(name="mcp")
+def mcp_command():
+    """Start the MCP servers in the config and list the tools each one offers."""
+    from .mcp import McpManager
+
+    config = load_config()
+    if not config.mcp_servers:
+        click.echo("No MCP servers configured. Add some to emiliano.yaml (or ~/.emiliano/config.yaml), e.g.:\n")
+        click.echo("mcp_servers:\n  filesystem:\n    command: npx\n"
+                   "    args: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \".\"]\n"
+                   "  plaatoos:\n    url: https://api-takient.onrender.com/mcp\n"
+                   "    headers: {Authorization: \"Bearer ${PLAATOOS_TOKEN}\"}")
+        return
+
+    click.echo(click.style("MCP Servers:", bold=True))
+    for name, cfg in config.mcp_servers.items():
+        if not cfg.enabled:
+            click.echo(f"  - {click.style(name, bold=True)}: {click.style('disabled', fg='yellow')}")
+    manager = McpManager(config.mcp_servers, cwd=os.getcwd())
+    try:
+        click.echo(click.style("  Starting servers (the first npx run downloads the package)...", dim=True))
+        manager.start()
+        for status in manager.statuses.values():
+            if status.ok:
+                hidden = (f" ({status.hidden} hidden by tools / exclude_tools / allow_destructive)"
+                          if status.hidden else "")
+                click.echo(f"  ✓ {click.style(status.name, bold=True)}: "
+                           f"{click.style(f'{len(status.tools)} tools', fg='green')}{hidden}")
+            else:
+                click.echo(f"  ✗ {click.style(status.name, bold=True)}: {click.style(status.error, fg='red')}")
+        if manager.tools:
+            click.echo(click.style("\nTools local and API models can call:", bold=True))
+            for line in manager.describe_tools().splitlines():
+                click.echo(f"  {line}")
+    finally:
+        manager.close()
+
+
+@cli.command(name="connect")
+@click.argument("service", type=click.Choice(["plaatoos"], case_sensitive=False))
+@click.option("--token", default=None, help="Use an agent token (pak_...) instead of signing in with the browser")
+def connect_command(service: str, token: Optional[str]):
+    """Connect an MCP service (PlaatoOS) so models can use its tools."""
+    from .mcp.connect import connect
+
+    service = service.lower()
+    if not token:
+        click.echo(f"Opening your browser to sign in to {service}. Pick the business to connect and approve.")
+    try:
+        result = connect(service, token=token,
+                         on_url=lambda url: click.echo(click.style(f"If the browser did not open, go to:\n  {url}",
+                                                                   dim=True)))
+    except Exception as e:
+        click.echo(click.style(f"Could not connect {service}: {e}", fg="red"))
+        sys.exit(1)
+    click.echo(click.style(f"✓ Connected {service} ({result['auth']}); saved in {result['config']}", fg="green"))
+    if result["ok"]:
+        hidden = f" ({result['hidden']} hidden by filters)" if result["hidden"] else ""
+        click.echo(f"  {result['tools']} tools available{hidden}. Run `emiliano mcp` to list them.")
+    else:
+        click.echo(click.style(f"  But its tools could not be loaded: {result['error']}", fg="yellow"))
+
+
+@cli.command(name="disconnect")
+@click.argument("service", type=click.Choice(["plaatoos"], case_sensitive=False))
+def disconnect_command(service: str):
+    """Sign out of an MCP service and remove it from the config."""
+    from .mcp.connect import disconnect
+
+    result = disconnect(service.lower())
+    note = "signed out and credentials removed" if result["removed_credentials"] else "no stored credentials"
+    click.echo(click.style(f"✓ Disconnected {service} ({note}); updated {result['config']}", fg="green"))
 
 
 @cli.command(name="eval")
@@ -455,13 +553,14 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     }) if PROMPT_TOOLKIT_AVAILABLE else None
 
     prompt_session = None
+    completer = SlashCommandCompleter()
     # prompt_toolkit needs a real terminal; with piped input it swallows lines, so fall back to input()
     if PROMPT_TOOLKIT_AVAILABLE and sys.stdin.isatty():
         try:
             history_dir = os.path.expanduser("~/.emiliano")
             os.makedirs(history_dir, exist_ok=True)
             prompt_session = PromptSession(
-                completer=SlashCommandCompleter(),
+                completer=completer,
                 complete_while_typing=True,
                 history=FileHistory(os.path.join(history_dir, "history")),
                 style=menu_style,
@@ -482,6 +581,29 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
     active_harness = harness
     active_provider = provider
     active_model = model
+    picked_provider = False  # True when /model set active_provider, so "/model auto" clears it too
+
+    from .cli_models import model_choices, resolve_pick, split_command
+    from .direct.hardware import local_model_report
+
+    def ask(question: str) -> str:
+        try:
+            return (prompt_session.prompt(question) if prompt_session else input(question)).strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
+    def load_choices():
+        """Numbered /model choices plus the local report; also refreshes name completion."""
+        async def _gather():
+            caps = await dispatcher.registry.discover_all(test_harness_usability=False)
+            report = None
+            if caps.get("ollama") and caps["ollama"].is_usable:
+                report = await local_model_report(dispatcher.registry.ollama_mgr)
+            return caps, report
+        caps, report = asyncio.run(_gather())
+        choices = model_choices(caps, report)
+        completer.model_names = [c["model"] for c in choices]
+        return choices, report
 
     conversation_history = [
         {"role": "system", "content": "You are Emiliano, an expert autonomous coding and execution engine."},
@@ -489,7 +611,8 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
 
     last_ctrl_c = 0.0
     while True:
-        target_desc = active_harness or active_provider or active_model or active_policy
+        target_desc = active_harness or (f"{active_provider}/{active_model}" if active_provider and active_model
+                                         else active_provider or active_model or active_policy)
         prompt_label = click.style(f"emiliano [{target_desc}]", fg="cyan", bold=True) + "> "
         try:
             if prompt_session:
@@ -521,12 +644,15 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             click.echo(click.style("\nAvailable Slash Commands in Chat:", bold=True))
             click.echo("  • /switch <target> : Lock to harness or provider (claude, codex, agy, opencode, ollama, auto)")
             click.echo("  • /policy <p>      : Switch routing policy (auto, local, harness, api)")
-            click.echo("  • /model <name>    : Override model name (e.g. /model qwen3.5:2b)")
+            click.echo("  • /model [name|n]  : Pick the model; no name shows a numbered list rated for this machine")
+            click.echo("  • /load [name]     : Keep a local model in memory (default: the recommended one)")
+            click.echo("  • /unload [name]   : Free a loaded local model's memory (default: all loaded)")
             click.echo("  • /clear           : Clear conversation history")
             click.echo("  • /history         : Show conversation turn count")
             click.echo("  • /doctor          : Run diagnostic check")
             click.echo("  • /models          : List available models and providers")
             click.echo("  • /harnesses       : List external agent harnesses")
+            click.echo("  • /mcp             : List MCP servers and the tools they give the models")
             click.echo("  • /context         : Show context window usage (Phase 1)")
             click.echo("  • /compact         : Compact conversation history (Phase 1)")
             click.echo("  • /exit, exit      : Exit interactive session\n")
@@ -615,18 +741,85 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                 click.echo(click.style("Usage: /switch <harness|provider|auto>", fg="yellow"))
             continue
 
-        if cmd_lower.startswith("/model") or cmd_lower.startswith("model"):
-            parts = user_input.split(maxsplit=1)
-            if len(parts) > 1:
-                m_target = parts[1].strip()
-                if m_target in ("none", "auto", "reset"):
+        cmd_word, cmd_arg = split_command(user_input)
+
+        if cmd_word in ("/model", "model"):
+            if cmd_arg.lower() in ("none", "auto", "reset"):
+                active_model = None
+                if picked_provider:
+                    active_provider, picked_provider = None, False
+                click.echo(click.style("✓ Model override removed.", fg="green"))
+                continue
+            try:
+                choices, _ = load_choices()
+            except Exception as e:
+                choices = []
+                click.echo(click.style(f"Could not list models: {e}", fg="yellow"))
+            if not cmd_arg:
+                if not choices:
+                    click.echo(click.style("No models found. Install one with 'ollama pull qwen3:4b'.", fg="yellow"))
+                    continue
+                click.echo(click.style("\nModels you can pick:", bold=True))
+                for idx, choice in enumerate(choices, 1):
+                    click.echo(f"  {idx:>2}. {choice['label']}")
+                click.echo("   0. Default (let routing decide)")
+                cmd_arg = ask("Pick a number (Enter to cancel): ")
+                if not cmd_arg:
+                    continue
+                if cmd_arg == "0":
                     active_model = None
+                    if picked_provider:
+                        active_provider, picked_provider = None, False
                     click.echo(click.style("✓ Model override removed.", fg="green"))
-                else:
-                    active_model = m_target
-                    click.echo(click.style(f"✓ Model override set to: {active_model}", fg="green"))
+                    continue
+            picked = resolve_pick(choices, cmd_arg)
+            if picked:
+                active_provider, active_model, active_harness = picked["provider"], picked["model"], None
+                picked_provider = True
+                click.echo(click.style(f"✓ Replies now come from {active_provider}/{active_model}", fg="green"))
+            elif cmd_arg.isdigit():
+                click.echo(click.style(f"No model number {cmd_arg}. Type /model to see the list.", fg="yellow"))
             else:
-                click.echo(click.style("Usage: /model <model_name|auto>", fg="yellow"))
+                # A name that is not listed: keep the old behaviour of overriding the model name only
+                active_model = cmd_arg
+                click.echo(click.style(f"✓ Model override set to: {active_model}", fg="green"))
+            continue
+
+        if cmd_word in ("/load", "/unload"):
+            mgr = dispatcher.registry.ollama_mgr
+            try:
+                report = asyncio.run(local_model_report(mgr))
+            except Exception as e:
+                click.echo(click.style(f"Could not reach Ollama: {e}", fg="yellow"))
+                continue
+            local = report["models"]
+            local_names = [m["name"] for m in local]
+            completer.model_names = local_names
+            if cmd_word == "/load":
+                if cmd_arg:
+                    target = resolve_pick([{"provider": "ollama", "model": n} for n in local_names], cmd_arg)
+                    name = target["model"] if target else None
+                else:
+                    # The model picked with /model, else the one recommended for this machine
+                    name = active_model if active_model in local_names else next(
+                        (m["name"] for m in local if m["recommended"]), None)
+                if not name:
+                    click.echo(click.style(f"Not an installed local model: {cmd_arg or '(none)'}. See /models.",
+                                           fg="yellow"))
+                    continue
+                click.echo(click.style(f"Loading {name} (can take ~20 s)...", dim=True))
+                ok = asyncio.run(mgr.preload(name, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=-1))
+                click.echo(click.style(f"✓ {name} is in memory until you /unload it." if ok
+                                       else f"Ollama could not load {name}.", fg="green" if ok else "red"))
+            else:
+                names = [cmd_arg] if cmd_arg else [m["name"] for m in local if m["loaded"]]
+                if not names:
+                    click.echo(click.style("No local models are loaded.", fg="cyan"))
+                    continue
+                for name in names:
+                    ok = asyncio.run(mgr.unload(name))
+                    click.echo(click.style(f"✓ Unloaded {name}." if ok else f"Ollama could not unload {name}.",
+                                           fg="green" if ok else "red"))
             continue
 
         if cmd_lower in ("/doctor", "doctor"):
@@ -641,6 +834,11 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             runner = CliRunner()
             result = runner.invoke(models)
             click.echo(result.output)
+            continue
+
+        if cmd_lower == "/mcp":
+            from click.testing import CliRunner
+            click.echo(CliRunner().invoke(mcp_command).output)
             continue
 
         if cmd_lower in ("/harnesses", "harnesses"):
