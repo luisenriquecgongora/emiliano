@@ -593,7 +593,8 @@ class ExecutionDispatcher:
         if harness_override or policy_norm == RoutingPolicy.HARNESS.value:
             return
         # Only remote providers go through litellm; Ollama is called directly
-        remote_possible = provider_override != "ollama" and policy_norm != RoutingPolicy.LOCAL.value
+        has_remote_keys = self.registry.cred_mgr.has_any_key() if hasattr(self.registry, "cred_mgr") else True
+        remote_possible = provider_override != "ollama" and policy_norm != RoutingPolicy.LOCAL.value and has_remote_keys
         steps = [asyncio.to_thread(load_litellm)] if import_litellm and remote_possible else []
         local_possible = provider_override in (None, "ollama") and policy_norm != RoutingPolicy.API.value
         if local_possible and self.config.models.preload_local_model:

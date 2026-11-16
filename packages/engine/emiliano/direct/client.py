@@ -23,9 +23,14 @@ from .credentials import CredentialManager
 from .ollama import OllamaManager
 
 
+os.environ["LITELLM_TELEMETRY"] = "False"
+os.environ["LITELLM_DISABLE_REDACT_SECRETS"] = "true"
+
+
 def load_litellm():
     """Imports and returns litellm. Imported lazily because it is slow, so it does not block CLI startup."""
     os.environ["LITELLM_TELEMETRY"] = "False"
+    os.environ["LITELLM_DISABLE_REDACT_SECRETS"] = "true"
     # Use the bundled cost map instead of downloading it on every run
     os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
     try:
