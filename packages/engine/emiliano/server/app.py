@@ -20,6 +20,8 @@ from ..core.dispatcher import ExecutionDispatcher
 from ..history import HistoryStore
 from ..history.api import router as history_router
 from ..cowork import WindowPinManager, ScreenPerceiver, ActionSynthesizer, CoworkAgentLoop, SafetyInterruptedError
+from ..cowork.voice import VoiceTranscriber
+from ..core.blackboard import Blackboard
 from ..direct import UnifiedLLMClient
 from .security import get_allowed_origins, is_origin_allowed
 
@@ -285,6 +287,38 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await broadcast_event("HUD_CLEAR", {})
+
+
+voice_transcriber = VoiceTranscriber()
+blackboard = Blackboard()
+
+
+@app.get("/api/voice/status")
+async def get_voice_status():
+    return {
+        "status": "ok",
+        "local_available": voice_transcriber.is_local_available,
+        "whisper_binary": voice_transcriber.whisper_binary,
+    }
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice(request: Request):
+    audio_bytes = await request.body()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio payload")
+    language = request.query_params.get("lang")
+    text = voice_transcriber.transcribe(audio_bytes=audio_bytes, language=language)
+    return {"status": "ok", "text": text}
+
+
+@app.get("/api/blackboard/context")
+async def get_blackboard_context():
+    return {
+        "context": blackboard.render_context_for_prompt(),
+        "entities": blackboard.list_entities(),
+        "last_session": blackboard.get_last_session_summary(),
+    }
 
 
 @app.websocket("/ws")

@@ -281,5 +281,29 @@ class TestHttpRequestChecks(unittest.TestCase):
         self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://tauri.localhost")
 
 
+    def test_voice_status_and_transcribe(self):
+        resp = self.client.get("/api/voice/status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("local_available", data)
+
+        # Empty body returns 400
+        resp_empty = self.client.post("/api/voice/transcribe", content=b"")
+        self.assertEqual(resp_empty.status_code, 400)
+
+        # Mock transcribe
+        with patch("emiliano.server.app.voice_transcriber.transcribe", return_value="hello emiliano"):
+            resp_audio = self.client.post("/api/voice/transcribe", content=b"fake_wav_bytes")
+            self.assertEqual(resp_audio.status_code, 200)
+            self.assertEqual(resp_audio.json()["text"], "hello emiliano")
+
+    def test_blackboard_context_endpoint(self):
+        resp = self.client.get("/api/blackboard/context")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("entities", data)
+        self.assertIn("context", data)
+
+
 if __name__ == "__main__":
     unittest.main()
