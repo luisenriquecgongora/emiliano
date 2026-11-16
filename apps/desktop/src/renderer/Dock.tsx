@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Compass, Copy, Cpu, Crosshair, History, Monitor, Pin, PinOff, Plus, RefreshCw, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ChevronDown, Compass, Copy, Cpu, Crosshair, History, Mic, MicOff, Monitor, Pin, PinOff, Plus, RefreshCw, Send, ShieldAlert, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -7,6 +7,7 @@ import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
 import {
   CHAT_WS_URL,
+  ENGINE_HTTP_URL,
   ChatMessage,
   ChatSummary,
   ContextMetrics,
@@ -1024,6 +1025,59 @@ function Composer(props: {
   onStop: () => void;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        if (audioBlob.size > 0) {
+          try {
+            const res = await fetch(`${ENGINE_HTTP_URL}/api/voice/transcribe`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'audio/wav' },
+              body: audioBlob,
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text) {
+                props.onDraft(props.draft ? `${props.draft} ${data.text}` : data.text);
+              }
+            }
+          } catch (err) {
+            console.warn('[Voice] Transcription request failed:', err);
+          }
+        }
+        setRecording(false);
+      };
+
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      console.warn('[Voice] Microphone access error:', err);
+    }
+  }, [props]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
   // The summon shortcut (Ctrl+Shift+Space by default) brings the dock up ready to type
   useEffect(() => {
     if (!isTauri()) return;
@@ -1077,6 +1131,18 @@ function Composer(props: {
           >
             <Cpu className="w-3.5 h-3.5" />
           </button>
+          <button
+            type="button"
+            onClick={recording ? stopRecording : startRecording}
+            title={recording ? "Stop recording voice" : "Voice input (push-to-talk)"}
+            className={`p-1.5 mr-1.5 rounded-lg text-slate-300 transition-colors ${
+              recording
+                ? "bg-rose-500 text-white animate-pulse"
+                : "bg-slate-800 hover:bg-slate-700 hover:text-white"
+            }`}
+          >
+            {recording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+          </button>
           {props.busy ? (
             <button onClick={props.onStop} title="Stop (Esc)" className="flex items-center space-x-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg px-3 py-1 text-[11px]">
               <Square className="w-3 h-3 fill-current" />
@@ -1098,7 +1164,7 @@ function Composer(props: {
       <div className="mt-1.5 flex items-center text-[10px] text-slate-500 px-1">
         <ShieldAlert className="w-3 h-3 mr-1 text-amber-400/80" />
         <span>
-          Stop anytime with <kbd className="bg-slate-800 px-1 rounded text-slate-200">Esc</kbd>
+          Stop anytime with <kbd className="bg-slate-800 px-1 rounded text-slate-200">Esc</kbd> · Voice <kbd className="bg-slate-800 px-1 rounded text-slate-200">Mic</kbd>
         </span>
       </div>
     </div>
