@@ -97,7 +97,6 @@ tasks:
       all_of:
         - "Target Batch [CAFE]"
         - "Outreach Batch Completed"
-        - "Café Mozaika"
 
   - id: cowork-outreach-bar
     kind: cowork
