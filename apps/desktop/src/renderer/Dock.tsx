@@ -190,6 +190,17 @@ export default function Dock() {
     },
     refreshChats,
     CHAT_WS_URL,
+    () => {
+      setBusy(false);
+      setPermission(null);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === PENDING_ID
+            ? { ...m, pending: false, content: m.content ? `${m.content}\n\n[Connection reset]` : '[Connection reset]' }
+            : m,
+        ),
+      );
+    },
   );
 
   const openChat = async (id: string) => {
@@ -209,6 +220,7 @@ export default function Dock() {
     setMessages([]);
     setMetrics(null);
     setError(null);
+    setBusy(false);
   };
 
   const newChat = () => {

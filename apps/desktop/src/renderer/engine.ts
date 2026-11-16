@@ -19,10 +19,11 @@ export function useEngineSocket(
   onMessage: (msg: any) => void,
   onOpen?: (socket: WebSocket) => void,
   url: string = ENGINE_WS_URL,
+  onClose?: () => void,
 ): WebSocket | null {
   const [socket, setSocket] = useState<WebSocket | null>(null);
-  const handlers = useRef({ onMessage, onOpen });
-  handlers.current = { onMessage, onOpen };
+  const handlers = useRef({ onMessage, onOpen, onClose });
+  handlers.current = { onMessage, onOpen, onClose };
 
   useEffect(() => {
     let disposed = false;
@@ -45,6 +46,7 @@ export function useEngineSocket(
       };
       ws.onclose = () => {
         setSocket(null);
+        handlers.current.onClose?.();
         if (!disposed) retry = setTimeout(connect, RECONNECT_DELAY_MS);
       };
     };
