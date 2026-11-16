@@ -566,6 +566,28 @@ class ExecutionDispatcher:
         workspace untouched. Raises ExecutionAbortedError when it changed files, or when
         changes cannot be detected, because running the goal again could apply it twice.
         """
+        # If the harness failed at authentication, billing, or pre-execution launch time,
+        # it never ran code or modified the workspace. Allow falling back to alternative routes.
+        fail_low = failure.lower()
+        startup_auth_signals = (
+            "can't use your claude subscription",
+            "can’t use your claude subscription",
+            "subscription",
+            "past due",
+            "unauthenticated",
+            "not authenticated",
+            "login required",
+            "authentication required",
+            "oauth credential",
+            "api key not found",
+            "invalid api key",
+            "not found on path",
+            "cannot find the file specified",
+        )
+        if any(sig in fail_low for sig in startup_auth_signals):
+            logger.info(f"[Dispatcher] Harness '{candidate.display_name}' failed at startup/auth without modifying workspace. Falling back.")
+            raise RuntimeError(failure)
+
         if before is None or after is None:
             raise ExecutionAbortedError(
                 f"{failure}\nNot retrying with another route: {workspace} is not a git repository, "

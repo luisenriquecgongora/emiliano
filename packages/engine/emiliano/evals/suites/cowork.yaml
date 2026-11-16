@@ -116,3 +116,59 @@ tasks:
       all_of:
         - "Target Batch [HOTEL]"
         - "Outreach Batch Completed"
+
+  - id: cowork-look-for-clients
+    kind: cowork
+    goal: "look for 2 cafe clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [CAFE]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-crm-status
+    kind: cowork
+    goal: "check crm status"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS CRM Live Status Report"
+        - "Total Tracked Leads"
+        - "Pending (`new`)"
+
+  - id: cowork-check-replies
+    kind: cowork
+    goal: "check replies"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Reply Tracker"
+
+  - id: cowork-follow-up-leads
+    kind: cowork
+    goal: "follow up on leads"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Multi-Day Follow-Up Sequence"
+        - "Day 3–5"
+
+  - id: cowork-research-client
+    kind: cowork
+    goal: "research lead Café Mozaika"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Client Research Battle Card"
+        - "Business Intelligence"
+        - "Customized Pitch"
+
+  - id: cowork-prospect-clients
+    kind: cowork
+    goal: "prospect new clients in Krakow"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Autonomous Prospecting Engine Activated"
+        - "Prospecting Discovery Report"
+        - "Lead Score:"
