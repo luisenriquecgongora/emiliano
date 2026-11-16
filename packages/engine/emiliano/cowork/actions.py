@@ -109,6 +109,7 @@ class ActionSynthesizer:
         x: Optional[float] = None,
         y: Optional[float] = None,
         interval: float = 0.02,
+        use_clipboard: Optional[bool] = None,
     ) -> None:
         """Types text safely into the pinned active window. Uses ghost SetValue when coordinates are provided."""
         if self._paused:
@@ -126,6 +127,21 @@ class ActionSynthesizer:
                     logger.info(f"[Action] Ghost set value on control at ({x}, {y}) without synthetic keystrokes")
                     return
                 logger.debug(f"[Action] Ghost set_value not supported at ({x}, {y}); falling back to synthetic keystrokes")
+
+        # Fallback to clipboard paste for non-ASCII characters (Polish diacritics, emojis, etc.)
+        # or when multiline / explicit use_clipboard is requested. pyautogui.typewrite fails on Unicode!
+        has_unicode = any(ord(c) > 127 for c in text)
+        if use_clipboard or has_unicode or "\n" in text:
+            try:
+                import pyperclip
+                logger.info(f"[Action] Pasting Unicode/multiline text via clipboard: {text[:20]}... (length={len(text)})")
+                pyperclip.copy(text)
+                time.sleep(0.05)
+                self.hotkey("ctrl", "v")
+                time.sleep(0.05)
+                return
+            except Exception as e:
+                logger.warning(f"[Action] Clipboard paste fallback failed, falling back to typewrite: {e}")
 
         logger.info(f"[Action] Typing: {text[:20]}... (length={len(text)})")
         _pyautogui().typewrite(text, interval=interval)

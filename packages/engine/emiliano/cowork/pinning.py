@@ -29,6 +29,7 @@ class WindowPinManager:
         self._pinned_hwnd: Optional[int] = None
         self._pinned_title: Optional[str] = None
         self._user32 = ctypes.windll.user32 if IS_WINDOWS else None
+        self._kernel32 = ctypes.windll.kernel32 if IS_WINDOWS else None
 
     @property
     def pinned_hwnd(self) -> Optional[int]:
@@ -86,6 +87,52 @@ class WindowPinManager:
             "height": max(0, int(rect.bottom - rect.top)),
         }
 
+    def force_foreground(self, hwnd: Optional[int] = None) -> bool:
+        """
+        Brings target window to the foreground reliably on Windows by attaching thread input
+        and simulating an Alt-key toggle to bypass OS foreground locks.
+        """
+        target_hwnd = hwnd or self._pinned_hwnd
+        if not self._user32 or not target_hwnd or not self._user32.IsWindow(target_hwnd):
+            return False
+
+        current_fg = self.get_foreground_hwnd()
+        if current_fg == target_hwnd:
+            return True
+
+        import time
+
+        # 1. Restore if minimized
+        if self._user32.IsIconic(target_hwnd):
+            self._user32.ShowWindow(target_hwnd, 9)  # SW_RESTORE
+        else:
+            self._user32.ShowWindow(target_hwnd, 5)  # SW_SHOW
+
+        # 2. Attach thread input workaround to permit SetForegroundWindow from background
+        cur_thread = self._kernel32.GetCurrentThreadId() if self._kernel32 else 0
+        fg_thread = self._user32.GetWindowThreadProcessId(current_fg, None) if current_fg else 0
+        target_thread = self._user32.GetWindowThreadProcessId(target_hwnd, None)
+
+        if self._user32 and cur_thread and target_thread and cur_thread != target_thread:
+            self._user32.AttachThreadInput(cur_thread, target_thread, True)
+        if self._user32 and fg_thread and target_thread and fg_thread != target_thread:
+            self._user32.AttachThreadInput(fg_thread, target_thread, True)
+
+        # 3. Simulate Alt key toggle
+        self._user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt) down
+        self._user32.SetForegroundWindow(target_hwnd)
+        self._user32.BringWindowToTop(target_hwnd)
+        self._user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU (Alt) up
+
+        # Detach thread input
+        if self._user32 and cur_thread and target_thread and cur_thread != target_thread:
+            self._user32.AttachThreadInput(cur_thread, target_thread, False)
+        if self._user32 and fg_thread and target_thread and fg_thread != target_thread:
+            self._user32.AttachThreadInput(fg_thread, target_thread, False)
+
+        time.sleep(0.1)
+        return self.get_foreground_hwnd() == target_hwnd
+
     def verify_active(self, auto_focus: bool = True) -> bool:
         """
         Verifies that the target pinned window is currently foreground.
@@ -103,10 +150,7 @@ class WindowPinManager:
             logger.warning(
                 f"[PinManager] Window mismatch! Current={current}, Pinned={self._pinned_hwnd}. Attempting re-focus..."
             )
-            # Show and set foreground
-            self._user32.ShowWindow(self._pinned_hwnd, 9)  # SW_RESTORE
-            self._user32.SetForegroundWindow(self._pinned_hwnd)
-            return self.get_foreground_hwnd() == self._pinned_hwnd
+            return self.force_foreground(self._pinned_hwnd)
 
         return False
 
