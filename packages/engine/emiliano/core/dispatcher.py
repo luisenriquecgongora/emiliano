@@ -30,6 +30,7 @@ from .context_manager import TruncationStrategy
 from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
 from .blackboard import Blackboard
+from .extensions import ExtensionManager
 from ..direct.agent import DirectAgentLoop
 from ..direct.client import UnifiedLLMClient, load_litellm
 
@@ -86,6 +87,7 @@ class ExecutionDispatcher:
         )
         self.traces = TraceStore()
         self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
+        self.extension_mgr = ExtensionManager()
         self._mcp = None  # McpManager, started on the first tool task when mcp_servers are configured
 
     async def route_task(
@@ -273,6 +275,37 @@ class ExecutionDispatcher:
                 isolated = None
 
         try:
+            # Check if goal matches a workspace companion extension (e.g. PlaatoOS client outreach)
+            matched_ext = self.extension_mgr.match_intent(goal)
+            if matched_ext:
+                logger.info(f"[Dispatcher] Routing goal '{goal[:50]}' to extension '{matched_ext.name}'")
+                ext_cap = Capability(
+                    name=matched_ext.name,
+                    display_name=matched_ext.title,
+                    execution_type=ExecutionType.DIRECT_MODEL,
+                    priority=100,
+                )
+                if on_route_selected:
+                    on_route_selected(ext_cap)
+                try:
+                    reply = await self.extension_mgr.execute_extension(
+                        extension=matched_ext,
+                        goal=goal,
+                        on_chunk=traced_chunk,
+                    )
+                    trace.finish("succeeded")
+                    try:
+                        self.blackboard.post_event(
+                            source=matched_ext.name,
+                            event_type="extension_task_completed",
+                            payload={"goal": goal, "duration": trace.duration_seconds},
+                        )
+                    except Exception:
+                        pass
+                    return ext_cap, reply
+                except Exception as ext_err:
+                    logger.warning(f"[Dispatcher] Extension execution failed: {ext_err}; falling back to standard routes.")
+
             result = await self._execute_with_fallback(
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
                 traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
