@@ -1,0 +1,90 @@
+# Emiliano Cowork & Autonomous Workflows Evaluation Suite
+# Evaluates desktop cowork intent recognition, routing to workspace companion
+# extensions, dry-run client outreach workflows, and negative routing safety.
+name: cowork
+description: Cowork intent routing, outreach workflows, CRM sync, and UI safety gates
+tasks:
+  # 1. Cowork & Outreach Intent Routing (positive routing)
+  - id: route-outreach-basic
+    kind: route
+    goal: "please outreach new clients"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-send-dms
+    kind: route
+    goal: "send 5 dms to restaurant prospects"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-outreach-dryrun
+    kind: route
+    goal: "outreach 3 new clients (dry run)"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-instagram-outreach
+    kind: route
+    goal: "reach out to new clients on instagram"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-client-outreach
+    kind: route
+    goal: "run outreach pipeline"
+    expect: {route: plaatoos-outreach}
+
+  # 2. Negative Routing (ensuring general chat and coding tasks never trigger outreach)
+  - id: route-neg-chat
+    kind: route
+    goal: "Hello Emiliano, what is your purpose?"
+    expect: {route: direct}
+
+  - id: route-neg-mutex
+    kind: route
+    goal: "Explain what a mutex is in computer science"
+    expect: {route: direct}
+
+  - id: route-neg-git
+    kind: route
+    goal: "git status"
+    expect: {route: harness}
+
+  - id: route-neg-tests
+    kind: route
+    goal: "Run the pytest suite in this repo"
+    expect: {route: harness}
+
+  - id: route-neg-refactor
+    kind: route
+    goal: "Refactor utils.py to use pathlib"
+    expect: {route: harness}
+
+  # 3. Autonomous Cowork Workflow Execution (Dry Run)
+  - id: cowork-outreach-dryrun-2
+    kind: cowork
+    goal: "please outreach 2 new clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Batch Size"
+        - "2 leads processed"
+        - "Remaining Pending in CRM"
+        - "dm-sender.html"
+
+  - id: cowork-outreach-dryrun-1
+    kind: cowork
+    goal: "outreach 1 new client (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Batch Size"
+        - "1 leads processed"
+        - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-dryrun-default
+    kind: cowork
+    goal: "outreach new clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Remaining Pending in CRM"

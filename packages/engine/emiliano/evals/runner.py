@@ -243,6 +243,8 @@ class EvalRunner:
         kind = task.get("kind", "answer")
         if kind == "route":
             return self._run_route(task)
+        if kind in ("workflow", "cowork"):
+            return await self._run_workflow_task(task, target)
         if kind not in ("answer", "code"):
             return TaskResult(task["id"], kind, "error", f"unknown task kind {kind!r}")
 
@@ -261,15 +263,96 @@ class EvalRunner:
 
     def _run_route(self, task: Dict[str, Any]) -> TaskResult:
         expected = task["expect"]["route"]
-        actual = "harness" if self.dispatcher.requires_agent_harness(task["goal"]) else "direct"
-        status = "passed" if actual == expected else "failed"
+        ext_mgr = getattr(self.dispatcher, "extension_mgr", None)
+        ext_match = ext_mgr.match_intent(task["goal"]) if ext_mgr else None
+
+        if ext_match:
+            actual = ext_match.name
+        elif self.dispatcher.requires_agent_harness(task["goal"]):
+            actual = "harness"
+        else:
+            actual = "direct"
+
+        if expected == "extension":
+            passed = ext_match is not None
+        elif expected in ("harness", "direct"):
+            passed = (actual == expected)
+        else:
+            passed = (actual == expected or (ext_match and ext_match.name == expected))
+
+        status = "passed" if passed else "failed"
         return TaskResult(task["id"], "route", status, "" if status == "passed" else f"routed to {actual}",
                           route=actual)
 
+    async def _run_workflow_task(self, task: Dict[str, Any], target: Target) -> TaskResult:
+        started = time.monotonic()
+        files = task.get("files")
+        previous_cwd = os.getcwd()
+
+        if files:
+            with tempfile.TemporaryDirectory(prefix=f"emiliano-eval-{task['id']}-") as workdir:
+                for rel, content in files.items():
+                    path = Path(workdir, rel)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(content, encoding="utf-8")
+                os.chdir(workdir)
+                try:
+                    return await self._execute_workflow(task, target, workdir, started)
+                finally:
+                    os.chdir(previous_cwd)
+        else:
+            return await self._execute_workflow(task, target, previous_cwd, started)
+
+    async def _execute_workflow(self, task: Dict[str, Any], target: Target, workdir: str, started: float) -> TaskResult:
+        kind = task.get("kind", "workflow")
+        try:
+            cap, output = await self.dispatcher.execute_task(
+                goal_text(task),
+                timeout=self.timeout,
+                **target.dispatch_args()
+            )
+        except Exception as e:
+            return TaskResult(task["id"], kind, "error", str(e)[:300], duration_s=round(time.monotonic() - started, 2))
+
+        problem = None
+        expect = task.get("expect") or {}
+        if "route" in expect:
+            actual_route = (getattr(cap, "name", None) or "")
+            expected_route = expect["route"]
+            if expected_route == "extension" and not actual_route:
+                problem = f"expected route 'extension', got '{actual_route}'"
+            elif expected_route != "extension" and actual_route != expected_route:
+                problem = f"expected route '{expected_route}', got '{actual_route}'"
+
+        if not problem and expect:
+            checks = {k: v for k, v in expect.items() if k != "route"}
+            if checks:
+                problem = check_answer(output, checks)
+
+        if not problem and "check" in task:
+            problem = self._run_check(task["check"], workdir)
+
+        status = "failed" if problem else "passed"
+        result = TaskResult(
+            task["id"],
+            kind,
+            status,
+            problem or "",
+            output=output[:OUTPUT_PREVIEW]
+        )
+        result.duration_s = round(time.monotonic() - started, 2)
+        trace = getattr(self.dispatcher, "last_trace", None)
+        if trace is not None:
+            result.first_output_s = trace.first_output_s
+            result.tokens_per_second = trace.tokens_per_second
+            result.route = (getattr(cap, "name", None)) or trace.model or trace.route
+        return result
+
     async def _run_in_workdir(self, task: Dict[str, Any], kind: str, target: Target, workdir: str) -> TaskResult:
         started = time.monotonic()
+        cap = None
         try:
-            _, output = await self.dispatcher.execute_task(goal_text(task), timeout=self.timeout,
+            cap, output = await self.dispatcher.execute_task(goal_text(task), timeout=self.timeout,
                                                            **target.dispatch_args())
         except Exception as e:
             result = TaskResult(task["id"], kind, "error", str(e)[:300])
@@ -285,7 +368,7 @@ class EvalRunner:
         if trace is not None:
             result.first_output_s = trace.first_output_s
             result.tokens_per_second = trace.tokens_per_second
-            result.route = trace.model or trace.route
+            result.route = (getattr(cap, "name", None)) or trace.model or trace.route
         return result
 
     @staticmethod

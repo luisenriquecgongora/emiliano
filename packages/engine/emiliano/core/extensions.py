@@ -48,6 +48,22 @@ class ExtensionManager:
                 cwd.parent / "extensions",
                 cwd.parent.parent / "extensions",
             ])
+            # Include repository roots relative to this file so extensions are discovered
+            # even when tests or evals change working directory to temporary folders
+            file_parents = list(Path(__file__).resolve().parents)
+            for p in file_parents[1:6]:
+                if p not in self.search_paths:
+                    self.search_paths.append(p)
+                    self.search_paths.append(p / "extensions")
+                    self.search_paths.append(p / "plugins")
+
+            # Also check EMILIANO_WORKSPACE or EMILIANO_ROOT environment variables if set
+            for env_key in ("EMILIANO_WORKSPACE", "EMILIANO_ROOT", "WORKSPACE_ROOT"):
+                env_val = os.environ.get(env_key)
+                if env_val and Path(env_val).exists():
+                    val_path = Path(env_val).resolve()
+                    if val_path not in self.search_paths:
+                        self.search_paths.append(val_path)
 
         self.extensions: Dict[str, ExtensionManifest] = {}
         self.discover()
@@ -97,11 +113,18 @@ class ExtensionManager:
         clean_goal = goal.lower().strip()
         for ext in self.extensions.values():
             for intent in ext.intents:
-                # Check for word boundary or direct substring match
-                pattern = rf"\b{re.escape(intent)}\b"
-                if re.search(pattern, clean_goal) or intent in clean_goal:
-                    logger.info(f"[Extensions] Matched goal '{goal[:50]}' to extension '{ext.name}' via intent '{intent}'")
-                    return ext
+                words = intent.split()
+                if len(words) == 1:
+                    pattern = rf"\b{re.escape(words[0])}\b"
+                    if re.search(pattern, clean_goal):
+                        logger.info(f"[Extensions] Matched goal '{goal[:50]}' to extension '{ext.name}' via intent '{intent}'")
+                        return ext
+                else:
+                    # Allow up to 3 intervening words (such as numbers or adjectives: "send 5 instagram dms")
+                    pattern = r"\b" + r"\b(?:\s+\w+){0,3}\s+\b".join(re.escape(w) for w in words) + r"\b"
+                    if re.search(pattern, clean_goal) or intent in clean_goal:
+                        logger.info(f"[Extensions] Matched goal '{goal[:50]}' to extension '{ext.name}' via flexible intent '{intent}'")
+                        return ext
         return None
 
     async def execute_extension(
