@@ -29,6 +29,7 @@ from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
 from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
+from .blackboard import Blackboard
 from ..direct.agent import DirectAgentLoop
 from ..direct.client import UnifiedLLMClient, load_litellm
 
@@ -73,13 +74,15 @@ class ExecutionDispatcher:
     def __init__(self, config: Optional[EmilianoConfig] = None):
         self.config = config or load_config()
         self.registry = CapabilityRegistry(config=self.config)
+        self.blackboard = Blackboard()
         # include_harnesses -> (time, capabilities); a full discovery (True) also serves direct-only requests
         self._discovered: Dict[bool, Tuple[float, Dict[str, Capability]]] = {}
 
-        # Initialize enhanced context manager (Phase 1 features)
+        # Initialize enhanced context manager (Phase 1 features + Blackboard Memory)
         self.context_manager = EnhancedContextManager(
             config=self.config,
             strategy=TruncationStrategy(self.config.context.truncation_strategy),
+            blackboard=self.blackboard,
         )
         self.traces = TraceStore()
         self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
@@ -284,6 +287,23 @@ class ExecutionDispatcher:
                     if changed:
                         isolated.commit(f"chore: changes from task {isolated.task_id}")
             trace.finish("succeeded")
+            cap, reply = result
+            try:
+                self.blackboard.post_event(
+                    source=cap.name,
+                    event_type="task_completed",
+                    payload={"goal": goal, "duration": trace.duration_seconds},
+                )
+                if len(goal) > 10 and len(reply) > 30:
+                    summary_title = goal[:60] + ("..." if len(goal) > 60 else "")
+                    summary_text = f"Goal: {goal}\nAgent: {cap.display_name}\nSummary: {reply[:400]}"
+                    self.blackboard.record_session_summary(
+                        session_id=trace.task_id or f"task_{int(time.time())}",
+                        title=summary_title,
+                        summary=summary_text,
+                    )
+            except Exception as e:
+                logger.debug(f"[Dispatcher] Blackboard update failed: {e}")
             return result
         except (KeyboardInterrupt, asyncio.CancelledError):
             if isolated:
