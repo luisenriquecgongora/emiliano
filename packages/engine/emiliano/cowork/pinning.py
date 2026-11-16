@@ -133,6 +133,21 @@ class WindowPinManager:
         time.sleep(0.1)
         return self.get_foreground_hwnd() == target_hwnd
 
+    def send_to_background(self, hwnd: Optional[int] = None) -> bool:
+        """
+        Pushes target window to the bottom of the Z-order without minimizing it,
+        so it remains fully accessible on the taskbar and visible if brought forward,
+        without taking keyboard or mouse focus away from the user's active apps.
+        """
+        target_hwnd = hwnd or self._pinned_hwnd
+        if not self._user32 or not target_hwnd or not self._user32.IsWindow(target_hwnd):
+            return False
+        # HWND_BOTTOM = 1, SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010
+        HWND_BOTTOM = 1
+        SWP_FLAGS = 0x0001 | 0x0002 | 0x0010
+        res = self._user32.SetWindowPos(target_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_FLAGS)
+        return bool(res)
+
     def verify_active(self, auto_focus: bool = True) -> bool:
         """
         Verifies that the target pinned window is currently foreground.

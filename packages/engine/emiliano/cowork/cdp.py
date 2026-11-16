@@ -88,38 +88,71 @@ def get_cdp_tabs(host: str = DEFAULT_CDP_HOST, port: int = DEFAULT_CDP_PORT) -> 
         return []
 
 
+def get_cowork_profile_dir() -> Path:
+    """Returns the dedicated, persistent profile directory for Emiliano Cowork."""
+    path = Path(os.path.expandvars(r"%LOCALAPPDATA%\Emiliano\ChromeProfile"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def launch_chrome_with_cdp(
-    profile_name: str = "Default",
+    profile_dir: Optional[Path] = None,
     port: int = DEFAULT_CDP_PORT,
     url: Optional[str] = None,
+    non_activating: bool = True,
 ) -> Optional[subprocess.Popen]:
     """
-    Launches Chrome with remote debugging enabled for a specific user profile.
+    Launches Chrome with remote debugging enabled using a dedicated persistent profile.
+    Can launch in non-activating background mode so the user's active window is not interrupted.
     """
     chrome_path = find_chrome_executable()
     if not chrome_path:
         logger.error("[CDP] Chrome executable not found on system.")
         return None
 
-    user_data = str(get_chrome_user_data_dir())
+    user_data = str(profile_dir or get_cowork_profile_dir())
     args = [
         chrome_path,
         f"--remote-debugging-port={port}",
         f"--user-data-dir={user_data}",
-        f"--profile-directory={profile_name}",
         "--no-first-run",
         "--no-default-browser-check",
     ]
     if url:
         args.append(url)
 
-    logger.info(f"[CDP] Launching Chrome with profile '{profile_name}' on port {port}")
+    logger.info(f"[CDP] Launching Chrome on port {port} with profile at {user_data}")
     try:
-        proc = subprocess.Popen(args)
+        startupinfo = None
+        if non_activating and sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 4  # SW_SHOWNOACTIVATE
+
+        proc = subprocess.Popen(args, startupinfo=startupinfo)
         return proc
     except Exception as e:
         logger.error(f"[CDP] Failed to launch Chrome: {e}")
         return None
+
+
+async def ensure_cowork_browser(port: int = DEFAULT_CDP_PORT, url: Optional[str] = None) -> bool:
+    """
+    Ensures Chrome is running with remote debugging enabled.
+    If not already listening, automatically launches the dedicated Cowork Chrome instance.
+    """
+    if is_cdp_available(port=port):
+        return True
+
+    launch_chrome_with_cdp(port=port, url=url or "https://www.instagram.com")
+    for _ in range(20):
+        await asyncio.sleep(0.3)
+        if is_cdp_available(port=port):
+            logger.info(f"[CDP] Successfully connected to auto-launched Chrome on port {port}")
+            return True
+
+    logger.warning(f"[CDP] Chrome launch timed out waiting for port {port}")
+    return False
 
 
 class ChromeDevToolsClient:
