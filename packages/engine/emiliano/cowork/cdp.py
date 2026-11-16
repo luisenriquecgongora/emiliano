@@ -231,6 +231,88 @@ class ChromeDevToolsClient:
         text = await self.evaluate(js)
         return str(text or "")
 
+    async def capture_screenshot(self, format: str = "png", quality: Optional[int] = None) -> bytes:
+        """Captures a screenshot of the page directly from the Chrome rendering engine without window focus."""
+        params: Dict[str, Any] = {"format": format}
+        if quality is not None and format in ("jpeg", "webp"):
+            params["quality"] = quality
+        result = await self.send_command("Page.captureScreenshot", params)
+        data_base64 = result.get("data", "")
+        import base64
+        return base64.b64decode(data_base64)
+
+    async def click_element(self, selector: str) -> bool:
+        """Clicks an element in the DOM by CSS selector in the background."""
+        js = f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(selector)});
+            if (el) {{
+                el.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                el.click();
+                return true;
+            }}
+            return false;
+        }})()
+        """
+        return bool(await self.evaluate(js))
+
+    async def click_by_text(self, text: str, tag: str = "*") -> bool:
+        """Clicks an element containing text in the background."""
+        js = f"""
+        (() => {{
+            const elements = Array.from(document.querySelectorAll({json.dumps(tag)}));
+            const target = elements.find(el => el.textContent && el.textContent.trim().toLowerCase().includes({json.dumps(text.lower())}));
+            if (target) {{
+                target.scrollIntoView({{ behavior: 'instant', block: 'center' }});
+                target.click();
+                return true;
+            }}
+            return false;
+        }})()
+        """
+        return bool(await self.evaluate(js))
+
+    async def type_into(self, selector: str, text: str) -> bool:
+        """Types text into an input or contenteditable element in the DOM."""
+        js = f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(selector)});
+            if (!el) return false;
+            el.focus();
+            if ('value' in el) {{
+                el.value = {json.dumps(text)};
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            }} else {{
+                el.innerText = {json.dumps(text)};
+                el.dispatchEvent(new InputEvent('input', {{ bubbles: true }}));
+            }}
+            return true;
+        }})()
+        """
+        return bool(await self.evaluate(js))
+
+    async def wait_for_selector(self, selector: str, timeout_seconds: float = 10.0) -> bool:
+        """Waits until an element matching the selector appears in the DOM."""
+        start = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start < timeout_seconds:
+            found = await self.evaluate(f"Boolean(document.querySelector({json.dumps(selector)}))")
+            if found:
+                return True
+            await asyncio.sleep(0.5)
+        return False
+
+    async def is_page_404(self) -> bool:
+        """Detects Instagram 404 or page unavailable states in the DOM."""
+        text = await self.get_page_text()
+        low = text.lower()
+        return any(phrase in low for phrase in [
+            "link you followed may be broken",
+            "page isn't available",
+            "sorry, this page isn't available",
+            "przepraszamy, ta strona jest niedostępna",
+        ])
+
     async def navigate(self, url: str) -> None:
         """Navigates the tab to a URL."""
         await self.send_command("Page.navigate", {"url": url})

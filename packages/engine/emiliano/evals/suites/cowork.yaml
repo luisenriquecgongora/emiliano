@@ -88,3 +88,31 @@ tasks:
       all_of:
         - "Outreach Batch Completed"
         - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-cafe
+    kind: cowork
+    goal: "please outreach 2 cafe leads (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [CAFE]"
+        - "Outreach Batch Completed"
+        - "Café Mozaika"
+
+  - id: cowork-outreach-bar
+    kind: cowork
+    goal: "outreach 2 bar prospects (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [BAR]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-outreach-hotel
+    kind: cowork
+    goal: "reach out to 2 hotels (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [HOTEL]"
+        - "Outreach Batch Completed"

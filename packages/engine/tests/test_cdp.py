@@ -71,3 +71,27 @@ class TestCDPAgentExecution(unittest.IsolatedAsyncioTestCase):
 
         res_eval = await agent.execute_tool("evaluate_js", {"code": "window.location.href"})
         self.assertIn("Error: Chrome DevTools Protocol (CDP) client is not connected", res_eval)
+
+    async def test_cdp_client_background_helpers(self):
+        import base64
+        client = ChromeDevToolsClient()
+        client._connected = True
+        client._ws = MagicMock()
+        client.send_command = AsyncMock(return_value={"data": base64.b64encode(b"fake-png-bytes").decode()})
+
+        # Test screenshot
+        shot = await client.capture_screenshot()
+        self.assertEqual(shot, b"fake-png-bytes")
+
+        # Test evaluate-based helpers
+        client.evaluate = AsyncMock(return_value=True)
+        self.assertTrue(await client.click_element("button._acan"))
+        self.assertTrue(await client.click_by_text("Message"))
+        self.assertTrue(await client.type_into("div[contenteditable='true']", "Hello!"))
+
+        # Test 404 detection
+        client.get_page_text = AsyncMock(return_value="Sorry, this page isn't available.")
+        self.assertTrue(await client.is_page_404())
+
+        client.get_page_text = AsyncMock(return_value="Restauracja Belvedere Warszawa 120 posts")
+        self.assertFalse(await client.is_page_404())
