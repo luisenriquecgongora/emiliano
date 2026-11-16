@@ -77,6 +77,7 @@ fn place_windows(app: &AppHandle) -> tauri::Result<()> {
             overlay.set_size(*monitor.size())?;
         }
         overlay.set_ignore_cursor_events(true)?;
+        let _ = overlay.hide();
     }
     Ok(())
 }

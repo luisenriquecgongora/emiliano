@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { HUDHighlightMessage } from '@emiliano/protocol';
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import Dock from './Dock';
 import { isOverlayWindow, useEngineSocket } from './engine';
 import { toOverlayRect } from './hudGeometry';
@@ -21,21 +23,42 @@ function HUDOverlayView() {
   const [highlight, setHighlight] = useState<HUDHighlightMessage['payload'] | null>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const hideOverlayWindow = () => {
+    if (isTauri()) {
+      getCurrentWebviewWindow().hide().catch(() => {});
+    }
+  };
+
+  const showOverlayWindow = () => {
+    if (isTauri()) {
+      getCurrentWebviewWindow().show().catch(() => {});
+    }
+  };
+
   const cancelTimer = () => {
     if (clearTimer.current) clearTimeout(clearTimer.current);
     clearTimer.current = null;
   };
-  useEffect(() => cancelTimer, []);
+
+  useEffect(() => {
+    hideOverlayWindow();
+    return () => cancelTimer();
+  }, []);
 
   useEngineSocket((msg) => {
     if (msg.type === 'HUD_HIGHLIGHT') {
       // A new target replaces the old one; the old timer must not clear it early.
       cancelTimer();
       setHighlight(msg.payload);
-      clearTimer.current = setTimeout(() => setHighlight(null), msg.payload.durationMs || 2500);
+      showOverlayWindow();
+      clearTimer.current = setTimeout(() => {
+        setHighlight(null);
+        hideOverlayWindow();
+      }, msg.payload.durationMs || 1500);
     } else if (msg.type === 'HUD_CLEAR') {
       cancelTimer();
       setHighlight(null);
+      hideOverlayWindow();
     }
   });
 

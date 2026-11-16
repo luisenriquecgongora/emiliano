@@ -37,13 +37,16 @@ class ExtensionManager:
         if search_paths:
             self.search_paths.extend([Path(p) for p in search_paths])
         else:
-            # Default discovery paths: current directory, parent directory, and extensions/
-            cwd = Path.cwd()
+            # Default discovery paths: current directory, parents up to 3 levels, and extensions/
+            cwd = Path.cwd().resolve()
             self.search_paths.extend([
                 cwd,
                 cwd.parent,
+                cwd.parent.parent,
                 cwd / "extensions",
                 cwd / "plugins",
+                cwd.parent / "extensions",
+                cwd.parent.parent / "extensions",
             ])
 
         self.extensions: Dict[str, ExtensionManifest] = {}

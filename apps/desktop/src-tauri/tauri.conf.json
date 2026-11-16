@@ -28,6 +28,7 @@
       {
         "label": "overlay",
         "title": "Emiliano HUD",
+        "visible": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
