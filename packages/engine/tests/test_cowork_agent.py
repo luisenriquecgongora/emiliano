@@ -93,6 +93,27 @@ class TestCoworkAgentExecution(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Success: Typed 'foobar' into TextInput 'Input'", res_type)
         mock_synth.type_text.assert_called_once_with(text="foobar", x=110, y=30)
 
+        # Test navigate_to
+        res_nav = await agent.execute_tool("navigate_to", {"url": "https://instagram.com"}, hwnd=100)
+        self.assertIn("Success: Navigated to 'https://instagram.com'", res_nav)
+        mock_synth.navigate_browser.assert_called_once_with("https://instagram.com")
+
+        # Test scroll_window
+        res_scroll = await agent.execute_tool("scroll_window", {"direction": "down", "amount": 5}, hwnd=100)
+        self.assertIn("Success: Scrolled down 5 clicks", res_scroll)
+        mock_synth.scroll.assert_called_once_with(clicks=-5)
+
+        # Test human_jitter
+        mock_synth.human_jitter.return_value = 1.25
+        res_jitter = await agent.execute_tool("human_jitter", {"min_seconds": 1.0, "max_seconds": 2.0}, hwnd=100)
+        self.assertIn("Success: Paused 1.25s", res_jitter)
+        mock_synth.human_jitter.assert_called_once_with(1.0, 2.0)
+
+        # Test hotkey
+        res_hotkey = await agent.execute_tool("hotkey", {"keys": "ctrl, c"}, hwnd=100)
+        self.assertIn("Success: Hotkey 'ctrl,c'", res_hotkey)
+        mock_synth.hotkey.assert_called_once_with("ctrl", "c")
+
     async def test_agent_run_loop(self):
         mock_client = MagicMock()
 

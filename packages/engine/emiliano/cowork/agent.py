@@ -32,6 +32,12 @@ You have access to the following desktop cowork tools:
 - click_at(x: int, y: int): Click at screen coordinates (x, y) within the pinned window.
 - type_into_element(id: int, text: str): Type text into an input or edit box by its numeric tag [id]. Uses ghost SetValue without synthetic keystrokes.
 - press_key(key: str): Press a keyboard key (e.g. Enter, Tab, Escape, Down, Up).
+- hotkey(keys: str): Execute a hotkey combination (e.g. "ctrl,c", "ctrl,l", "ctrl,v").
+- navigate_to(url: str): Navigate the browser to a URL (focuses address bar, types URL, presses Enter).
+- scroll_window(direction: str, amount: int): Scroll the window ('up' or 'down', amount in clicks default 5).
+- human_jitter(min_seconds: float, max_seconds: float): Wait with natural human-like jitter.
+- evaluate_js(code: str): Execute JavaScript code in the browser tab via Chrome DevTools Protocol (CDP).
+- get_page_text(): Extract visible text from the currently loaded browser page via CDP.
 - inspect_window(): Re-scan and refresh the actionable UI elements of the window.
 - finish(summary: str): Complete the cowork task and provide the final summary.
 
@@ -40,6 +46,7 @@ To invoke a tool, output a tool call block using either of these formats:
 Format 1 (XML - Recommended):
 <call:click_element id="1"/>
 <call:type_into_element id="2" text="hello"/>
+<call:navigate_to url="https://instagram.com"/>
 <call:press_key key="Enter"/>
 <call:finish summary="Task completed successfully"/>
 
@@ -202,12 +209,14 @@ class CoworkAgentLoop:
         pin_manager: Optional[WindowPinManager] = None,
         screen_perceiver: Optional[ScreenPerceiver] = None,
         action_synthesizer: Optional[ActionSynthesizer] = None,
+        cdp_client: Optional[Any] = None,
         max_turns: int = 12,
         timeout: float = 120.0,
         vision: bool = False,
         on_highlight: Optional[HighlightCallback] = None,
     ) -> None:
         self.client = client
+        self.cdp_client = cdp_client
         # Called with a HUD_HIGHLIGHT payload right before each click or type, so the
         # desktop overlay can show the target; None (CLI, tests) shows nothing.
         self.on_highlight = on_highlight
@@ -298,6 +307,56 @@ class CoworkAgentLoop:
                 await asyncio.sleep(0.3)
                 new_state = self.observe(hwnd=hwnd)
                 return f"Success: Pressed key '{key}'.\nUpdated UI:\n{new_state}"
+
+            elif tool_name == "hotkey":
+                raw_keys = str(args.get("keys", "")).split(",")
+                keys = [k.strip().lower() for k in raw_keys if k.strip()]
+                self.action_synthesizer.hotkey(*keys)
+                await asyncio.sleep(0.3)
+                new_state = self.observe(hwnd=hwnd)
+                return f"Success: Hotkey '{','.join(keys)}'.\nUpdated UI:\n{new_state}"
+
+            elif tool_name == "navigate_to":
+                url = str(args.get("url", "")).strip()
+                self.action_synthesizer.navigate_browser(url)
+                await asyncio.sleep(1.5)  # Wait for page navigation & layout
+                new_state = self.observe(hwnd=hwnd)
+                return f"Success: Navigated to '{url}'.\nUpdated UI:\n{new_state}"
+
+            elif tool_name == "scroll_window":
+                direction = str(args.get("direction", "down")).lower()
+                amount = int(args.get("amount", 5))
+                clicks = -amount if direction == "down" else amount
+                self.action_synthesizer.scroll(clicks=clicks)
+                await asyncio.sleep(0.4)
+                new_state = self.observe(hwnd=hwnd)
+                return f"Success: Scrolled {direction} {amount} clicks.\nUpdated UI:\n{new_state}"
+
+            elif tool_name == "human_jitter":
+                min_s = float(args.get("min_seconds", 1.0))
+                max_s = float(args.get("max_seconds", 3.0))
+                waited = self.action_synthesizer.human_jitter(min_s, max_s)
+                return f"Success: Paused {waited:.2f}s with natural human jitter."
+
+            elif tool_name == "evaluate_js":
+                code = str(args.get("code", "")).strip()
+                if not self.cdp_client or not self.cdp_client.is_connected:
+                    return "Error: Chrome DevTools Protocol (CDP) client is not connected."
+                try:
+                    js_res = await self.cdp_client.evaluate(code)
+                    return f"JavaScript Execution Result: {js_res}"
+                except Exception as e:
+                    return f"JavaScript Error: {e}"
+
+            elif tool_name == "get_page_text":
+                if not self.cdp_client or not self.cdp_client.is_connected:
+                    return "Error: Chrome DevTools Protocol (CDP) client is not connected."
+                try:
+                    text_content = await self.cdp_client.get_page_text()
+                    trimmed = text_content[:3000] if len(text_content) > 3000 else text_content
+                    return f"Page Text ({len(text_content)} chars):\n{trimmed}"
+                except Exception as e:
+                    return f"Failed to get page text: {e}"
 
             elif tool_name == "inspect_window":
                 new_state = self.observe(hwnd=hwnd)

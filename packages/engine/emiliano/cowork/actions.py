@@ -147,3 +147,56 @@ class ActionSynthesizer:
             raise SafetyInterruptedError("Target window lost focus before hotkey")
         logger.info(f"[Action] Hotkey: {keys}")
         _pyautogui().hotkey(*keys)
+
+    def scroll(self, clicks: int, x: Optional[float] = None, y: Optional[float] = None) -> None:
+        """
+        Executes mouse wheel scroll (positive = up, negative = down).
+        Respects pinned window bounds if coordinates are given.
+        """
+        if self._paused:
+            logger.warning("[Action] Aborted scroll: synthesizer is paused.")
+            raise SafetyInterruptedError("Synthesizer is paused")
+
+        if not self.pin_manager.verify_active(auto_focus=True):
+            raise SafetyInterruptedError("Target window lost focus before scroll")
+
+        if x is not None and y is not None:
+            if not self.pin_manager.is_point_within_pinned_window(x, y):
+                raise SafetyInterruptedError(f"Scroll target ({x}, {y}) is outside pinned window bounds!")
+            _pyautogui().moveTo(x, y, duration=0.1)
+
+        logger.info(f"[Action] Scrolling {clicks} clicks at ({x}, {y})")
+        _pyautogui().scroll(clicks)
+
+    def navigate_browser(self, url: str) -> None:
+        """
+        Navigates an active browser window to a URL by focusing the address bar (Ctrl+L),
+        typing the URL, and pressing Enter.
+        """
+        if self._paused:
+            raise SafetyInterruptedError("Synthesizer is paused")
+        if not self.pin_manager.verify_active(auto_focus=True):
+            raise SafetyInterruptedError("Target window lost focus before browser navigation")
+
+        logger.info(f"[Action] Navigating browser to: {url}")
+        self.hotkey("ctrl", "l")
+        time.sleep(0.15)
+        self.type_text(url, interval=0.01)
+        time.sleep(0.1)
+        self.press_key("enter")
+
+    def human_jitter(self, min_seconds: float = 1.0, max_seconds: float = 3.0) -> float:
+        """
+        Sleeps for a random interval between min_seconds and max_seconds,
+        checking for pause / safety interrupt every 50ms.
+        """
+        import random
+        target_sleep = random.uniform(min_seconds, max_seconds)
+        elapsed = 0.0
+        step = 0.05
+        while elapsed < target_sleep:
+            if self._paused:
+                raise SafetyInterruptedError("Halted during jitter sleep")
+            time.sleep(step)
+            elapsed += step
+        return target_sleep
