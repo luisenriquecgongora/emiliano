@@ -861,6 +861,26 @@ export default function Dock() {
           onOpenBrowserSetup={handleOpenBrowserSetup}
         />
 
+        {activeProjectId && (
+          <div className="mt-2 px-2.5 py-1 rounded-lg bg-indigo-950/40 border border-indigo-800/50 flex items-center justify-between text-[11px] text-indigo-300">
+            <div className="flex items-center space-x-1.5 truncate">
+              <FolderGit2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="text-[10px] text-indigo-400 uppercase font-semibold">Scope:</span>
+              <span className="font-medium text-white truncate max-w-[210px]">
+                {projects.find((p) => p.id === activeProjectId)?.name || activeProjectId}
+              </span>
+            </div>
+            <button
+              onClick={() => setActiveProjectId(null)}
+              title="Detach project and return to General Scope"
+              className="px-1.5 py-0.5 rounded bg-indigo-900/60 hover:bg-indigo-800 text-[10px] text-indigo-200 flex items-center space-x-1 cursor-pointer"
+            >
+              <span>General</span>
+              <X className="w-3 h-3 ml-0.5" />
+            </button>
+          </div>
+        )}
+
         {pinnedWindow && (
           <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-800/50 flex items-center justify-between text-[11px] text-cyan-300">
             <div className="flex items-center space-x-1.5 truncate">
