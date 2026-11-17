@@ -62,6 +62,15 @@ class ModelConfig(BaseModel):
     # Load the local model when the engine or chat starts, so the first reply does not wait ~15 s for it.
     # It then holds memory (VRAM) even if you never chat locally; set false to load on first use instead.
     preload_local_model: bool = True
+    # Auto-unload local models from memory after this many seconds of inactivity.
+    # Set to -1 to keep in memory indefinitely, or 0 to unload immediately after each prompt.
+    idle_unload_timeout_seconds: Optional[int] = 300
+    # Automatically offload/unload loaded local models from VRAM when routing a task to an external agent harness (Claude Code/Codex)
+    offload_on_harness_delegation: bool = True
+    # Maximum VRAM threshold (0.0 - 1.0) before triggering LRU eviction of loaded models (default: 85%)
+    vram_high_watermark: float = 0.85
+    # Automatically evict least-recently-used (LRU) local models when loading a new model if VRAM is tight
+    auto_evict_lru: bool = True
     fallback_chain: List[str] = Field(
         default_factory=lambda: [
             "ollama/qwen2.5-coder:32b",

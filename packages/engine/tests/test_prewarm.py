@@ -14,6 +14,7 @@ from emiliano.direct.ollama import OllamaManager
 
 def make_dispatcher(**model_settings):
     cfg = EmilianoConfig()
+    cfg.models.anthropic_api_key = "test-key"
     for key, value in model_settings.items():
         setattr(cfg.models, key, value)
     dispatcher = ExecutionDispatcher(config=cfg)
@@ -30,7 +31,7 @@ class TestPrewarmLocal(unittest.TestCase):
         asyncio.run(dispatcher.prewarm_local())
         load_litellm.assert_called_once()
         # Same choice as the registry (qwen over the embedding model), same window as later calls
-        mgr.preload.assert_awaited_once_with("qwen3.5:2b", 16384)
+        mgr.preload.assert_awaited_once_with("qwen3.5:2b", 16384, keep_alive=300)
 
     def test_model_override_is_preloaded(self, load_litellm):
         dispatcher, mgr = make_dispatcher()
@@ -126,10 +127,18 @@ class TestOllamaPreload(unittest.TestCase):
     def test_posts_empty_prompt_with_context_window(self):
         client = self._client()
         with patch("emiliano.direct.ollama.httpx.AsyncClient", return_value=client):
-            self.assertTrue(asyncio.run(OllamaManager().preload("qwen3.5:2b", 8192)))
+            self.assertTrue(asyncio.run(OllamaManager().preload("qwen3.5:2b", 8192, keep_alive=300)))
         url, kwargs = client.post.await_args.args[0], client.post.await_args.kwargs
         self.assertTrue(url.endswith("/api/generate"))
-        self.assertEqual(kwargs["json"], {"model": "qwen3.5:2b", "prompt": "", "options": {"num_ctx": 8192}})
+        self.assertEqual(kwargs["json"], {"model": "qwen3.5:2b", "prompt": "", "options": {"num_ctx": 8192}, "keep_alive": 300})
+
+    def test_unload_all_calls_unload_on_each_loaded_model(self):
+        mgr = OllamaManager()
+        mgr.list_loaded = AsyncMock(return_value={"m1": {}, "m2": {}})
+        mgr.unload = AsyncMock(return_value=True)
+        unloaded = asyncio.run(mgr.unload_all())
+        self.assertEqual(unloaded, ["m1", "m2"])
+        self.assertEqual(mgr.unload.await_count, 2)
 
     def test_failure_returns_false(self):
         with patch("emiliano.direct.ollama.httpx.AsyncClient", return_value=self._client(error=OSError("down"))):

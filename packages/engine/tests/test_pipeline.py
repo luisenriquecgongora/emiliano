@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from emiliano.core.pipeline import Pipeline, PipelineContext, Stage, StageStatus
+from emiliano.core.pipeline import Pipeline, PipelineContext
 from emiliano.core.blackboard import Blackboard
 
 
@@ -91,9 +91,15 @@ class TestPipelineEngine(unittest.IsolatedAsyncioTestCase):
     async def test_optional_stage_failure_does_not_halt(self):
         pipeline = Pipeline(name="optional_stage_pipeline")
 
-        def s1(ctx): return "ok"
-        def s2_optional(ctx): raise RuntimeError("Optional failure")
-        def s3(ctx): ctx.set("s3_done", True); return "finished"
+        def s1(ctx):
+            return "ok"
+
+        def s2_optional(ctx):
+            raise RuntimeError("Optional failure")
+
+        def s3(ctx):
+            ctx.set("s3_done", True)
+            return "finished"
 
         pipeline.add_stage("s1", s1)
         pipeline.add_stage("s2", s2_optional, optional=True)

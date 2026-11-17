@@ -229,6 +229,7 @@ class ExecutionDispatcher:
         reasoning: Optional[bool] = None,
         isolate_workspace: bool = False,
         merge_on_success: bool = True,
+        workspace: Optional[str] = None,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
@@ -262,7 +263,7 @@ class ExecutionDispatcher:
                 return choice
 
         isolated: Optional[IsolatedWorkspace] = None
-        target_dir = os.getcwd()
+        target_dir = workspace or os.getcwd()
         if isolate_workspace:
             try:
                 candidate_iso = IsolatedWorkspace(base_dir=target_dir)
@@ -292,6 +293,7 @@ class ExecutionDispatcher:
                         extension=matched_ext,
                         goal=goal,
                         on_chunk=traced_chunk,
+                        on_reasoning=traced_reasoning,
                     )
                     trace.finish("succeeded")
                     try:
@@ -452,12 +454,13 @@ class ExecutionDispatcher:
                         return candidate, output
 
                     output_parts = []
+                    think = reasoning if reasoning is not None else (None if is_task else False)
                     async for chunk in client.stream_completion(
                         messages=task_messages,
                         model_name=model_id,
                         timeout=timeout,
                         on_reasoning=on_reasoning,
-                        think=reasoning if reasoning is not None else False,
+                        think=think,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
@@ -476,6 +479,14 @@ class ExecutionDispatcher:
                     harness = harness_instances.get(candidate.name)
                     if not harness:
                         raise RuntimeError(f"Harness adapter '{candidate.name}' not found.")
+
+                    # Pre-emptively offload local models to free VRAM for external agent harnesses
+                    if getattr(self.config.models, "offload_on_harness_delegation", False):
+                        try:
+                            await self.registry.ollama_mgr.unload_all()
+                            logger.info(f"[Dispatcher] Offloaded local models from VRAM before delegating to {candidate.display_name}")
+                        except Exception as e:
+                            logger.debug(f"[Dispatcher] Offload on harness delegation skipped/failed: {e}")
 
                     # Snapshot the workspace so a failure can be checked for partial changes
                     active_ws = workspace or os.getcwd()
@@ -665,8 +676,16 @@ class ExecutionDispatcher:
         model = mgr.select_best_model(installed, model_override)
         if not model:
             return
+
+        # Enforce VRAM headroom via Governor
+        from ..direct.lifecycle import ModelLifecycleGovernor
+        governor = ModelLifecycleGovernor.get_instance(config=self.config, ollama_mgr=mgr)
+        await governor.ensure_vram_headroom(model)
+
         started = time.monotonic()
-        if await mgr.preload(model, self.config.models.ollama_num_ctx):
+        keep_alive = self.config.models.idle_unload_timeout_seconds
+        if await mgr.preload(model, self.config.models.ollama_num_ctx, keep_alive=keep_alive):
+            governor.touch(model)
             logger.info(f"[Dispatcher] Preloaded local model {model} in {time.monotonic() - started:.1f}s")
 
     async def _discover(self, include_harnesses: bool = True) -> Dict[str, Capability]:

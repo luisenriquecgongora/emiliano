@@ -15,7 +15,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 from loguru import logger
 
 
@@ -133,6 +133,7 @@ class ExtensionManager:
         goal: str,
         on_chunk: Optional[Callable[[str], None]] = None,
         on_progress: Optional[Callable[[str, int, int], None]] = None,
+        on_reasoning: Optional[Callable[[str], None]] = None,
     ) -> str:
         """Dynamically loads and invokes the extension entry point."""
         if ":" not in extension.entry_point:
@@ -166,6 +167,8 @@ class ExtensionManager:
             kwargs["on_chunk"] = on_chunk
         if "on_progress" in sig.parameters:
             kwargs["on_progress"] = on_progress
+        if "on_reasoning" in sig.parameters:
+            kwargs["on_reasoning"] = on_reasoning
 
         if inspect.iscoroutinefunction(target_fn):
             result = await target_fn(**kwargs)
