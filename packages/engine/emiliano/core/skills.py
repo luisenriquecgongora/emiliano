@@ -8,6 +8,7 @@ Licensed under PolyForm Shield 1.0.0.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import time
@@ -139,6 +140,21 @@ class SkillManager:
             metadata = self._parse_simple_yaml(raw_yaml)
 
         skill_id = metadata.get("id") or metadata.get("name") or path.parent.name
+
+        # Verify integrity hash if present
+        integrity_file = path.parent / ".integrity.sha256"
+        if integrity_file.exists():
+            try:
+                expected_sha = integrity_file.read_text(encoding="utf-8").strip()
+                actual_sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                if expected_sha and actual_sha != expected_sha:
+                    logger.warning(
+                        f"[SkillManager] Integrity warning: skill '{skill_id}' at {path} failed SHA-256 integrity verification! "
+                        f"(Expected {expected_sha[:8]}..., actual {actual_sha[:8]}...)"
+                    )
+            except Exception as e:
+                logger.warning(f"[SkillManager] Could not verify integrity for {skill_id}: {e}")
+
         title = metadata.get("title") or metadata.get("name") or skill_id.replace("-", " ").title()
         description = metadata.get("description") or (body.split("\n")[0].replace("#", "").strip() if body else "")
         status = metadata.get("status") or default_status
@@ -295,6 +311,10 @@ class SkillManager:
         updated_content = content.replace("status: staged", "status: active")
         dest_file.write_text(updated_content, encoding="utf-8")
 
+        # Cryptographic integrity signature
+        sha256 = hashlib.sha256(updated_content.encode("utf-8")).hexdigest()
+        (dest_dir / ".integrity.sha256").write_text(sha256, encoding="utf-8")
+
         # Clean up staged folder
         if src_path.parent != dest_dir:
             shutil.rmtree(src_path.parent, ignore_errors=True)
@@ -302,7 +322,7 @@ class SkillManager:
         skill.status = "active"
         skill.path = str(dest_file)
         self._skills[skill_id] = skill
-        logger.info(f"[SkillManager] Approved and promoted skill '{skill_id}' to active library.")
+        logger.info(f"[SkillManager] Approved and promoted skill '{skill_id}' to active library (SHA-256: {sha256[:8]}...).")
         return True
 
     def discard_skill(self, skill_id: str) -> bool:

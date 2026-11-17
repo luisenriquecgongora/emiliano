@@ -114,17 +114,19 @@ class TestHarnessSettings(unittest.TestCase):
             harness.run_task("task", cwd=".", timeout=5)
         self.assertEqual(session_cls.call_args.kwargs["args"], ["/bin/opencode", "acp"])
 
-    def test_fallback_flags_on_by_default(self):
+    def test_fallback_flags_off_by_default(self):
+        # Secure by default: dangerous sandbox bypass flags are NOT included by default
         harnesses = CapabilityRegistry(EmilianoConfig()).get_harness_instances()
-        self.assertIn("--dangerously-bypass-approvals-and-sandbox", harnesses["codex"].build_invocation("x").args)
-        self.assertIn("--dangerously-skip-permissions", harnesses["antigravity"].build_task_command("x"))
-
-    def test_fallback_flags_can_be_turned_off(self):
-        config = EmilianoConfig()
-        config.harnesses.unattended_fallback = False
-        harnesses = CapabilityRegistry(config).get_harness_instances()
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", harnesses["codex"].build_invocation("x").args)
         self.assertNotIn("--dangerously-skip-permissions", harnesses["antigravity"].build_task_command("x"))
+
+    def test_fallback_flags_can_be_turned_on(self):
+        # When explicitly configured with unattended_fallback = True, bypass flags are passed
+        config = EmilianoConfig()
+        config.harnesses.unattended_fallback = True
+        harnesses = CapabilityRegistry(config).get_harness_instances()
+        self.assertIn("--dangerously-bypass-approvals-and-sandbox", harnesses["codex"].build_invocation("x").args)
+        self.assertIn("--dangerously-skip-permissions", harnesses["antigravity"].build_task_command("x"))
         self.assertIsInstance(harnesses["antigravity"], AntigravityHarness)
 
 

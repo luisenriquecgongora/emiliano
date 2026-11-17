@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emiliano Cybersecurity Threat Model & Perimeter Architecture</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(51, 65, 85, 0.6); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-8 select-text">
+
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="glass rounded-2xl p-6 md:p-8 relative overflow-hidden shadow-2xl">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center space-x-2 text-xs font-mono text-cyan-400 mb-2">
+            <span class="inline-block w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
+            <span>SECURITY ARCHITECTURE &amp; PERIMETER DEFENSE</span>
+          </div>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-white">
+            Emiliano <span class="text-cyan-400">Threat Model &amp; Perimeter Diagram</span>
+          </h1>
+          <p class="text-slate-400 text-sm mt-1 max-w-2xl">
+            Multi-tiered isolation, WebSocket IPC authentication, privilege boundaries, and attack surface mitigation.
+          </p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="px-3 py-1.5 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs font-semibold">
+            High-Privilege Actuation
+          </span>
+          <span class="px-3 py-1.5 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs font-semibold">
+            Token-Protected IPC
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Visual Architecture Diagram Card -->
+    <div class="glass rounded-2xl p-6 shadow-xl space-y-4">
+      <h2 class="text-base font-bold text-white flex items-center space-x-2">
+        <span>🛡️</span>
+        <span>Interactive Security Perimeter &amp; Execution Topology</span>
+      </h2>
+
+      <!-- SVG Diagram -->
+      <div class="w-full overflow-x-auto p-4 bg-slate-950/90 rounded-xl border border-slate-800 flex justify-center">
+        <svg width="880" height="460" viewBox="0 0 880 460" class="max-w-full font-sans select-none">
+          <defs>
+            <linearGradient id="zonePerimeter" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2d2812"/>
+              <stop offset="100%" stop-color="#141107"/>
+            </linearGradient>
+            <linearGradient id="zoneCore" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#0e1f3d"/>
+              <stop offset="100%" stop-color="#080e1c"/>
+            </linearGradient>
+            <linearGradient id="zonePriv" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#361014"/>
+              <stop offset="100%" stop-color="#1c0709"/>
+            </linearGradient>
+            <marker id="arrow-threat" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 9 5 L 0 9 z" fill="#38bdf8"/>
+            </marker>
+          </defs>
+
+          <!-- Zone 1: Perimeter (Yellow Border) -->
+          <rect x="20" y="20" width="250" height="420" rx="14" fill="url(#zonePerimeter)" stroke="#ca8a04" stroke-width="1.2" opacity="0.9"/>
+          <text x="35" y="45" fill="#fef08a" font-size="11" font-weight="700">1. PERIMETER ENTRY POINTS</text>
+
+          <!-- Node WebExt -->
+          <g transform="translate(35, 60)">
+            <rect width="220" height="70" rx="8" fill="#1e1808" stroke="#eab308" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">Chrome Extension</text>
+            <text x="12" y="38" fill="#fde047" font-size="9" font-family="monospace">apps/browser-extension</text>
+            <text x="12" y="54" fill="#a1a1aa" font-size="8.5">debugger, all_urls, scripting</text>
+          </g>
+
+          <!-- Node Telegram -->
+          <g transform="translate(35, 145)">
+            <rect width="220" height="55" rx="8" fill="#1e1808" stroke="#eab308" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">Telegram Gateway</text>
+            <text x="12" y="38" fill="#fde047" font-size="9" font-family="monospace">gateway/telegram.py</text>
+          </g>
+
+          <!-- Node Tauri -->
+          <g transform="translate(35, 215)">
+            <rect width="220" height="65" rx="8" fill="#1e1808" stroke="#eab308" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">Tauri v2 Desktop App</text>
+            <text x="12" y="38" fill="#fde047" font-size="9" font-family="monospace">apps/desktop</text>
+            <text x="12" y="52" fill="#38bdf8" font-size="8.5">Global Esc Kill-Switch</text>
+          </g>
+
+          <!-- Node LocalProc (Malicious potential) -->
+          <g transform="translate(35, 295)">
+            <rect width="220" height="65" rx="8" fill="#2d0c10" stroke="#f43f5e" stroke-width="1"/>
+            <text x="12" y="22" fill="#fda4af" font-size="11" font-weight="700">Untrusted Local Origin</text>
+            <text x="12" y="38" fill="#fda4af" font-size="9" font-family="monospace">Drive-by Web / Local Process</text>
+            <text x="12" y="52" fill="#fda4af" font-size="8.5">Port 8765 Probing Risk</text>
+          </g>
+
+          <!-- Zone 2: Engine Core (Blue Border) -->
+          <rect x="310" y="20" width="260" height="420" rx="14" fill="url(#zoneCore)" stroke="#2563eb" stroke-width="1.2" opacity="0.9"/>
+          <text x="325" y="45" fill="#93c5fd" font-size="11" font-weight="700">2. EMILIANO ENGINE CORE (127.0.0.1:8765)</text>
+
+          <g transform="translate(325, 60)">
+            <rect width="230" height="65" rx="8" fill="#0b172e" stroke="#3b82f6" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">FastAPI &amp; WebSocket Server</text>
+            <text x="12" y="38" fill="#60a5fa" font-size="9" font-family="monospace">server/app.py &amp; security.py</text>
+            <text x="12" y="52" fill="#34d399" font-size="8.5">Origin Validation &amp; Token Auth</text>
+          </g>
+
+          <g transform="translate(325, 140)">
+            <rect width="230" height="55" rx="8" fill="#0b172e" stroke="#3b82f6" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">Execution Dispatcher</text>
+            <text x="12" y="38" fill="#60a5fa" font-size="9" font-family="monospace">core/dispatcher.py</text>
+          </g>
+
+          <g transform="translate(325, 210)">
+            <rect width="230" height="60" rx="8" fill="#042318" stroke="#10b981" stroke-width="1.2"/>
+            <text x="12" y="22" fill="#a7f3d0" font-size="11" font-weight="700">Privacy Vault &amp; Guardrails</text>
+            <text x="12" y="38" fill="#6ee7b7" font-size="9" font-family="monospace">core/privacy_vault.py</text>
+            <text x="12" y="52" fill="#a7f3d0" font-size="8.5">API Key Scrubbing &amp; Blast Radius</text>
+          </g>
+
+          <g transform="translate(325, 285)">
+            <rect width="230" height="55" rx="8" fill="#0b172e" stroke="#3b82f6" stroke-width="1"/>
+            <text x="12" y="22" fill="#ffffff" font-size="11" font-weight="600">Skill Manager &amp; Router</text>
+            <text x="12" y="38" fill="#60a5fa" font-size="9" font-family="monospace">core/skills.py</text>
+          </g>
+
+          <!-- Zone 3: High Privilege Actuation (Red Border) -->
+          <rect x="610" y="20" width="250" height="420" rx="14" fill="url(#zonePriv)" stroke="#dc2626" stroke-width="1.2" opacity="0.9"/>
+          <text x="625" y="45" fill="#fca5a5" font-size="11" font-weight="700">3. HIGH-PRIVILEGE ACTUATION</text>
+
+          <g transform="translate(625, 60)">
+            <rect width="220" height="65" rx="8" fill="#24070a" stroke="#ef4444" stroke-width="1"/>
+            <text x="12" y="22" fill="#fca5a5" font-size="11" font-weight="700">Cowork Agent Loop</text>
+            <text x="12" y="38" fill="#fda4af" font-size="9" font-family="monospace">cowork/agent.py</text>
+            <text x="12" y="52" fill="#cbd5e1" font-size="8.5">UIA, PyAutoGUI, CDP evaluation</text>
+          </g>
+
+          <g transform="translate(625, 140)">
+            <rect width="220" height="65" rx="8" fill="#24070a" stroke="#ef4444" stroke-width="1"/>
+            <text x="12" y="22" fill="#fca5a5" font-size="11" font-weight="700">Direct ReAct Agent</text>
+            <text x="12" y="38" fill="#fda4af" font-size="9" font-family="monospace">direct/agent.py</text>
+            <text x="12" y="52" fill="#cbd5e1" font-size="8.5">bash, write_file, edit_file</text>
+          </g>
+
+          <g transform="translate(625, 220)">
+            <rect width="220" height="65" rx="8" fill="#24070a" stroke="#ef4444" stroke-width="1"/>
+            <text x="12" y="22" fill="#fca5a5" font-size="11" font-weight="700">CLI External Harnesses</text>
+            <text x="12" y="38" fill="#fda4af" font-size="9" font-family="monospace">harnesses/base.py</text>
+            <text x="12" y="52" fill="#fb7185" font-size="8.5">⚠️ Subprocess Elevation</text>
+          </g>
+
+          <g transform="translate(625, 300)">
+            <rect width="220" height="55" rx="8" fill="#042318" stroke="#10b981" stroke-width="1.2"/>
+            <text x="12" y="22" fill="#a7f3d0" font-size="11" font-weight="700">Credential Store</text>
+            <text x="12" y="38" fill="#6ee7b7" font-size="9" font-family="monospace">Windows Credential Manager</text>
+          </g>
+
+          <!-- FLOW ARROWS -->
+          <!-- WebExt -> Server -->
+          <path d="M 255 95 L 325 95" stroke="#38bdf8" stroke-width="1.8" marker-end="url(#arrow-threat)" fill="none"/>
+          <!-- Tauri -> Server -->
+          <path d="M 255 245 L 290 245 L 290 105 L 325 105" stroke="#38bdf8" stroke-width="1.8" marker-end="url(#arrow-threat)" fill="none"/>
+          <!-- Telegram -> Server -->
+          <path d="M 255 170 L 325 100" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrow-threat)" fill="none"/>
+
+          <!-- Dispatcher -> CoworkLoop -->
+          <path d="M 555 165 L 590 165 L 590 90 L 625 90" stroke="#ef4444" stroke-width="1.8" marker-end="url(#arrow-threat)" fill="none"/>
+          <!-- Dispatcher -> DirectReAct -->
+          <path d="M 555 170 L 625 170" stroke="#ef4444" stroke-width="1.8" marker-end="url(#arrow-threat)" fill="none"/>
+          <!-- Dispatcher -> Harnesses -->
+          <path d="M 555 175 L 590 175 L 590 250 L 625 250" stroke="#ef4444" stroke-width="1.8" marker-end="url(#arrow-threat)" fill="none"/>
+        </svg>
+      </div>
+
+      <!-- Security Controls Summary Table -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-2">
+        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+          <div class="font-bold text-yellow-400 mb-1">Perimeter Controls</div>
+          <p class="text-slate-400 leading-relaxed">
+            Strict HTTP origin validation (`chrome-extension://`, `tauri://localhost`). Unauthorized cross-origin requests from drive-by websites are blocked at handshake.
+          </p>
+        </div>
+        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+          <div class="font-bold text-blue-400 mb-1">Core Isolation</div>
+          <p class="text-slate-400 leading-relaxed">
+            FastAPI binds strictly to loopback (`127.0.0.1`). API tokens are encrypted in the OS Credential Vault; logs automatically sanitize bearer keys.
+          </p>
+        </div>
+        <div class="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+          <div class="font-bold text-rose-400 mb-1">Kill-Switch Safeguard</div>
+          <p class="text-slate-400 leading-relaxed">
+            Global emergency `Esc` key immediately disarms all OS mouse/keyboard synthetic automation and halts active ReAct loops within 50ms.
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

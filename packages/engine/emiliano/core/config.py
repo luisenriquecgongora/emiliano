@@ -93,8 +93,8 @@ class HarnessPathsConfig(BaseModel):
     codex_cmd: str = "codex"
     codex_acp_cmd: Optional[str] = "codex-acp"
     # Non-ACP runs pass --dangerously-* flags so the CLI never waits for an approval nobody can give.
-    # Set false to keep each CLI's own approval/sandbox defaults instead.
-    unattended_fallback: bool = True
+    # Set false to keep each CLI's own approval/sandbox defaults instead. Default: False (secure).
+    unattended_fallback: bool = False
 
 
 class McpServerConfig(BaseModel):
