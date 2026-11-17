@@ -3185,6 +3185,77 @@ function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onA
   );
 }
 
+interface FamilyVariant {
+  tag: string;
+  sizeGb: number;
+  label: string;
+}
+
+interface ModelFamily {
+  id: string;
+  name: string;
+  variants: FamilyVariant[];
+}
+
+const POPULAR_FAMILIES: ModelFamily[] = [
+  {
+    id: 'qwen',
+    name: 'Qwen 2.5 Coder',
+    variants: [
+      { tag: 'qwen2.5-coder:1.5b', sizeGb: 1.0, label: '1.5B' },
+      { tag: 'qwen2.5-coder:3b', sizeGb: 2.0, label: '3B' },
+      { tag: 'qwen2.5-coder:7b', sizeGb: 4.7, label: '7B' },
+      { tag: 'qwen2.5-coder:14b', sizeGb: 9.0, label: '14B' },
+    ],
+  },
+  {
+    id: 'llama',
+    name: 'Llama 3.2',
+    variants: [
+      { tag: 'llama3.2:1b', sizeGb: 1.3, label: '1B' },
+      { tag: 'llama3.2:3b', sizeGb: 2.0, label: '3B' },
+    ],
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek R1',
+    variants: [
+      { tag: 'deepseek-r1:1.5b', sizeGb: 1.1, label: '1.5B' },
+      { tag: 'deepseek-r1:7b', sizeGb: 4.7, label: '7B' },
+      { tag: 'deepseek-r1:8b', sizeGb: 5.2, label: '8B' },
+      { tag: 'deepseek-r1:14b', sizeGb: 9.0, label: '14B' },
+    ],
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral',
+    variants: [
+      { tag: 'mistral:7b', sizeGb: 4.1, label: '7B' },
+    ],
+  },
+  {
+    id: 'phi',
+    name: 'Phi-4',
+    variants: [
+      { tag: 'phi4-mini', sizeGb: 2.5, label: 'Mini' },
+      { tag: 'phi4', sizeGb: 9.1, label: '14B' },
+    ],
+  },
+];
+
+function rateVariantFit(sizeGb: number, hw?: ModelRecommendations['hardware']): { icon: string; text: string } {
+  if (!hw) return { icon: '❓', text: 'Hardware unknown' };
+  const vramGb = (hw.vramBytes || 0) / (1024 * 1024 * 1024);
+  const ramGb = (hw.ramBytes || 0) / (1024 * 1024 * 1024);
+  if (vramGb > 0 && sizeGb * 1.15 <= vramGb) {
+    return { icon: '✅', text: `Fits in GPU memory (${vramGb.toFixed(1)} GB VRAM)` };
+  }
+  if (ramGb > 0 && sizeGb * 1.15 <= ramGb) {
+    return { icon: '⚠️', text: `Spills into system RAM (${ramGb.toFixed(1)} GB RAM)` };
+  }
+  return { icon: '❌', text: 'Too large for this machine' };
+}
+
 /** Local models rated for this machine, with Load/Unload, search, and 1-click downloads. */
 function ModelsPanel(props: {
   data: ModelRecommendations | null;
@@ -3200,7 +3271,23 @@ function ModelsPanel(props: {
 }) {
   const hw = props.data?.hardware;
   const [search, setSearch] = useState('');
+  const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadStatus>>({});
+
+  const handleDelete = async (modelName: string) => {
+    setIsDeleting(modelName);
+    try {
+      await modelsApi.delete(modelName);
+      setConfirmDelete(null);
+      props.onRefresh();
+    } catch (e) {
+      console.error('Failed to delete model:', e);
+    } finally {
+      setIsDeleting(null);
+    }
+  };
 
   const handlePull = async (modelName: string) => {
     const trimmed = modelName.trim();
@@ -3300,6 +3387,86 @@ function ModelsPanel(props: {
               <span>Pull</span>
             </button>
           )}
+        </div>
+
+        {/* Model Family & Parameter Variant Pills */}
+        <div className="mt-2 pt-1.5 border-t border-slate-800/60">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+            <span className="font-semibold text-slate-400">Popular Families:</span>
+            {(search || selectedFamilyId) && (
+              <button
+                onClick={() => {
+                  setSearch('');
+                  setSelectedFamilyId(null);
+                }}
+                className="text-slate-500 hover:text-slate-300 text-[9px]"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {POPULAR_FAMILIES.map((fam) => {
+              const isFamilyActive = selectedFamilyId === fam.id;
+              return (
+                <button
+                  key={fam.id}
+                  onClick={() => setSelectedFamilyId(isFamilyActive ? null : fam.id)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                    isFamilyActive
+                      ? 'bg-cyan-900 border border-cyan-500 text-cyan-200'
+                      : 'bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {fam.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Family Variants */}
+          {selectedFamilyId && (() => {
+            const fam = POPULAR_FAMILIES.find((f) => f.id === selectedFamilyId);
+            if (!fam) return null;
+            return (
+              <div className="mt-1.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center gap-1.5">
+                <span className="text-[9px] text-slate-500 uppercase tracking-wide font-semibold mr-0.5">Parameters:</span>
+                {fam.variants.map((v) => {
+                  const isInstalled = (props.data?.models ?? []).some(
+                    (m) => m.name.toLowerCase() === v.tag.toLowerCase() || m.name.toLowerCase().startsWith(v.tag.toLowerCase() + ':')
+                  );
+                  const isDownloading = downloads[v.tag]?.status === 'downloading' || downloads[v.tag]?.status === 'starting';
+                  const fit = rateVariantFit(v.sizeGb, hw);
+                  const isSelected = search.toLowerCase() === v.tag.toLowerCase();
+
+                  return (
+                    <button
+                      key={v.tag}
+                      onClick={() => {
+                        setSearch(v.tag);
+                      }}
+                      title={`${v.tag} (~${v.sizeGb} GB) • ${fit.text}${isInstalled ? ' (Installed)' : ''}`}
+                      className={`px-1.5 py-0.5 rounded text-[10px] border transition-all flex items-center space-x-1 ${
+                        isSelected
+                          ? 'bg-cyan-950 border-cyan-400 text-cyan-200'
+                          : isInstalled
+                          ? 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      }`}
+                    >
+                      <span>{fit.icon}</span>
+                      <span className="font-medium">{v.label}</span>
+                      {isInstalled ? (
+                        <span className="text-[9px] text-emerald-400 font-bold ml-0.5">✓</span>
+                      ) : isDownloading ? (
+                        <span className="text-[9px] text-cyan-400 font-mono ml-0.5">{downloads[v.tag]?.progress}%</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -3436,18 +3603,48 @@ function ModelsPanel(props: {
                       {m.loaded && <span className="text-emerald-400 font-semibold"> · in memory ({formatGb(m.vramBytes)} on GPU)</span>}
                     </div>
                   </div>
-                  <button
-                    onClick={() => props.onToggleLoaded(m)}
-                    disabled={props.busyModel !== null || (!m.loaded && m.fit === 'too_big')}
-                    title={m.loaded ? 'Unload model from memory to free VRAM' : 'Load into memory now so replies start at once'}
-                    className={`shrink-0 px-2.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                      m.loaded
-                        ? 'bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-200'
-                        : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
-                    }`}
-                  >
-                    {props.busyModel === m.name ? '…' : m.loaded ? 'Unload' : 'Load'}
-                  </button>
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <button
+                      onClick={() => props.onToggleLoaded(m)}
+                      disabled={props.busyModel !== null || (!m.loaded && m.fit === 'too_big')}
+                      title={m.loaded ? 'Unload model from memory to free VRAM' : 'Load into memory now so replies start at once'}
+                      className={`px-2.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                        m.loaded
+                          ? 'bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-200'
+                          : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
+                      }`}
+                    >
+                      {props.busyModel === m.name ? '…' : m.loaded ? 'Unload' : 'Load'}
+                    </button>
+                    {confirmDelete === m.name ? (
+                      <div className="flex items-center space-x-1 bg-rose-950/90 border border-rose-800/80 rounded px-1.5 py-0.5 text-[10px]">
+                        <span className="text-rose-200 font-medium">Delete?</span>
+                        <button
+                          onClick={() => handleDelete(m.name)}
+                          disabled={isDeleting === m.name}
+                          className="text-rose-400 hover:text-white font-bold px-1"
+                        >
+                          {isDeleting === m.name ? '…' : 'Yes'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(null)}
+                          disabled={isDeleting === m.name}
+                          className="text-slate-400 hover:text-white px-1"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDelete(m.name)}
+                        disabled={m.loaded || props.busyModel !== null || isDeleting !== null}
+                        title={m.loaded ? 'Unload model before deleting' : `Delete ${m.name} to free disk space`}
+                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 disabled:opacity-30 disabled:hover:text-slate-500 disabled:hover:bg-transparent transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
