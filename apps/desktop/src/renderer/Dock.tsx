@@ -3226,22 +3226,43 @@ function ModelsPanel(props: {
           <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
         ) : (
           <>
-            <div className="px-3 py-2 text-[10px] text-slate-400 border-b border-slate-800/60 flex items-center justify-between">
-              <div>
-                {hw?.gpuName ? `${hw.gpuName}, ${formatGb(hw.vramBytes)} VRAM` : 'No NVIDIA GPU found'} ·{' '}
-                {formatGb(hw?.ramBytes ?? 0)} RAM
-              </div>
-              {props.data.models.some((m) => m.loaded) && (
-                <button
-                  onClick={() => props.onUnloadAll?.()}
-                  disabled={props.busyModel !== null}
-                  title="Unload all loaded models to free VRAM and RAM immediately"
-                  className="px-1.5 py-0.5 rounded text-[9px] bg-rose-950/80 hover:bg-rose-900 text-rose-300 disabled:opacity-40"
-                >
-                  Unload all
-                </button>
-              )}
-            </div>
+            {(() => {
+              const totalVram = hw?.vramBytes ?? 0;
+              const usedVram = hw?.vramUsedBytes ?? 0;
+              const pct = totalVram > 0 ? Math.min(100, Math.round((usedVram / totalVram) * 100)) : 0;
+              const barColor = pct > 85 ? 'bg-rose-500' : pct > 65 ? 'bg-amber-500' : 'bg-emerald-500';
+              const textColor = pct > 85 ? 'text-rose-400' : pct > 65 ? 'text-amber-400' : 'text-emerald-400';
+              return (
+                <div className="px-3 py-2 text-[10px] text-slate-400 border-b border-slate-800/60 flex flex-col space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      {hw?.gpuName ? `${hw.gpuName}` : 'No NVIDIA GPU found'} · {formatGb(hw?.ramBytes ?? 0)} RAM
+                    </div>
+                    {props.data.models.some((m) => m.loaded) && (
+                      <button
+                        onClick={() => props.onUnloadAll?.()}
+                        disabled={props.busyModel !== null}
+                        title="Unload all loaded models to free VRAM immediately"
+                        className="px-1.5 py-0.5 rounded text-[9px] bg-rose-950/80 hover:bg-rose-900 text-rose-300 disabled:opacity-40"
+                      >
+                        Unload all
+                      </button>
+                    )}
+                  </div>
+                  {totalVram > 0 && (
+                    <div className="flex items-center space-x-2 pt-0.5">
+                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">VRAM:</span>
+                      <div className="flex-1 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+                        <div className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`} style={{ width: `${Math.max(2, pct)}%` }} />
+                      </div>
+                      <span className={`text-[10px] font-mono font-medium ${textColor}`}>
+                        {formatGb(usedVram)} / {formatGb(totalVram)} ({pct}%)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Prompt to download search query if not installed */}
             {search.trim() && !isExactInstalled && (
