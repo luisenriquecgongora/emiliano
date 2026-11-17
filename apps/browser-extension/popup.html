@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Emiliano Cowork</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="logo-area">
+        <div class="logo-icon">E</div>
+        <div>
+          <h1 class="title">Emiliano Cowork</h1>
+          <div class="subtitle">Autonomous Browser Companion</div>
+        </div>
+      </div>
+      <span id="status-badge" class="badge badge-offline">Offline</span>
+    </div>
+
+    <div class="body">
+      <div class="info-row">
+        <span class="label">Daemon Endpoint</span>
+        <span class="value font-mono">127.0.0.1:8765</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Extension Version</span>
+        <span class="value" id="ext-version">v1.0.0</span>
+      </div>
+      <div class="info-row">
+        <span class="label">Active Tab</span>
+        <span class="value truncate" id="active-tab">Loading...</span>
+      </div>
+    </div>
+
+    <div class="teach-section">
+      <div class="teach-header">
+        <span class="teach-title">Teach a Task</span>
+        <span id="teach-status" class="teach-badge">Idle</span>
+      </div>
+      <input id="teach-goal-input" type="text" class="teach-input" placeholder="e.g. Export unpaid invoices...">
+      <button id="btn-teach" class="btn btn-teach">Record Demonstration</button>
+    </div>
+
+    <div class="footer">
+      <button id="btn-reconnect" class="btn btn-primary">Reconnect Engine</button>
+      <div class="hint">Zero focus stealing &bull; Native background execution</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

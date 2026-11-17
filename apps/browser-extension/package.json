@@ -1,0 +1,11 @@
+{
+  "name": "@emiliano/browser-extension",
+  "version": "1.0.0",
+  "description": "Privileged autonomous browser companion extension for the Emiliano Desktop Cowork platform.",
+  "private": true,
+  "scripts": {
+    "build": "echo 'Browser extension ready to load unpacked'"
+  },
+  "author": "Antigravity Engineering",
+  "license": "PolyForm-Shield-1.0.0"
+}
