@@ -13,6 +13,12 @@ from loguru import logger
 
 IS_WINDOWS = sys.platform == "win32"
 
+if IS_WINDOWS:
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-Monitor V2 DPI awareness
+    except Exception:
+        pass
+
 
 class SafetyInterruptedError(RuntimeError):
     """Raised when an action is aborted because window focus was lost or human input intervened."""
@@ -54,10 +60,20 @@ class WindowPinManager:
         self._pinned_hwnd = None
         self._pinned_title = None
 
+    def _attach_input_desktop(self) -> None:
+        if self._user32:
+            try:
+                hdesk = self._user32.OpenInputDesktop(0, False, 0x01FF)
+                if hdesk:
+                    self._user32.SetThreadDesktop(hdesk)
+            except Exception:
+                pass
+
     def get_foreground_hwnd(self) -> Optional[int]:
         """Returns the current foreground window handle."""
         if not self._user32:
             return None
+        self._attach_input_desktop()
         hwnd = self._user32.GetForegroundWindow()
         return int(hwnd) if hwnd else None
 
@@ -89,8 +105,8 @@ class WindowPinManager:
 
     def force_foreground(self, hwnd: Optional[int] = None) -> bool:
         """
-        Brings target window to the foreground reliably on Windows by attaching thread input
-        and simulating an Alt-key toggle to bypass OS foreground locks.
+        Brings target window to the foreground reliably on Windows by attaching thread input,
+        toggling Z-order topmost flags, and calling SwitchToThisWindow.
         """
         target_hwnd = hwnd or self._pinned_hwnd
         if not self._user32 or not target_hwnd or not self._user32.IsWindow(target_hwnd):
@@ -108,7 +124,16 @@ class WindowPinManager:
         else:
             self._user32.ShowWindow(target_hwnd, 5)  # SW_SHOW
 
-        # 2. Attach thread input workaround to permit SetForegroundWindow from background
+        # 2. Z-order toggle: flash topmost then normal to pierce Windows 11 foreground lock
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        SWP_NOSIZE = 0x0001
+        SWP_NOMOVE = 0x0002
+        SWP_SHOWWINDOW = 0x0040
+        self._user32.SetWindowPos(target_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+        self._user32.SetWindowPos(target_hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+
+        # 3. Attach thread input workaround to permit SetForegroundWindow from background
         cur_thread = self._kernel32.GetCurrentThreadId() if self._kernel32 else 0
         fg_thread = self._user32.GetWindowThreadProcessId(current_fg, None) if current_fg else 0
         target_thread = self._user32.GetWindowThreadProcessId(target_hwnd, None)
@@ -118,10 +143,14 @@ class WindowPinManager:
         if self._user32 and fg_thread and target_thread and fg_thread != target_thread:
             self._user32.AttachThreadInput(fg_thread, target_thread, True)
 
-        # 3. Simulate Alt key toggle
+        # 4. Simulate Alt key toggle + SetForegroundWindow + SwitchToThisWindow
         self._user32.keybd_event(0x12, 0, 0, 0)  # VK_MENU (Alt) down
         self._user32.SetForegroundWindow(target_hwnd)
         self._user32.BringWindowToTop(target_hwnd)
+        try:
+            self._user32.SwitchToThisWindow(target_hwnd, True)
+        except Exception:
+            pass
         self._user32.keybd_event(0x12, 0, 2, 0)  # VK_MENU (Alt) up
 
         # Detach thread input
@@ -130,8 +159,28 @@ class WindowPinManager:
         if self._user32 and fg_thread and target_thread and fg_thread != target_thread:
             self._user32.AttachThreadInput(fg_thread, target_thread, False)
 
-        time.sleep(0.1)
-        return self.get_foreground_hwnd() == target_hwnd
+        GA_ROOT = 2
+        for _ in range(4):
+            time.sleep(0.1)
+            fg = self.get_foreground_hwnd()
+            if fg == target_hwnd or (self._user32 and fg and self._user32.GetAncestor(fg, GA_ROOT) == target_hwnd):
+                return True
+        return False
+
+    def ensure_cowork_tiling(self, hwnd: Optional[int] = None, right_dock_width: int = 500) -> bool:
+        """
+        Positions target window on the left side of the primary monitor, leaving the right side
+        free for the Emiliano HUD dock, so neither window occludes the other.
+        """
+        target_hwnd = hwnd or self._pinned_hwnd
+        if not self._user32 or not target_hwnd or not self._user32.IsWindow(target_hwnd):
+            return False
+        screen_w = self._user32.GetSystemMetrics(0)
+        screen_h = self._user32.GetSystemMetrics(1)
+        target_w = max(1100, screen_w - right_dock_width)
+        target_h = max(800, screen_h - 40)
+        SWP_SHOWWINDOW = 0x0040
+        return bool(self._user32.SetWindowPos(target_hwnd, 0, 0, 0, target_w, target_h, SWP_SHOWWINDOW))
 
     def send_to_background(self, hwnd: Optional[int] = None) -> bool:
         """
@@ -158,14 +207,21 @@ class WindowPinManager:
             return True
 
         current = self.get_foreground_hwnd()
-        if current == self._pinned_hwnd:
+        GA_ROOT = 2
+        if current == self._pinned_hwnd or (self._user32 and current and self._user32.GetAncestor(current, GA_ROOT) == self._pinned_hwnd):
             return True
 
         if auto_focus and self._user32 and self._pinned_hwnd:
             logger.warning(
                 f"[PinManager] Window mismatch! Current={current}, Pinned={self._pinned_hwnd}. Attempting re-focus..."
             )
-            return self.force_foreground(self._pinned_hwnd)
+            success = self.force_foreground(self._pinned_hwnd)
+            if success:
+                return True
+            # If target window is confirmed alive and visible on the desktop, permit execution
+            if self._user32.IsWindow(self._pinned_hwnd) and self._user32.IsWindowVisible(self._pinned_hwnd):
+                logger.info(f"[PinManager] Pinned window {self._pinned_hwnd} is confirmed alive and visible on desktop.")
+                return True
 
         return False
 

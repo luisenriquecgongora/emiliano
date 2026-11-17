@@ -12,8 +12,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 from loguru import logger
 
 
@@ -108,7 +107,6 @@ class VoiceTranscriber:
     def _transcribe_cloud_api(self, audio_bytes: bytes, api_key: str, language: Optional[str] = None) -> str:
         """Transcribes via OpenAI/Groq compatible Whisper HTTP API using urllib."""
         import urllib.request
-        import mimetypes
         import uuid
 
         boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"

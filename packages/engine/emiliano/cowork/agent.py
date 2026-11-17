@@ -39,6 +39,8 @@ You have access to the following desktop cowork tools:
 - evaluate_js(code: str): Execute JavaScript code in the browser tab via Chrome DevTools Protocol (CDP).
 - get_page_text(): Extract visible text from the currently loaded browser page via CDP.
 - inspect_window(): Re-scan and refresh the actionable UI elements of the window.
+- load_skill(id: str): Dynamically load and hydrate full instructions and playbook for a skill on demand.
+- save_skill_draft(id: str, title: str, description: str, steps: str, selectors: dict = None): Auto-synthesize a new reusable skill draft into .staged_skills for user review and activation.
 - finish(summary: str): Complete the cowork task and provide the final summary.
 
 To invoke a tool, output a tool call block using either of these formats:
@@ -362,6 +364,33 @@ class CoworkAgentLoop:
                 new_state = self.observe(hwnd=hwnd)
                 return f"Current UI elements:\n{new_state}"
 
+            elif tool_name == "load_skill":
+                skill_id = str(args.get("id", "")).strip()
+                from ..core.skills import SkillManager
+                skill = SkillManager.get_instance().get_skill(skill_id)
+                if not skill:
+                    return f"Error: Skill '{skill_id}' not found in registry."
+                return f"=== SKILL LOADED: {skill.title} (v{skill.version}) ===\nDescription: {skill.description}\nCategory: {skill.category}\nInstructions:\n{skill.instructions_md}"
+
+            elif tool_name == "save_skill_draft":
+                skill_id = str(args.get("id", "")).strip()
+                title = str(args.get("title", "")).strip() or skill_id.replace("-", " ").title()
+                desc = str(args.get("description", "")).strip()
+                steps = str(args.get("steps", "")).strip()
+                selectors = args.get("selectors") or {}
+                if not isinstance(selectors, dict):
+                    selectors = {}
+                from ..core.skills import SkillManager
+                draft = SkillManager.get_instance().synthesize_skill(
+                    id=skill_id,
+                    title=title,
+                    description=desc,
+                    instructions_md=steps,
+                    selectors=selectors,
+                    category="workflow"
+                )
+                return f"Success: Auto-synthesized staged skill '{draft.id}' at {draft.path}. Staged for user approval in Desktop Cowork Dock."
+
             elif tool_name == "finish":
                 summary = str(args.get("summary", "Cowork task completed."))
                 return f"Task completed: {summary}"
@@ -403,8 +432,16 @@ class CoworkAgentLoop:
         if snap:
             first["content"] += f"\n\n{snap[1]}"
             first["images"] = [snap[0]]
+        from ..core.skills import SkillManager
+        compact_skills = SkillManager.get_instance().get_compact_registry()
+        skills_summary = "\n".join(
+            f"- {s['id']}: {s['title']} — {s['description']} (invoke load_skill(id=\"{s['id']}\") to see full runbook)"
+            for s in compact_skills
+        )
+        system_content = COWORK_SYSTEM_PROMPT + f"\n\nAvailable Active Skills (Progressive Registry):\n{skills_summary}\n"
+
         history: List[Dict[str, Any]] = [
-            {"role": "system", "content": COWORK_SYSTEM_PROMPT},
+            {"role": "system", "content": system_content},
             first,
         ]
 

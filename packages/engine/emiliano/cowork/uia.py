@@ -283,8 +283,15 @@ class UiaReader:
 
 
 def _co_initialize() -> None:
-    """Initializes COM on the UIA thread. Importing comtypes may already have done it (in a
-    different mode), which COM reports as an error; any mode works for reading UIA."""
+    """Initializes COM and input desktop on the UIA thread."""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
+    except Exception:
+        pass
     try:
         import comtypes
 
