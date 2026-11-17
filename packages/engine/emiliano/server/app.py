@@ -26,7 +26,7 @@ from ..direct import UnifiedLLMClient
 from ..routines.store import RoutineStore
 from ..routines.scheduler import RoutineScheduler
 from ..routines.models import Routine, TriggerType, StagedActionStatus
-from .security import get_allowed_origins, is_origin_allowed
+from .security import get_allowed_origins, is_origin_allowed, get_ipc_token, verify_ipc_token
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -46,9 +46,27 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost
 
 @app.middleware("http")
 async def reject_foreign_origins(request: Request, call_next):
-    # Browsers attach Origin to cross-site requests: refuse pages other than the desktop app
+    # Allow health checks without token
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    # 1. Reject disallowed browser origins
     if not is_origin_allowed(request.headers.get("origin")):
         return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+
+    # 2. Enforce IPC token authentication when configured
+    expected_token = get_ipc_token()
+    if expected_token:
+        auth_header = request.headers.get("authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "token" in request.query_params:
+            token = request.query_params["token"]
+
+        if not verify_ipc_token(token):
+            return JSONResponse({"detail": "Invalid or missing IPC authorization token"}, status_code=401)
+
     return await call_next(request)
 
 
@@ -57,7 +75,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(get_allowed_origins()),
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["content-type"],
+    allow_headers=["content-type", "authorization"],
 )
 
 # Connected UI clients (usually the desktop dock and HUD overlay windows)
@@ -369,13 +387,16 @@ async def get_pull_status(model: Optional[str] = None):
 
 
 @app.delete("/api/models/delete")
-async def delete_model_endpoint(payload: PullModelPayload):
+async def delete_model_endpoint(payload: Optional[PullModelPayload] = None, model: Optional[str] = None):
     """Deletes an installed model to reclaim disk space."""
+    target = (payload.model if payload else None) or model
+    if not target:
+        raise HTTPException(status_code=400, detail="Model name required")
     mgr = get_dispatcher().registry.ollama_mgr
-    ok = await mgr.delete_model(payload.model)
+    ok = await mgr.delete_model(target)
     if not ok:
-        raise HTTPException(status_code=500, detail=f"Failed to delete {payload.model}")
-    return {"status": "deleted", "model": payload.model}
+        raise HTTPException(status_code=500, detail=f"Failed to delete {target}")
+    return {"status": "deleted", "model": target}
 
 
 # Cowork singletons

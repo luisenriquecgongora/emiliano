@@ -27,16 +27,16 @@ class TelegramGateway(BaseGateway):
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.token)
+        return bool(self.token and self.allowed_chat_id)
 
     async def start(self) -> None:
         if not self.is_configured:
-            logger.info("[TelegramGateway] Bot token not configured. Gateway in standby.")
+            logger.info("[TelegramGateway] Bot token or allowed chat ID not configured. Gateway in standby.")
             return
 
         self.is_running = True
         self._poll_task = asyncio.create_task(self._poll_loop())
-        logger.info("[TelegramGateway] Gateway listener started.")
+        logger.info(f"[TelegramGateway] Gateway listener started (authorized chat_id: {self.allowed_chat_id}).")
 
     async def stop(self) -> None:
         self.is_running = False
@@ -81,7 +81,8 @@ class TelegramGateway(BaseGateway):
                         text = msg.get("text", "").strip()
                         chat_id = str(msg.get("chat", {}).get("id", ""))
 
-                        if self.allowed_chat_id and chat_id != str(self.allowed_chat_id):
+                        if not self.allowed_chat_id or chat_id != str(self.allowed_chat_id):
+                            logger.warning(f"[TelegramGateway] Unauthorized access attempt from chat_id: {chat_id}")
                             continue
 
                         if text.startswith("/"):

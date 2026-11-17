@@ -31,6 +31,7 @@ from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
 from .blackboard import Blackboard
 from .extensions import ExtensionManager
+from .guardrails import GuardrailPipeline
 from ..direct.agent import DirectAgentLoop
 from ..direct.client import UnifiedLLMClient, load_litellm
 
@@ -88,6 +89,7 @@ class ExecutionDispatcher:
         self.traces = TraceStore()
         self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
         self.extension_mgr = ExtensionManager()
+        self.guardrails = GuardrailPipeline()
         self._mcp = None  # McpManager, started on the first tool task when mcp_servers are configured
 
     async def route_task(
@@ -432,8 +434,14 @@ class ExecutionDispatcher:
 
                     if is_task:
                         active_ws = workspace or os.getcwd()
-                        agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout,
-                                                mcp=await self._mcp_tools(active_ws))
+                        agent = DirectAgentLoop(
+                            client=client,
+                            model_id=model_id,
+                            timeout=timeout,
+                            mcp=await self._mcp_tools(active_ws),
+                            guardrails=self.guardrails,
+                            trace=trace,
+                        )
                         output = await agent.run(
                             goal=goal,
                             workspace=active_ws,
