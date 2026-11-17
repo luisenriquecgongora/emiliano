@@ -31,5 +31,9 @@ def get_allowed_origins() -> Set[str]:
 def is_origin_allowed(origin: Optional[str]) -> bool:
     if origin is None:
         return True
+    origin = origin.rstrip("/")
+    # Chrome extensions connecting via local WebSocket have origins like chrome-extension://<id>
+    if origin.startswith("chrome-extension://"):
+        return True
     # "null" (sandboxed iframes, data: URLs) is deliberately not allowed
-    return origin.rstrip("/") in get_allowed_origins()
+    return origin in get_allowed_origins()
