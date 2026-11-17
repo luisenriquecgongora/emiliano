@@ -224,104 +224,16 @@ class HistoryStore:
                         file_path=str(ext_file),
                     ))
 
+                pipeline_file = plaatoos_path / "pipeline_dashboard.html"
+                pipeline_content = pipeline_file.read_text(encoding="utf-8") if pipeline_file.exists() else "<h1>PlaatoOS Pipeline Dashboard</h1>"
                 if not db.get(Artifact, "art-plaatoos-pipeline"):
                     db.add(Artifact(
                         id="art-plaatoos-pipeline",
                         project_id="plaatoos-outreach",
                         title="Multi-Channel Outreach Pipeline & Architecture",
-                        kind="diagram",
-                        content="""# 🚀 PlaatoOS Autonomous Multi-Channel Outreach Engine
-
-[Active] [Target Goal: 1,000+ Venues] [1,202 Pending Leads] [Zero False-Positives] [Triple-Sink CRM Sync]
-
-PlaatoOS executes end-to-end autonomous prospecting, contact enrichment, and conversion outreach across Polish hospitality, nightlife, and wellness sectors. It operates through a coordinated **two-channel waterfall cascade**: personalized B2B cold emails and authentic Instagram cowork direct messaging with strict anti-bot invariants.
-
----
-
-## 📊 Operational Architecture & Pipeline
-
-The following flow diagram illustrates the complete lead lifecycle from initial ingestion to verified CRM synchronization:
-
-```mermaid
-flowchart TD
-    A[Lead Pool: Excel & JSONL] --> B[Lead Triage & Profiling]
-    B --> C{Email in CRM?}
-    C -->|Yes| D[Channel 1: B2B Cold Email]
-    C -->|No| E[Waterfall Enrichment]
-    E -->|Email Discovered| D
-    E -->|Instagram Only| F[Channel 2: Instagram Cowork]
-    D --> G[Personalized 3-Part Pitch]
-    F --> H[Social Warm-Up: Stories & Likes]
-    H --> I[3-Bubble Pitch Delivery]
-    I --> J{DOM Delivery Verified?}
-    J -->|Yes| K[Capture Screenshot Receipt]
-    J -->|No / Missed| L[Abort Send: Zero False-Positives]
-    G --> M[Triple-Sink CRM Audit]
-    K --> M
-    L --> M
-    M --> N[Excel + JSONL + Live Dashboard]
-```
-
----
-
-## ⚡ The Two Outreach Channels
-
-| Parameter | Channel 1: B2B Cold Email | Channel 2: Instagram Cowork DM |
-| :--- | :--- | :--- |
-| **Primary Target** | Venues with verified business emails | Venues with active Instagram profiles |
-| **Outreach Format** | 3-Paragraph Polish Executive Pitch | 3-Bubble Mobile Texting Cadence |
-| **Pre-Outreach Action** | Domain validation & vertical lookup | Social heat-up (story view, recent post like) |
-| **Safety Pacing** | 30–60s randomized jitter | 180–360s humanized pacing jitter |
-| **Daily Safety Quota** | 30–50 emails / day | 25–30 DMs / day (Meta threshold safe) |
-| **Verification Method** | SMTP dispatch receipt & message ID | DOM element confirmation + Screenshot proof |
-
----
-
-## 🔍 Lead Qualification & Triage Logic
-
-> **Core Pipeline Rule:** Always prioritize **Cold Email** when an email is present or discoverable via Waterfall Enrichment. Reserve **Instagram Cowork DMs** for visually active brands lacking direct inbox contacts.
-
-1. **Lead Ingestion**: Loads uncontacted prospects (`prior: "new"`) from `Plaatoos_Lead_List.xlsx` and `business_logs.jsonl`.
-2. **Contact Triage**:
-   - If verified business email exists in CRM -> Dispatches immediately via **Channel 1: Cold Email**.
-   - If email is missing -> Triggers **Waterfall Enrichment**:
-     - Queries Google Maps Place API & venue website domains.
-     - Scrapes Instagram bio for `mailto:` links and contact buttons.
-     - If email discovered -> Enriches lead record and routes to Cold Email.
-     - If only Instagram handle is available -> Routes to **Channel 2: Instagram Cowork**.
-
----
-
-## 🛠️ Forensic Case Study: Opolanka Restauracja [PL-402]
-
-### 1. Incident Diagnosis
-During execution for **Opolanka Restauracja** (`@opolanka_restauracja`), the browser extension navigated to the profile and initiated chat:
-```
-🌐 [Extension] Navigating to https://www.instagram.com/opolanka_restauracja/...
-💬 [Extension] Opening direct message composer...
-✍️ [Extension] Injecting pitch (223 chars)...
-❌ [Extension] Composer input element not found in DOM for Opolanka Restauracja (PL-402). Aborting send.
-```
-
-### 2. Why Aborting Was the Correct Decision (Anti-False-Positive Guarantee)
-- **Zero Hallucination**: Rather than pasting keystrokes blindly into blank space and falsely logging `sent`, the engine strictly enforces **DOM receipt verification**.
-- **Blast Radius Protection**: The lead was preserved as `pending` (1,202 remaining), allowing automated re-triage or manual intervention without burning the prospect.
-
-### 3. Self-Healing Solution Implemented
-- **Root Cause**: Instagram's 2026 web layout shifted docked mini-chats from standard `role="textbox"` to a Lexical rich editor `div[contenteditable="true"]` without role attributes.
-- **Resolution**: Enhanced the DOM selector cascade to support docked mini-chat modals, iframe containers, and direct `/direct/t/` thread navigation.
-
----
-
-## 📋 Interactive Operational Checklist
-
-- [x] Integrate 1,200+ Polish hospitality lead pool across Krakow, Warsaw, and Opole
-- [x] Establish triple-sink CRM sync (Excel, JSONL, and dm-sender.html)
-- [x] Implement Per-Monitor V2 DPI awareness and non-focus-stealing browser automation
-- [x] Configure 3-bubble mobile texting format with vertical registration links
-- [x] Implement strict DOM delivery verification with screenshot receipts
-- [ ] Complete automated waterfall enrichment for all pending restaurant leads
-- [ ] Scale production batch to 1,000 verified delivered prospects""",
+                        kind="html",
+                        content=pipeline_content,
+                        file_path=str(pipeline_file) if pipeline_file.exists() else None,
                     ))
         except Exception:
             pass
