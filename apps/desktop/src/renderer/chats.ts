@@ -141,7 +141,13 @@ export interface ModelSuggestion {
 }
 
 export interface ModelRecommendations {
-  hardware: { gpuName: string | null; vramBytes: number; ramBytes: number };
+  hardware: {
+    gpuName: string | null;
+    vramBytes: number;
+    ramBytes: number;
+    vramUsedBytes?: number;
+    vramFreeBytes?: number;
+  };
   models: LocalModel[];
   suggestions: ModelSuggestion[];
 }
@@ -255,6 +261,53 @@ export interface ArtifactItem {
 
 export const skillsApi = {
   list: () => request<{ skills: SkillItem[] }>('/api/skills'),
+};
+
+export interface RoutineItem {
+  id: string;
+  name: string;
+  description: string;
+  bot_persona: string;
+  skill_id?: string;
+  goal_template?: string;
+  inputs?: Record<string, any>;
+  trigger: {
+    type: 'cron' | 'interval' | 'webhook' | 'manual';
+    cron_expression?: string;
+    interval_seconds?: number;
+    webhook_path?: string;
+  };
+  enabled: boolean;
+  last_run_at?: number;
+  next_run_at?: number;
+  total_runs: number;
+}
+
+export interface StagedActionItem {
+  id: string;
+  routine_id: string;
+  run_id: string;
+  action_type: string;
+  target: string;
+  payload: Record<string, any>;
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
+  created_at: number;
+  notes?: string;
+}
+
+export const routinesApi = {
+  list: (enabledOnly = false) =>
+    request<{ routines: RoutineItem[] }>(`/api/routines${enabledOnly ? '?enabled_only=true' : ''}`),
+  create: (body: Partial<RoutineItem>) =>
+    request<RoutineItem>('/api/routines', { method: 'POST', body: JSON.stringify(body) }),
+  trigger: (id: string, inputs?: Record<string, any>) =>
+    request<any>(`/api/routines/${id}/trigger`, { method: 'POST', body: JSON.stringify({ inputs }) }),
+  listStaged: (status = 'pending') =>
+    request<{ staged_actions: StagedActionItem[] }>(`/api/routines/staged?status=${status}`),
+  approveStaged: (id: string) =>
+    request<StagedActionItem>(`/api/routines/staged/${id}/approve`, { method: 'POST' }),
+  rejectStaged: (id: string, notes?: string) =>
+    request<StagedActionItem>(`/api/routines/staged/${id}/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
 };
 
 export const projectsApi = {
