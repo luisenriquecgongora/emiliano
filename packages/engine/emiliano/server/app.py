@@ -768,6 +768,14 @@ async def browser_websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1008)
         return
 
+    expected_token = get_ipc_token()
+    if expected_token:
+        token = websocket.query_params.get("token") or websocket.headers.get("authorization", "").replace("Bearer ", "")
+        if not verify_ipc_token(token):
+            logger.warning("[Server] Rejected Browser Extension WebSocket: unauthorized token")
+            await websocket.close(code=1008)
+            return
+
     await websocket.accept()
     from emiliano.cowork.browser_bridge import get_browser_bridge
     bridge = get_browser_bridge()
@@ -806,6 +814,14 @@ async def websocket_endpoint(websocket: WebSocket):
         # Closing before accept() rejects the handshake with HTTP 403
         await websocket.close(code=1008)
         return
+
+    expected_token = get_ipc_token()
+    if expected_token:
+        token = websocket.query_params.get("token") or websocket.headers.get("authorization", "").replace("Bearer ", "")
+        if not verify_ipc_token(token):
+            logger.warning("[Server] Rejected UI WebSocket: unauthorized token")
+            await websocket.close(code=1008)
+            return
 
     await websocket.accept()
     active_connections.add(websocket)
