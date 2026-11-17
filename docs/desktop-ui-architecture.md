@@ -640,11 +640,31 @@ packages/desktop/
 ### Next Steps
 
 1. ✅ Complete Phase 1 context integration (dispatcher, CLI)
-2. 🔨 Create FastAPI backend wrapper
-3. 🔨 Initialize Tauri project
-4. 🔨 Build React frontend
-5. 🔨 Integrate & test
-6. 🚀 Package & release
+2. ✅ Create FastAPI backend wrapper (`emiliano.server`, `emiliano.history`)
+3. ✅ Initialize Tauri project & Build React Dock UI (`apps/desktop`)
+4. ✅ Implement Local-First Workspaces (Projects) with folder mapping (`projects` table, `ProjectsSubPanel`, `open-folder`)
+5. ✅ Implement Persistent Deliverable Gallery (`artifacts` table, `ArtifactsSubPanel`, `ArtifactPreviewModal`, `open-file`)
+6. ✅ Implement Real-time Frontier Thinking Stream with live thought card and collapsible completed thoughts
+7. 🚀 Package & release
+
+---
+
+## Workspace Projects, Persistent Artifacts & Reasoning UI
+
+### 1. Dedicated Local Workspaces (Projects)
+* **Local-First Entity**: Stored in SQLite (`~/.emiliano/history.db`).
+* **Filesystem Binding**: Every project is tied directly to a local codebase directory (`root_path`, e.g. `C:\...\Oracliom` or `C:\...\emiliano-cowork-plaatoos`).
+* **Execution Scoping**: When executing tasks within a project-scoped chat, `ExecutionDispatcher` sets `workspace=project.root_path` and prepends the project's custom `system_prompt`.
+* **Sub-Panel UI**: Replaces the incorrect redirect to skills with an interactive `ProjectsSubPanel` featuring folder path display, project selection filter, and a direct "Open in Windows Explorer" trigger.
+
+### 2. Deliverable Ingestion & Artifacts Gallery
+* **Automatic Extraction**: Regex-based and structured extraction captures Mermaid diagrams, architectural plans, code snippets, and analytical markdown files as they are streamed.
+* **Persistent Indexing**: Deliverables are persisted in the `artifacts` table linked to their originating `chat_id` and `project_id`.
+* **Artifacts Gallery UI**: `ArtifactsSubPanel` supports filtering by `All`, `Diagram`, `Plan`, `Code`, `Doc`, showing project tags and launching `ArtifactPreviewModal` with rendered markdown, syntax formatting, and clipboard copy.
+
+### 3. Frontier Thinking Process UI
+* **Real-time Reasoning Stream**: Reasoning tokens emitted by DeepSeek-R1, Qwen 2.5/3.5, or Claude 3.7 Sonnet are streamed via WebSockets or parsed from `<think>` tags.
+* **Live Thought Card**: An animated glowing cyan card (`Thinking process in progress… [Streaming]`) shows live model deliberation while streaming, then collapses cleanly into `Thought process (completed)` upon turn completion.
 
 ---
 
