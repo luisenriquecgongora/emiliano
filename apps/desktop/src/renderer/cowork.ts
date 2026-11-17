@@ -41,6 +41,16 @@ export interface PinResponse {
 }
 
 export const coworkApi = {
+  getBrowserStatus: async (): Promise<{ connected: boolean; extension_info: Record<string, any> }> => {
+    try {
+      const res = await fetch(`${ENGINE_HTTP_URL}/api/browser/status`);
+      if (!res.ok) return { connected: false, extension_info: {} };
+      return res.json();
+    } catch {
+      return { connected: false, extension_info: {} };
+    }
+  },
+
   listWindows: async (): Promise<DesktopWindow[]> => {
     const res = await fetch(`${ENGINE_HTTP_URL}/api/cowork/windows`);
     if (!res.ok) throw new Error(`Failed to list windows: ${res.status}`);
@@ -110,6 +120,76 @@ export const coworkApi = {
       const err = await res.json().catch(() => ({ detail: 'Cowork agent run failed' }));
       throw new Error(err.detail || 'Cowork agent run failed');
     }
+    return res.json();
+  },
+
+  resizeHud: async (
+    width?: number,
+    height?: number,
+    direction: string = 'West',
+    x?: number,
+    y?: number,
+  ): Promise<{ status: string; width: number; height: number; x?: number; y?: number }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/cowork/resize_hud`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ width, height, direction, x, y }),
+    });
+    if (!res.ok) throw new Error(`Failed to resize HUD: ${res.status}`);
+    return res.json();
+  },
+
+  getSkillContent: async (skillId: string): Promise<Record<string, any>> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/${encodeURIComponent(skillId)}/content`);
+    if (!res.ok) throw new Error(`Failed to load skill content: ${res.status}`);
+    const data = await res.json();
+    return data.skill;
+  },
+
+  synthesizeSkill: async (payload: {
+    id: string;
+    title: string;
+    description: string;
+    instructions_md: string;
+    triggers?: string[];
+    selectors?: Record<string, string>;
+    category?: string;
+  }): Promise<{ status: string; skill: Record<string, any> }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/synthesize`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to synthesize skill: ${res.status}`);
+    return res.json();
+  },
+
+  approveSkill: async (skillId: string): Promise<{ status: string; skill_id: string; state: string }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/${encodeURIComponent(skillId)}/approve`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`Failed to approve skill: ${res.status}`);
+    return res.json();
+  },
+
+  discardSkill: async (skillId: string): Promise<{ status: string; skill_id: string; state: string }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/${encodeURIComponent(skillId)}/discard`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`Failed to discard skill: ${res.status}`);
+    return res.json();
+  },
+
+  patchSkill: async (
+    skillId: string,
+    payload: { selectors?: Record<string, string>; append_notes?: string },
+  ): Promise<{ status: string; skill_id: string; state: string }> => {
+    const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/${encodeURIComponent(skillId)}/patch`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Failed to patch skill: ${res.status}`);
     return res.json();
   },
 };
