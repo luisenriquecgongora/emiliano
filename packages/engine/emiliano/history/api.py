@@ -392,9 +392,23 @@ async def chat_socket(websocket: WebSocket):
 
             conv_msgs = store.conversation(chat_id)
             if project_prompt:
+                # SOTA Conversational Gating:
+                # Prevent rigid operational formatting (e.g. audit logs, session IDs)
+                # from hijacking casual user greetings while preserving domain knowledge for tasks.
+                is_casual_greeting = content.strip().lower() in (
+                    "hi", "hello", "hey", "how are you", "how are you?",
+                    "good morning", "good evening", "good afternoon", "sup", "yo"
+                )
                 has_proj_prompt = any(m.get("role") == "system" and project_prompt in m.get("content", "") for m in conv_msgs)
                 if not has_proj_prompt:
-                    conv_msgs = [{"role": "system", "content": f"Workspace Project Guidelines:\n{project_prompt}"}] + conv_msgs
+                    if is_casual_greeting:
+                        guideline = (
+                            f"Workspace Project Context (Informational reference only — for casual greetings, respond naturally and warmly as a helpful coworker without emitting rigid operational logs, audit headers, or session tags):\n"
+                            f"Active Project: {project.get('name', 'Custom Project')}\n{project_prompt}"
+                        )
+                    else:
+                        guideline = f"Workspace Project Guidelines:\n{project_prompt}"
+                    conv_msgs = [{"role": "system", "content": guideline}] + conv_msgs
 
             cap, full = await websocket.app.state.get_dispatcher().execute_task(
                 goal=content,
