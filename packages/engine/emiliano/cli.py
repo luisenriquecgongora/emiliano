@@ -44,6 +44,8 @@ class SlashCommandCompleter(Completer):
         "/model": "Pick the model that answers: no name shows a numbered list rated for this machine",
         "/load": "Load a local model into memory now, so replies start at once",
         "/unload": "Free the memory a loaded local model holds",
+        "/pull": "Download a model from the Ollama library into local storage",
+        "/delete": "Delete an installed local model to free disk space",
         "/doctor": "Run diagnostic check of models, credentials, and harnesses",
         "/models": "List models, rated for this machine's GPU and RAM, plus suggested downloads",
         "/harnesses": "List external CLI agent harnesses and auth status",
@@ -123,8 +125,8 @@ class SlashCommandCompleter(Completer):
                     )
             return
 
-        # 4. Model names for /model, /load and /unload
-        for cmd in ("/model ", "/load ", "/unload "):
+        # 4. Model names for /model, /load, /unload, /delete and /pull
+        for cmd in ("/model ", "/load ", "/unload ", "/delete ", "/pull "):
             if stripped.startswith(cmd):
                 current_arg = stripped[len(cmd):]
                 if cmd == "/unload " and "all".startswith(current_arg.lower()):
@@ -649,6 +651,8 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             click.echo("  • /model [name|n]  : Pick the model; no name shows a numbered list rated for this machine")
             click.echo("  • /load [name]     : Keep a local model in memory (default: the recommended one)")
             click.echo("  • /unload [name|all] : Free a loaded local model's memory (default: all loaded)")
+            click.echo("  • /pull <name>     : Download a model into local storage (with streaming progress)")
+            click.echo("  • /delete <name>   : Delete an installed local model to free disk space")
             click.echo("  • /clear           : Clear conversation history")
             click.echo("  • /history         : Show conversation turn count")
             click.echo("  • /doctor          : Run diagnostic check")
@@ -831,6 +835,63 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                     ok = asyncio.run(mgr.unload(name))
                     click.echo(click.style(f"✓ Unloaded {name}." if ok else f"Ollama could not unload {name}.",
                                            fg="green" if ok else "red"))
+            continue
+
+        if cmd_word in ("/pull", "pull"):
+            if not cmd_arg:
+                click.echo(click.style("Usage: /pull <model-name> (e.g. /pull qwen2.5-coder:1.5b)", fg="yellow"))
+                continue
+            click.echo(click.style(f"Pulling model '{cmd_arg}' from Ollama...", fg="cyan"))
+            mgr = dispatcher.registry.ollama_mgr
+
+            async def _run_pull(name: str):
+                last_line_len = 0
+                async for update in mgr.pull_model_stream(name):
+                    status = update.get("status", "")
+                    completed = update.get("completed", 0)
+                    total = update.get("total", 0)
+                    if total > 0:
+                        pct = (completed / total) * 100
+                        mb_done = completed // (1024 * 1024)
+                        mb_tot = total // (1024 * 1024)
+                        msg = f"\rPulling {name}: {pct:.1f}% ({mb_done}MB / {mb_tot}MB) - {status}"
+                    else:
+                        msg = f"\rPulling {name}: {status}"
+                    pad = " " * max(0, last_line_len - len(msg))
+                    click.echo(msg + pad, nl=False)
+                    last_line_len = len(msg)
+                click.echo("\n" + click.style(f"✓ Model '{name}' downloaded successfully.", fg="green"))
+
+            try:
+                asyncio.run(_run_pull(cmd_arg))
+                if completer and mgr:
+                    refreshed = asyncio.run(mgr.list_installed_models())
+                    completer.model_names = refreshed
+            except Exception as e:
+                click.echo("\n" + click.style(f"Failed to pull '{cmd_arg}': {e}", fg="red"))
+            continue
+
+        if cmd_word in ("/delete", "delete"):
+            if not cmd_arg:
+                click.echo(click.style("Usage: /delete <model-name> (e.g. /delete llama3.2:1b)", fg="yellow"))
+                continue
+            confirm = click.confirm(f"Are you sure you want to delete local model '{cmd_arg}'?", default=False)
+            if not confirm:
+                click.echo("Cancelled.")
+                continue
+
+            mgr = dispatcher.registry.ollama_mgr
+            try:
+                ok = asyncio.run(mgr.delete_model(cmd_arg))
+                if ok:
+                    click.echo(click.style(f"✓ Successfully deleted model '{cmd_arg}'.", fg="green"))
+                    if completer and mgr:
+                        refreshed = asyncio.run(mgr.list_installed_models())
+                        completer.model_names = refreshed
+                else:
+                    click.echo(click.style(f"Could not delete model '{cmd_arg}'. Check that it exists.", fg="red"))
+            except Exception as e:
+                click.echo(click.style(f"Error deleting model '{cmd_arg}': {e}", fg="red"))
             continue
 
         if cmd_lower in ("/doctor", "doctor"):
