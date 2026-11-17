@@ -48,6 +48,31 @@ class Hardware:
     gpu_name: Optional[str]
     vram_bytes: int
     ram_bytes: int
+    vram_used_bytes: int = 0
+    vram_free_bytes: int = 0
+
+
+def get_gpu_memory_usage() -> tuple[int, int]:
+    """Returns (vram_used_bytes, vram_free_bytes) from nvidia-smi if available, else (0, 0)."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return 0, 0
+    try:
+        out = subprocess.run(
+            [exe, "--query-gpu=memory.used,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+        lines = out.strip().splitlines()
+        if lines:
+            parts = [p.strip() for p in lines[0].split(",")]
+            if len(parts) >= 2:
+                used_mb = int(float(parts[0]))
+                free_mb = int(float(parts[1]))
+                return used_mb * MB, free_mb * MB
+    except Exception:
+        pass
+    return 0, 0
 
 
 def _nvidia_gpu() -> tuple[Optional[str], int]:
@@ -141,8 +166,41 @@ def suggest_downloads(installed: List[str], hw: Hardware) -> List[Dict]:
     return out
 
 
-def hardware_dict(hw: Hardware) -> Dict:
-    return {"gpuName": hw.gpu_name, "vramBytes": hw.vram_bytes, "ramBytes": hw.ram_bytes}
+def hardware_dict(hw: Hardware, used_bytes: int = 0, free_bytes: int = 0) -> Dict:
+    return {
+        "gpuName": hw.gpu_name,
+        "vramBytes": hw.vram_bytes,
+        "ramBytes": hw.ram_bytes,
+        "vramUsedBytes": used_bytes or hw.vram_used_bytes,
+        "vramFreeBytes": free_bytes or hw.vram_free_bytes,
+    }
+
+
+def find_loaded_info(model_name: str, loaded: Dict[str, Dict], mgr=None) -> Optional[Dict]:
+    """Matches a model name to an entry in loaded (/api/ps), handling tags, aliases, and normalization."""
+    if not loaded:
+        return None
+    if model_name in loaded:
+        return loaded[model_name]
+
+    clean_target = model_name.lower().removeprefix("ollama/")
+    target_base = clean_target.split(":")[0]
+
+    for k, v in loaded.items():
+        k_clean = k.lower().removeprefix("ollama/")
+        k_base = k_clean.split(":")[0]
+        if k_clean == clean_target:
+            return v
+        if k_base == target_base:
+            if clean_target.endswith(":latest") or k_clean.endswith(":latest") or ":" not in clean_target or ":" not in k_clean:
+                return v
+
+    if mgr and hasattr(mgr, "match_installed"):
+        matched = mgr.match_installed(list(loaded.keys()), model_name)
+        if matched and matched in loaded:
+            return loaded[matched]
+
+    return None
 
 
 async def local_model_report(mgr) -> Dict:
@@ -153,14 +211,23 @@ async def local_model_report(mgr) -> Dict:
     import asyncio
 
     hw = await asyncio.to_thread(detect_hardware)
-    details, loaded = await asyncio.gather(mgr.list_model_details(), mgr.list_loaded())
+    (details, loaded), (used_vram, free_vram) = await asyncio.gather(
+        asyncio.gather(mgr.list_model_details(), mgr.list_loaded()),
+        asyncio.to_thread(get_gpu_memory_usage),
+    )
     models = rate_installed(details, hw)
     for m in models:
-        info = loaded.get(m["name"])
+        info = find_loaded_info(m["name"], loaded, mgr)
         m["loaded"] = info is not None
         m["vramBytes"] = info["vramBytes"] if info else 0
+
+    if used_vram == 0:
+        used_vram = sum(m.get("vramBytes", 0) for m in models if m.get("loaded"))
+        if hw.vram_bytes > 0:
+            free_vram = max(0, hw.vram_bytes - used_vram)
+
     return {
-        "hardware": hardware_dict(hw),
+        "hardware": hardware_dict(hw, used_vram, free_vram),
         "models": models,
         "suggestions": suggest_downloads([m["name"] for m in details], hw),
     }

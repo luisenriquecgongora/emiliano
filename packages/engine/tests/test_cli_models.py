@@ -73,6 +73,14 @@ class TestCliModels(unittest.TestCase):
             with self.subTest(typed=typed):
                 self.assertEqual([c.text for c in completer.get_completions(doc)], ["qwen3.5:2b"])
 
+    def test_completer_offers_all_for_unload(self):
+        completer = SlashCommandCompleter()
+        completer.model_names = ["qwen3.5:2b", "llama3.1:8b"]
+        doc = MagicMock()
+        doc.text_before_cursor = "/unload a"
+        completions = [c.text for c in completer.get_completions(doc)]
+        self.assertIn("all", completions)
+
 
 if __name__ == "__main__":
     unittest.main()

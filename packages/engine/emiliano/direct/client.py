@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import AsyncGenerator, Callable, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -21,6 +21,17 @@ except ImportError:
 from ..core.config import EmilianoConfig
 from .credentials import CredentialManager
 from .ollama import OllamaManager
+
+try:
+    from ..core.reliability import CircuitBreaker, PromptCacheOptimizer, RetryPolicy, TokenBucketRateLimiter
+except ImportError:
+    try:
+        from emiliano.core.reliability import CircuitBreaker, PromptCacheOptimizer, RetryPolicy, TokenBucketRateLimiter
+    except ImportError:
+        TokenBucketRateLimiter = None  # type: ignore
+        RetryPolicy = None  # type: ignore
+        CircuitBreaker = None  # type: ignore
+        PromptCacheOptimizer = None  # type: ignore
 
 
 os.environ["LITELLM_TELEMETRY"] = "False"
@@ -66,11 +77,21 @@ class UnifiedLLMClient:
         auto_start_ollama: bool = False,
         config: Optional[EmilianoConfig] = None,
         ollama_num_ctx: Optional[int] = None,
+        rate_limiter: Optional[Any] = None,
+        retry_policy: Optional[Any] = None,
+        circuit_breaker: Optional[Any] = None,
     ):
         self.ollama_base_url = ollama_base_url.rstrip("/")
         self.fallback_chain = fallback_chain
+        self.config = config
+        self.idle_unload_timeout_seconds = (
+            config.models.idle_unload_timeout_seconds if config and hasattr(config, "models") else None
+        )
         # Explicit, so the window Ollama allocates matches the one context management budgets for
         self.ollama_num_ctx = ollama_num_ctx or (config.models.ollama_num_ctx if config else None)
+        self.rate_limiter = rate_limiter
+        self.retry_policy = retry_policy
+        self.circuit_breaker = circuit_breaker
         # Set by stream_completion: the model that answered, and token counts when the provider reports them
         self.last_model: Optional[str] = None
         self.last_usage: Optional[Dict[str, int]] = None
@@ -234,8 +255,16 @@ class UnifiedLLMClient:
             options["num_ctx"] = self.ollama_num_ctx
         payload: Dict[str, object] = {"model": target_model.removeprefix("ollama/"), "messages": messages,
                                       "stream": True, "options": options}
+        if self.idle_unload_timeout_seconds is not None:
+            payload["keep_alive"] = self.idle_unload_timeout_seconds
         if think is not None:
             payload["think"] = think
+
+        try:
+            from .lifecycle import ModelLifecycleGovernor
+            ModelLifecycleGovernor.get_instance(config=self.config, ollama_mgr=self.ollama_mgr).touch(target_model)
+        except Exception:
+            pass
         url = f"{(api_base or self.ollama_base_url).rstrip('/')}/api/chat"
         # The read timeout applies per streamed line, so a model that takes long to load is still waited for
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0),
@@ -264,32 +293,63 @@ class UnifiedLLMClient:
 
     async def _stream_litellm(self, target_model: str, messages: List[Dict[str, str]], api_base: Optional[str],
                               temperature: float, timeout: float) -> AsyncGenerator[Tuple[str, str], None]:
-        """Streams (content, reasoning) pairs from a remote provider through litellm."""
+        """Streams (content, reasoning) pairs from a remote provider through litellm with rate limiting and circuit breakers."""
+        if self.circuit_breaker and not self.circuit_breaker.is_available():
+            raise RuntimeError(f"Circuit breaker for {target_model} is OPEN due to repeated failures.")
+
+        if self.rate_limiter:
+            await self.rate_limiter.acquire(estimated_tokens=800)
+
         litellm = load_litellm()
         # Current Claude models reject sampling parameters with a 400, so only
         # send temperature to other providers
         sampling = {} if self._is_anthropic_model(target_model) else {"temperature": temperature}
-        # Pass the key per call rather than via os.environ, so it never leaks
-        # into harness subprocesses (e.g. switching Claude Code to API billing)
-        response = await litellm.acompletion(
-            model=target_model,
-            messages=to_openai_messages(messages),
-            stream=True,
-            api_base=api_base,
-            api_key=self._provider_key(target_model),
-            timeout=timeout,
-            **sampling,
-        )
-        async for chunk in response:
-            usage = getattr(chunk, "usage", None)
-            if usage is not None and isinstance(getattr(usage, "completion_tokens", None), int):
-                prompt = getattr(usage, "prompt_tokens", None)
-                self.last_usage = {"prompt_tokens": prompt if isinstance(prompt, int) else 0,
-                                   "completion_tokens": usage.completion_tokens}
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            yield delta.content or "", getattr(delta, "reasoning_content", None) or ""
+
+        async def _call_acompletion():
+            return await litellm.acompletion(
+                model=target_model,
+                messages=to_openai_messages(messages),
+                stream=True,
+                api_base=api_base,
+                api_key=self._provider_key(target_model),
+                timeout=timeout,
+                **sampling,
+            )
+
+        try:
+            if self.retry_policy:
+                response = await self.retry_policy.execute(_call_acompletion)
+            else:
+                response = await _call_acompletion()
+        except Exception:
+            if self.circuit_breaker:
+                self.circuit_breaker.record_failure()
+            raise
+
+        try:
+            async for chunk in response:
+                if self.circuit_breaker:
+                    self.circuit_breaker.record_success()
+                usage = getattr(chunk, "usage", None)
+                if usage is not None and isinstance(getattr(usage, "completion_tokens", None), int):
+                    prompt = getattr(usage, "prompt_tokens", None)
+                    details = getattr(usage, "prompt_tokens_details", None)
+                    cached = getattr(details, "cached_tokens", 0) if details else 0
+                    if not cached:
+                        cached = getattr(usage, "cache_read_input_tokens", 0)
+                    self.last_usage = {
+                        "prompt_tokens": prompt if isinstance(prompt, int) else 0,
+                        "completion_tokens": usage.completion_tokens,
+                        "cached_tokens": cached or 0,
+                    }
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                yield delta.content or "", getattr(delta, "reasoning_content", None) or ""
+        except Exception:
+            if self.circuit_breaker:
+                self.circuit_breaker.record_failure()
+            raise
 
     @staticmethod
     def _is_anthropic_model(model_name: str) -> bool:
