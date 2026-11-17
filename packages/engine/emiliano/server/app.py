@@ -46,13 +46,13 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost
 
 @app.middleware("http")
 async def reject_foreign_origins(request: Request, call_next):
-    # Allow health checks without token
-    if request.url.path == "/health":
-        return await call_next(request)
-
-    # 1. Reject disallowed browser origins
+    # 1. Reject disallowed browser origins (checked first on ALL endpoints)
     if not is_origin_allowed(request.headers.get("origin")):
         return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+
+    # Allow unauthenticated health checks for monitoring
+    if request.url.path == "/health":
+        return await call_next(request)
 
     # 2. Enforce IPC token authentication when configured
     expected_token = get_ipc_token()
