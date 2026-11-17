@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Circle,
   CircleDot,
+  Code,
   Code2,
   Columns,
   Compass,
@@ -18,6 +19,7 @@ import {
   Crosshair,
   Database,
   Download,
+  Eye,
   FileText,
   FolderGit2,
   Globe,
@@ -41,8 +43,10 @@ import {
   Send,
   ShieldAlert,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   Square,
+  Tablet,
   Trash2,
   User,
   Wrench,
@@ -2617,7 +2621,7 @@ function ArtifactsSubPanel(props: {
   onRefresh: () => void;
   onBack: () => void;
 }) {
-  const [kindFilter, setKindFilter] = useState<'all' | 'code' | 'diagram' | 'plan' | 'markdown'>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | 'html' | 'code' | 'diagram' | 'plan' | 'markdown'>('all');
 
   const filtered = useMemo(() => {
     if (kindFilter === 'all') return props.artifacts;
@@ -2626,14 +2630,16 @@ function ArtifactsSubPanel(props: {
 
   const kindBadge = (k: string) => {
     switch (k) {
+      case 'html':
+        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono font-medium">HTML</span>;
       case 'diagram':
-        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">Diagram</span>;
+        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">Diagram</span>;
       case 'plan':
-        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">Plan</span>;
+        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">Plan</span>;
       case 'code':
-        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800">Code</span>;
+        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono">Code</span>;
       default:
-        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">Doc</span>;
+        return <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">Doc</span>;
     }
   };
 
@@ -2659,7 +2665,7 @@ function ArtifactsSubPanel(props: {
 
       {/* Filter chips */}
       <div className="flex space-x-1 py-2 shrink-0 overflow-x-auto text-[10px]">
-        {(['all', 'diagram', 'plan', 'code', 'markdown'] as const).map((k) => (
+        {(['all', 'html', 'diagram', 'plan', 'code', 'markdown'] as const).map((k) => (
           <button
             key={k}
             onClick={() => setKindFilter(k)}
@@ -2722,6 +2728,12 @@ function ArtifactPreviewModal(props: {
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const isHtml =
+    props.artifact.kind === 'html' ||
+    props.artifact.content.trim().startsWith('<!DOCTYPE html>') ||
+    /<html[\s>]/i.test(props.artifact.content);
+  const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
+  const [viewport, setViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
 
   const handleCopy = () => {
     navigator.clipboard.writeText(props.artifact.content);
@@ -2733,9 +2745,20 @@ function ArtifactPreviewModal(props: {
     <div className="absolute inset-2 z-40 bg-slate-950/98 border border-slate-700 rounded-2xl flex flex-col overflow-hidden shadow-2xl backdrop-blur-xl">
       <div className="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-2.5 min-w-0">
-          <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+          {isHtml ? (
+            <Globe className="w-4 h-4 text-indigo-400 shrink-0" />
+          ) : (
+            <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
+          )}
           <div className="truncate">
-            <h3 className="text-sm font-bold text-white truncate">{props.artifact.title}</h3>
+            <div className="flex items-center space-x-2">
+              <h3 className="text-sm font-bold text-white truncate">{props.artifact.title}</h3>
+              {isHtml && (
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono font-medium">
+                  Interactive HTML
+                </span>
+              )}
+            </div>
             {props.artifact.file_path && (
               <span className="text-[10px] font-mono text-slate-400 truncate block">
                 {props.artifact.file_path}
@@ -2743,7 +2766,69 @@ function ArtifactPreviewModal(props: {
             )}
           </div>
         </div>
+
         <div className="flex items-center space-x-2 shrink-0">
+          {isHtml && (
+            <div className="flex items-center space-x-1 bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/60 mr-2">
+              <button
+                onClick={() => setViewMode('preview')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  viewMode === 'preview'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Interactive HTML Preview"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Preview</span>
+              </button>
+              <button
+                onClick={() => setViewMode('code')}
+                className={`flex items-center space-x-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  viewMode === 'code'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="View HTML Source Code"
+              >
+                <Code className="w-3.5 h-3.5" />
+                <span>Code</span>
+              </button>
+            </div>
+          )}
+
+          {isHtml && viewMode === 'preview' && (
+            <div className="hidden sm:flex items-center space-x-1 bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/60 mr-2">
+              <button
+                onClick={() => setViewport('desktop')}
+                className={`p-1 rounded transition-colors ${
+                  viewport === 'desktop' ? 'bg-slate-700 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Desktop View (100%)"
+              >
+                <Monitor className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewport('tablet')}
+                className={`p-1 rounded transition-colors ${
+                  viewport === 'tablet' ? 'bg-slate-700 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Tablet View (768px)"
+              >
+                <Tablet className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewport('mobile')}
+                className={`p-1 rounded transition-colors ${
+                  viewport === 'mobile' ? 'bg-slate-700 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="Mobile View (375px)"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           {props.artifact.file_path && (
             <button
               onClick={async () => {
@@ -2760,13 +2845,16 @@ function ArtifactPreviewModal(props: {
               <span>Open</span>
             </button>
           )}
+
           <button
             onClick={handleCopy}
             className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 transition-colors"
+            title="Copy artifact content"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
+
           <button
             onClick={props.onClose}
             className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
@@ -2775,9 +2863,34 @@ function ArtifactPreviewModal(props: {
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 select-text">
-        <ParsedMessageContent content={props.artifact.content} />
-      </div>
+
+      {isHtml && viewMode === 'preview' ? (
+        <div className="flex-1 flex justify-center bg-slate-950 overflow-hidden relative">
+          <div
+            className="h-full transition-all duration-300 border-x border-slate-800/80 shadow-2xl flex flex-col bg-white"
+            style={{
+              width: viewport === 'mobile' ? '375px' : viewport === 'tablet' ? '768px' : '100%',
+            }}
+          >
+            <iframe
+              srcDoc={props.artifact.content}
+              title={props.artifact.title}
+              className="w-full flex-1 border-0"
+              sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+            />
+          </div>
+        </div>
+      ) : isHtml && viewMode === 'code' ? (
+        <div className="flex-1 overflow-y-auto p-4 select-text bg-slate-950">
+          <pre className="text-[11px] font-mono leading-relaxed text-cyan-200 bg-slate-900/90 p-4 rounded-xl border border-slate-800 overflow-x-auto whitespace-pre">
+            <code>{props.artifact.content}</code>
+          </pre>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4 select-text">
+          <ParsedMessageContent content={props.artifact.content} />
+        </div>
+      )}
     </div>
   );
 }

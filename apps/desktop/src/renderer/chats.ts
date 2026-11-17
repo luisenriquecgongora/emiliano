@@ -252,7 +252,7 @@ export interface ArtifactItem {
   chat_id?: string;
   project_id?: string;
   title: string;
-  kind: 'code' | 'diagram' | 'plan' | 'diff' | 'markdown';
+  kind: 'html' | 'code' | 'diagram' | 'plan' | 'diff' | 'markdown';
   content: string;
   file_path?: string;
   created_at: string;
