@@ -1,5 +1,24 @@
 import React, { useMemo, useState } from 'react';
-import { Check, CheckSquare, ChevronDown, ChevronRight, Code, Copy, Eye, GitBranch, Layers, Sparkles } from 'lucide-react';
+import {
+  Activity,
+  AlertCircle,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Code,
+  Copy,
+  ExternalLink,
+  Eye,
+  FileText,
+  GitBranch,
+  Info,
+  Layers,
+  Sparkles,
+  Terminal,
+} from 'lucide-react';
 import { parseMessageParts, splitInlineCode } from './messageParts';
 import { DiffFile, DiffLine, looksLikeUnifiedDiff, parseUnifiedDiff, toSplitRows } from './diffParse';
 
@@ -161,10 +180,10 @@ function parseMermaidFlowchart(code: string): {
     rankGroups.get(rank)!.push(id);
   });
 
-  const NODE_W = 110;
-  const NODE_H = 36;
-  const GAP_X = direction === 'TD' ? 24 : 60;
-  const GAP_Y = direction === 'TD' ? 50 : 20;
+  const NODE_W = 164;
+  const NODE_H = 44;
+  const GAP_X = direction === 'TD' ? 32 : 72;
+  const GAP_Y = direction === 'TD' ? 58 : 28;
 
   const nodePositions = new Map<string, { x: number; y: number }>();
   let maxW = 320;
@@ -248,8 +267,8 @@ export function MermaidDiagram({ code, title }: { code: string; title?: string }
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const NODE_W = 110;
-  const NODE_H = 36;
+  const NODE_W = 164;
+  const NODE_H = 44;
 
   return (
     <div className="my-2.5 rounded-xl border border-cyan-800/60 bg-slate-950/80 overflow-hidden shadow-lg backdrop-blur-sm">
@@ -375,7 +394,34 @@ export function MermaidDiagram({ code, title }: { code: string; title?: string }
 
             {/* Nodes */}
             {diagram.nodes.map((node) => {
-              const rx = node.shape === 'round' || node.shape === 'capsule' ? 14 : 6;
+              const isDiamond = node.shape === 'diamond';
+              const rx = isDiamond ? 10 : node.shape === 'round' || node.shape === 'capsule' ? 18 : 8;
+              const strokeColor = isDiamond ? '#f59e0b' : '#0284c7';
+
+              // Format label: split long labels or colons across 2 lines
+              const raw = node.label.trim();
+              let line1 = raw;
+              let line2 = '';
+              if (raw.includes(': ')) {
+                const idx = raw.indexOf(': ');
+                line1 = raw.slice(0, idx + 1);
+                line2 = raw.slice(idx + 2);
+              } else if (raw.includes('\n')) {
+                const parts = raw.split('\n');
+                line1 = parts[0];
+                line2 = parts.slice(1).join(' ');
+              } else if (raw.length > 18 && raw.includes(' ')) {
+                const mid = Math.floor(raw.length / 2);
+                let splitIdx = raw.indexOf(' ', mid - 4);
+                if (splitIdx === -1 || splitIdx > mid + 6) splitIdx = raw.lastIndexOf(' ', mid);
+                if (splitIdx !== -1) {
+                  line1 = raw.slice(0, splitIdx);
+                  line2 = raw.slice(splitIdx + 1);
+                }
+              }
+              if (line1.length > 22) line1 = line1.slice(0, 21) + '…';
+              if (line2.length > 22) line2 = line2.slice(0, 21) + '…';
+
               return (
                 <g key={node.id} className="cursor-pointer group">
                   <rect
@@ -385,21 +431,43 @@ export function MermaidDiagram({ code, title }: { code: string; title?: string }
                     height={NODE_H}
                     rx={rx}
                     fill="url(#nodeGrad)"
-                    stroke="#0284c7"
-                    strokeWidth="1.2"
-                    className="group-hover:stroke-cyan-300 transition-all duration-200 filter drop-shadow-[0_2px_6px_rgba(2,132,199,0.3)]"
+                    stroke={strokeColor}
+                    strokeWidth={isDiamond ? '1.5' : '1.2'}
+                    className={`group-hover:stroke-cyan-300 transition-all duration-200 filter ${
+                      isDiamond ? 'drop-shadow-[0_2px_8px_rgba(245,158,11,0.25)]' : 'drop-shadow-[0_2px_6px_rgba(2,132,199,0.3)]'
+                    }`}
                   />
+                  {isDiamond && (
+                    <rect
+                      x={node.x + 3}
+                      y={node.y + 3}
+                      width={NODE_W - 6}
+                      height={NODE_H - 6}
+                      rx={Math.max(4, rx - 3)}
+                      fill="none"
+                      stroke="#f59e0b"
+                      strokeWidth="0.6"
+                      opacity="0.35"
+                    />
+                  )}
                   <text
                     x={node.x + NODE_W / 2}
-                    y={node.y + NODE_H / 2 + 3.5}
+                    y={line2 ? node.y + NODE_H / 2 - 2 : node.y + NODE_H / 2 + 3.5}
                     textAnchor="middle"
                     fill="#f1f5f9"
                     fontSize="10"
-                    fontWeight="500"
+                    fontWeight={isDiamond ? '600' : '500'}
                     fontFamily="system-ui, sans-serif"
                     className="pointer-events-none select-none"
                   >
-                    {node.label.length > 15 ? `${node.label.slice(0, 14)}…` : node.label}
+                    {line2 ? (
+                      <>
+                        <tspan x={node.x + NODE_W / 2} dy="0">{line1}</tspan>
+                        <tspan x={node.x + NODE_W / 2} dy="13" fontSize="9" fill={isDiamond ? '#fde68a' : '#94a3b8'}>{line2}</tspan>
+                      </>
+                    ) : (
+                      line1
+                    )}
                   </text>
                 </g>
               );
@@ -681,20 +749,297 @@ export function DiffViewer({ code }: { code: string }) {
   );
 }
 
-function ProseWithInlineCode({ text }: { text: string }) {
+// -------------------------------------------------------------
+// 5. RICH MARKDOWN & BADGE RENDERER (Claude-like Artifacts)
+// -------------------------------------------------------------
+
+function renderBadge(text: string, key: number) {
+  const t = text.replace(/^\[|\]$/g, '').trim();
+  const lower = t.toLowerCase();
+
+  let color = 'bg-slate-800 text-slate-300 border-slate-700';
+  if (['success', 'completed', 'active', 'verified', 'sent', 'delivered'].some((w) => lower.includes(w))) {
+    color = 'bg-emerald-950/80 text-emerald-400 border-emerald-800/70';
+  } else if (['failed', 'aborted', 'error', '404', 'blocked'].some((w) => lower.includes(w))) {
+    color = 'bg-rose-950/80 text-rose-400 border-rose-800/70';
+  } else if (['warning', 'skip', 'skipped', 'pending', 'unverified'].some((w) => lower.includes(w))) {
+    color = 'bg-amber-950/80 text-amber-400 border-amber-800/70';
+  } else if (['extension', 'restaurant', 'cafe', 'hotel', 'crm', 'cowork', 'cdp', 'uia'].some((w) => lower.includes(w)) || /^pl-\d+$/i.test(t)) {
+    color = 'bg-cyan-950/80 text-cyan-300 border-cyan-800/70';
+  }
+
   return (
-    <div className="whitespace-pre-wrap leading-relaxed select-text">
-      {splitInlineCode(text).map((seg, i) =>
-        seg.code ? (
-          <code key={i} className="px-1 py-0.5 rounded bg-slate-950/80 text-cyan-200 font-mono text-[0.92em]">
-            {seg.text}
-          </code>
-        ) : (
-          <React.Fragment key={i}>{seg.text}</React.Fragment>
-        ),
-      )}
-    </div>
+    <span
+      key={key}
+      className={`inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded text-[10px] font-mono font-medium border ${color} select-none shadow-sm`}
+    >
+      {t}
+    </span>
   );
+}
+
+function renderInline(str: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const tokenRegex =
+    /(!?\[[^\]]+\]\([^)]+\)|\[(?:Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)[^\]]*\]|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/gi;
+
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenRegex.exec(str)) !== null) {
+    if (match.index > lastIdx) {
+      nodes.push(str.slice(lastIdx, match.index));
+    }
+    const token = match[0];
+    const key = match.index;
+
+    if (token.startsWith('![') && token.includes('](')) {
+      const m = token.match(/!\[(.*?)\]\((.*?)\)/);
+      if (m) {
+        nodes.push(
+          <span key={key} className="block my-2 text-center">
+            <img src={m[2]} alt={m[1]} className="max-h-72 rounded-lg border border-slate-700 inline-block shadow-md" />
+            {m[1] && <span className="block text-[10px] text-slate-400 mt-1 font-mono">{m[1]}</span>}
+          </span>
+        );
+      }
+    } else if (token.startsWith('[') && token.includes('](')) {
+      const m = token.match(/\[([^\]]+)\]\(([^)]+)\)/);
+      if (m) {
+        nodes.push(
+          <a
+            key={key}
+            href={m[2]}
+            target="_blank"
+            rel="noreferrer"
+            className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
+          >
+            {m[1]}
+          </a>
+        );
+      }
+    } else if (/^\[(?:Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)/i.test(token)) {
+      nodes.push(renderBadge(token, key));
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      nodes.push(
+        <code key={key} className="px-1 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-200 font-mono text-[0.9em]">
+          {token.slice(1, -1)}
+        </code>
+      );
+    } else if (token.startsWith('**') && token.endsWith('**')) {
+      nodes.push(
+        <strong key={key} className="font-semibold text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      nodes.push(
+        <em key={key} className="text-slate-300 italic">
+          {token.slice(1, -1)}
+        </em>
+      );
+    } else {
+      nodes.push(token);
+    }
+
+    lastIdx = match.index + token.length;
+  }
+
+  if (lastIdx < str.length) {
+    nodes.push(str.slice(lastIdx));
+  }
+
+  return nodes;
+}
+
+export function RichMarkdown({ text }: { text: string }) {
+  const elements = useMemo(() => {
+    const lines = text.split('\n');
+    const result: React.ReactNode[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        i++;
+        continue;
+      }
+
+      // 1. Horizontal Rule: --- or ***
+      if (/^(\*{3,}|-{3,}|_{3,})$/.test(trimmed)) {
+        result.push(<hr key={i} className="my-3 border-slate-800/80" />);
+        i++;
+        continue;
+      }
+
+      // 2. Headings: #, ##, ###, ####
+      const hMatch = trimmed.match(/^(#{1,4})\s+(.*)$/);
+      if (hMatch) {
+        const level = hMatch[1].length;
+        const title = hMatch[2];
+        if (level === 1) {
+          result.push(
+            <h1 key={i} className="text-base font-bold text-white mt-4 mb-2 pb-1 border-b border-slate-800 flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span>{renderInline(title)}</span>
+            </h1>
+          );
+        } else if (level === 2) {
+          result.push(
+            <h2 key={i} className="text-sm font-semibold text-cyan-300 mt-3 mb-1.5 flex items-center space-x-1.5">
+              <span>{renderInline(title)}</span>
+            </h2>
+          );
+        } else if (level === 3) {
+          result.push(
+            <h3 key={i} className="text-xs font-semibold text-slate-100 mt-2.5 mb-1">
+              {renderInline(title)}
+            </h3>
+          );
+        } else {
+          result.push(
+            <h4 key={i} className="text-xs font-medium text-slate-300 mt-2 mb-0.5">
+              {renderInline(title)}
+            </h4>
+          );
+        }
+        i++;
+        continue;
+      }
+
+      // 3. Blockquotes / Alerts: > ...
+      if (trimmed.startsWith('>')) {
+        const quoteLines: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith('>')) {
+          quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
+          i++;
+        }
+        result.push(
+          <div key={`quote-${i}`} className="my-2.5 p-2.5 rounded-xl border-l-4 border-cyan-500 bg-cyan-950/20 text-xs text-slate-300 leading-relaxed shadow-sm">
+            {quoteLines.map((ql, qidx) => (
+              <div key={qidx}>{renderInline(ql)}</div>
+            ))}
+          </div>
+        );
+        continue;
+      }
+
+      // 4. Markdown Tables: lines starting and ending with |
+      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+        const tableLines: string[] = [];
+        while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+          tableLines.push(lines[i].trim());
+          i++;
+        }
+        if (tableLines.length >= 2) {
+          const parseRow = (rowStr: string) =>
+            rowStr
+              .slice(1, -1)
+              .split('|')
+              .map((c) => c.trim());
+          const headers = parseRow(tableLines[0]);
+          const isDivider = (l: string) => /^\|(\s*:?-+:?\s*\|)+$/.test(l);
+          const dataRows = tableLines.slice(1).filter((l) => !isDivider(l)).map(parseRow);
+
+          result.push(
+            <div key={`table-${i}`} className="my-3 rounded-xl border border-slate-800 bg-slate-950/80 overflow-x-auto shadow-md">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-900/90 border-b border-slate-800 text-[11px] font-semibold text-cyan-300">
+                    {headers.map((h, hidx) => (
+                      <th key={hidx} className="px-3 py-2">
+                        {renderInline(h)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                  {dataRows.map((row, ridx) => (
+                    <tr key={ridx} className={ridx % 2 === 0 ? 'bg-transparent' : 'bg-slate-900/40'}>
+                      {row.map((cell, cidx) => (
+                        <td key={cidx} className="px-3 py-1.5 text-slate-300">
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+          continue;
+        }
+      }
+
+      // 5. Unordered List Items: - ... or * ...
+      if (/^[-*]\s+/.test(trimmed)) {
+        const listItems: string[] = [];
+        while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+          listItems.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+          i++;
+        }
+        result.push(
+          <div key={`list-${i}`} className="my-1.5 space-y-1 pl-1">
+            {listItems.map((item, lidx) => (
+              <div key={lidx} className="flex items-start space-x-2 text-xs leading-relaxed text-slate-300">
+                <span className="text-cyan-400 font-bold leading-5 select-none">•</span>
+                <span className="flex-1">{renderInline(item)}</span>
+              </div>
+            ))}
+          </div>
+        );
+        continue;
+      }
+
+      // 6. Numbered List Items: 1. ...
+      if (/^\d+\.\s+/.test(trimmed)) {
+        const numItems: string[] = [];
+        while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+          numItems.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
+          i++;
+        }
+        result.push(
+          <div key={`numlist-${i}`} className="my-1.5 space-y-1 pl-1">
+            {numItems.map((item, nidx) => (
+              <div key={nidx} className="flex items-start space-x-2 text-xs leading-relaxed text-slate-300">
+                <span className="text-cyan-400 font-mono font-semibold text-[10px] leading-5 select-none">{nidx + 1}.</span>
+                <span className="flex-1">{renderInline(item)}</span>
+              </div>
+            ))}
+          </div>
+        );
+        continue;
+      }
+
+      // 7. General Paragraph
+      const paraLines: string[] = [];
+      while (
+        i < lines.length &&
+        lines[i].trim() &&
+        !lines[i].trim().startsWith('#') &&
+        !lines[i].trim().startsWith('>') &&
+        !lines[i].trim().startsWith('|') &&
+        !/^[-*]\s+/.test(lines[i].trim()) &&
+        !/^\d+\.\s+/.test(lines[i].trim()) &&
+        !/^(\*{3,}|-{3,}|_{3,})$/.test(lines[i].trim())
+      ) {
+        paraLines.push(lines[i]);
+        i++;
+      }
+
+      result.push(
+        <div key={`p-${i}`} className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap select-text my-1">
+          {renderInline(paraLines.join('\n'))}
+        </div>
+      );
+    }
+
+    return result;
+  }, [text]);
+
+  return <div className="space-y-1">{elements}</div>;
 }
 
 export function ParsedMessageContent({ content }: { content: string }) {
@@ -714,7 +1059,7 @@ export function ParsedMessageContent({ content }: { content: string }) {
         }
         const text = part.content.trim();
         if (!text) return null;
-        return <ProseWithInlineCode key={idx} text={text} />;
+        return <RichMarkdown key={idx} text={text} />;
       })}
     </div>
   );

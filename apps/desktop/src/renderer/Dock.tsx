@@ -227,9 +227,8 @@ export default function Dock() {
     try {
       const list = await projectsApi.list();
       setProjects(list);
-      if (list.length > 0 && !activeProjectId) {
-        setActiveProjectId(list[0].id);
-      }
+      // SOTA Context Isolation: Do not force-bind to list[0].
+      // Keep activeProjectId as null (General / Global workspace) unless explicitly picked by user.
     } catch (e) {
       console.error('Failed to load projects:', e);
     } finally {
