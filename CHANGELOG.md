@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.4.0...v0.5.0) (2026-11-18)
+
+
+### Features
+
+* **desktop:** add topbar window controls (minimize, maximize/restore, close) with responsive layout
+* **desktop:** add context metrics badge and manual compaction action in dock
+* **desktop:** add Ctrl+B keyboard shortcut and dedicated button for sidebar toggle
+* **extension:** route script evaluations through Chrome debugger to bypass strict page CSP restrictions
+* **outreach:** integrate PlaatoOS autonomous outreach engine with live HUD telemetry and verified DOM delivery receipts
+* **crm:** cross landmark 500+ verified hospitality venues contacted with direct self-registration links
+
+
+### Bug Fixes
+
+* **engine:** eliminate recursive deadlock in `/api/browser/status` bridge resolution
+* **desktop:** prevent window control clipping in compact dock widths with non-shrinkable headers
+
 ## [0.3.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.2.0...v0.3.0) (2026-11-13)
 
 
