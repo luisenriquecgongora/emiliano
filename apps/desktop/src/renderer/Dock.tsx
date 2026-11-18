@@ -276,6 +276,21 @@ export default function Dock() {
     setShowWindows(false);
   }, [refreshSkills, refreshChats, refreshProjects, refreshArtifacts]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+        if (activeTag === 'textarea' || activeTag === 'input') {
+          return;
+        }
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebar]);
+
   const openChatsSidebar = useCallback(() => {
     setSidebarTab('chats');
     setSidebarOpen(true);
@@ -1430,43 +1445,18 @@ function Header(props: {
       data-tauri-drag-region
       className="flex items-center justify-between pb-3 border-b border-slate-800/80 cursor-move"
     >
-      {/* Left controls: Claude-style sidebar toggle, split layout & history */}
-      <div data-tauri-drag-region className="flex items-center space-x-1.5">
+      {/* Left controls: SOTA single sidebar toggle & brand */}
+      <div data-tauri-drag-region className="flex items-center space-x-2">
         <button
-          title="Toggle Left Sidebar"
+          title={props.sidebarOpen ? "Hide left sidebar (Ctrl+B)" : "Show left sidebar (Ctrl+B)"}
           onClick={props.onToggleSidebar}
-          className={`${iconButton} ${props.sidebarOpen ? 'text-cyan-300 bg-slate-800/80' : ''}`}
+          className={`${iconButton} ${props.sidebarOpen ? 'text-cyan-300 bg-slate-800/80 shadow-xs' : ''}`}
         >
           <PanelLeft className="w-4 h-4" />
         </button>
 
-        <button
-          title="Toggle Split / HUD Columns"
-          onClick={props.onCycleSize}
-          className={`${iconButton}`}
-        >
-          <Columns className="w-4 h-4" />
-        </button>
-
-        <div className="flex items-center space-x-0.5 text-slate-500">
-          <button
-            title="Conversations & History"
-            onClick={props.onToggleHistory}
-            className="p-1 hover:text-slate-300 rounded hover:bg-slate-800/50"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <button
-            title="Forward"
-            className="p-1 text-slate-600 cursor-not-allowed rounded"
-            disabled
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
         {/* Brand Logo & Name */}
-        <div data-tauri-drag-region className="flex items-center space-x-2 pl-2">
+        <div data-tauri-drag-region className="flex items-center space-x-2 pl-1">
           <EmilianoLogo connected={props.connected} size={24} />
           <div data-tauri-drag-region className="flex items-center space-x-1.5">
             <span
