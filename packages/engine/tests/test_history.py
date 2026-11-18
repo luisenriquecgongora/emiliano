@@ -209,6 +209,116 @@ class TestChatSocket(HistoryTestCase):
             with self.client.websocket_connect(WS_URL, headers={"origin": "https://evil.example"}):
                 pass
 
+    def test_project_and_artifact_lifecycle(self):
+        # Create Project
+        proj_res = self.client.post("/api/projects", json={
+            "name": "PlaatoOS Test",
+            "root_path": "C:/projects/plaatoos",
+            "description": "B2B Outreach engine",
+            "system_prompt": "Follow PolyForm Shield guidelines.",
+        })
+        self.assertEqual(proj_res.status_code, 201)
+        proj = proj_res.json()
+        proj_id = proj["id"]
+        self.assertEqual(proj["name"], "PlaatoOS Test")
+        self.assertEqual(proj["root_path"], "C:/projects/plaatoos")
+
+        # Update Project
+        patch_res = self.client.patch(f"/api/projects/{proj_id}", json={
+            "description": "Updated outreach description",
+        })
+        self.assertEqual(patch_res.status_code, 200)
+        self.assertEqual(patch_res.json()["description"], "Updated outreach description")
+
+        # Create Chat scoped to Project
+        chat_res = self.client.post("/api/chats", json={"title": "Scoped Task", "project_id": proj_id})
+        self.assertEqual(chat_res.status_code, 201)
+        chat = chat_res.json()
+        self.assertEqual(chat["project_id"], proj_id)
+
+        # Create Artifact
+        art_res = self.client.post("/api/artifacts", json={
+            "title": "Campaign Flowchart",
+            "kind": "diagram",
+            "content": "graph TD; A-->B;",
+            "project_id": proj_id,
+            "chat_id": chat["id"],
+        })
+        self.assertEqual(art_res.status_code, 201)
+        art = art_res.json()
+        self.assertEqual(art["project_id"], proj_id)
+        self.assertEqual(art["kind"], "diagram")
+
+        # List Artifacts by project
+        list_res = self.client.get(f"/api/artifacts?project_id={proj_id}")
+        self.assertEqual(len(list_res.json()), 1)
+
+        # Cleanup
+        self.assertEqual(self.client.delete(f"/api/artifacts/{art['id']}").status_code, 204)
+        self.assertEqual(self.client.delete(f"/api/projects/{proj_id}").status_code, 204)
+
+    def test_chat_scoped_to_project_sets_workspace_and_guidelines(self):
+        proj = self.store.create_project(
+            name="Workspace Proj",
+            root_path="C:/workspace/test",
+            system_prompt="Must execute autonomously.",
+        )
+        chat = self.client.post("/api/chats", json={"project_id": proj["id"]}).json()
+        seen = {}
+
+        async def fake_execute_task(**kwargs):
+            seen.update(kwargs)
+            return OLLAMA, "done"
+
+        with patch.object(get_dispatcher(), "execute_task", side_effect=fake_execute_task):
+            with self.client.websocket_connect(WS_URL) as ws:
+                ws.send_json({"type": "send", "chat_id": chat["id"], "content": "analyze files"})
+                self._receive_until(ws, {"done", "error"})
+
+        self.assertEqual(seen["workspace"], "C:/workspace/test")
+        self.assertTrue(any("Must execute autonomously." in m.get("content", "") for m in seen["messages"]))
+        self.store.delete_project(proj["id"])
+
+    def test_clear_chat_context_api_and_slash_commands(self):
+        chat = self.client.post("/api/chats", json={"title": "Test Clear"}).json()
+        chat_id = chat["id"]
+
+        self.store.add_message(chat_id, "user", "Message 1")
+        self.store.add_message(chat_id, "assistant", "Response 1")
+        self.assertEqual(len(self.store.get_chat(chat_id)["messages"]), 2)
+
+        # 1. Test POST /api/chats/{chat_id}/clear
+        res = self.client.post(f"/api/chats/{chat_id}/clear")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["status"], "cleared")
+        self.assertEqual(len(self.store.get_chat(chat_id)["messages"]), 0)
+
+        # 2. Test websocket slash command /clear
+        self.store.add_message(chat_id, "user", "Hello again")
+        with self.client.websocket_connect(WS_URL) as ws:
+            ws.send_json({"type": "send", "chat_id": chat_id, "content": "/clear"})
+            events = self._receive_until(ws, {"done"})
+            self.assertEqual(events[-1]["type"], "done")
+            self.assertIn("Context Flushed", events[-1]["message"]["content"])
+        self.assertEqual(len(self.store.get_chat(chat_id)["messages"]), 0)
+
+        # 3. Test websocket slash command /compact
+        for i in range(6):
+            self.store.add_message(chat_id, "user" if i % 2 == 0 else "assistant", f"Turn message {i}")
+        self.assertEqual(len(self.store.get_chat(chat_id)["messages"]), 6)
+
+        summary = {"role": "system", "content": "Summarized conversation."}
+        summarizer = get_dispatcher().context_manager.summarizer
+        with patch.object(summarizer, "summarize", new_callable=AsyncMock, return_value=summary):
+            with self.client.websocket_connect(WS_URL) as ws:
+                ws.send_json({"type": "send", "chat_id": chat_id, "content": "/compact"})
+                events = self._receive_until(ws, {"done"})
+                self.assertEqual(events[-1]["type"], "done")
+                self.assertIn("Context Compacted", events[-1]["message"]["content"])
+
+        messages = self.store.get_chat(chat_id)["messages"]
+        self.assertTrue(any("Summarized conversation." in m["content"] for m in messages))
+
 
 if __name__ == "__main__":
     unittest.main()

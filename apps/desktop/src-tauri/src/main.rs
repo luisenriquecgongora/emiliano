@@ -57,19 +57,30 @@ fn start_engine(app: &AppHandle) -> Option<CommandChild> {
 /// overlay over the whole screen, letting every click pass through to the apps below.
 fn place_windows(app: &AppHandle) -> tauri::Result<()> {
     if let Some(dock) = app.get_webview_window("dock") {
+        eprintln!("[place_windows] dock HWND = {:?}", dock.hwnd());
         if let Some(monitor) = dock.primary_monitor()? {
             let (origin, screen) = (monitor.position(), monitor.size());
-            // Keep the dock inside small or scaled screens, leaving a margin top and bottom
-            let margin = (60.0 * monitor.scale_factor()) as u32;
+            let scale = monitor.scale_factor();
+            let margin = (40.0 * scale) as u32;
             let mut size = dock.outer_size()?;
             if size.height + margin > screen.height {
                 size.height = screen.height.saturating_sub(margin);
-                dock.set_size(size)?;
+                let _ = dock.set_size(size);
             }
-            let x = origin.x + screen.width as i32 - size.width as i32 - 20;
-            let y = origin.y + ((screen.height as i32 - size.height as i32) / 2).max(30);
-            dock.set_position(PhysicalPosition::new(x, y))?;
+            if size.width > screen.width.saturating_sub(100) {
+                size.width = (420.0 * scale) as u32;
+                let _ = dock.set_size(size);
+            }
+            // Safely clamp within screen bounds so it NEVER gets pushed off-screen:
+            let max_x = origin.x + (screen.width as i32) - (size.width as i32) - 16;
+            let x = max_x.max(origin.x + 20);
+            let y = origin.y + 16;
+            eprintln!("[place_windows] Clamping dock to primary screen: x={}, y={}, size={}x{}", x, y, size.width, size.height);
+            let _ = dock.set_position(PhysicalPosition::new(x, y));
         }
+        let _ = dock.show();
+        let _ = dock.unminimize();
+        let _ = dock.set_focus();
     }
     if let Some(overlay) = app.get_webview_window("overlay") {
         if let Some(monitor) = overlay.primary_monitor()? {
@@ -77,6 +88,7 @@ fn place_windows(app: &AppHandle) -> tauri::Result<()> {
             overlay.set_size(*monitor.size())?;
         }
         overlay.set_ignore_cursor_events(true)?;
+        let _ = overlay.hide();
     }
     Ok(())
 }
@@ -190,25 +202,40 @@ fn main() {
         .invoke_handler(tauri::generate_handler![set_kill_switch])
         // The dock is the app: closing it quits, instead of leaving the invisible overlay running
         .on_window_event(|window, event| {
-            if window.label() == "dock" && matches!(event, WindowEvent::CloseRequested { .. }) {
-                window.app_handle().exit(0);
+            if window.label() == "dock" {
+                match event {
+                    WindowEvent::CloseRequested { .. } => {
+                        window.app_handle().exit(0);
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        let _ = place_windows(window.app_handle());
+                    }
+                    _ => {}
+                }
             }
         })
         .setup(|app| {
+            println!("[setup] Emiliano setup hook called");
             let handle = app.handle();
             app.manage(Engine(Mutex::new(start_engine(handle))));
-            place_windows(handle)?;
+            if let Err(e) = place_windows(handle) {
+                eprintln!("[setup] place_windows error: {e}");
+            }
             // Registered for the app's whole life; failing (another app owns the keys) must not stop startup
             if let Some(summon) = summon_shortcut() {
                 if let Err(err) = app.global_shortcut().register(summon) {
                     eprintln!("[emiliano] could not register the summon shortcut: {err}");
                 }
             }
+            println!("[setup] Emiliano setup finished successfully");
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building Emiliano")
         .run(|app, event| {
+            if !matches!(event, RunEvent::MainEventsCleared) {
+                println!("[run_event] {:?}", event);
+            }
             if let RunEvent::Exit = event {
                 let child = app
                     .state::<Engine>()

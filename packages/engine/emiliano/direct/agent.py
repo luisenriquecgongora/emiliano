@@ -23,6 +23,17 @@ except ImportError:
 
 from .client import UnifiedLLMClient
 
+try:
+    from ..core.guardrails import GuardrailPipeline
+    from ..core.traces import TaskTrace
+except ImportError:
+    try:
+        from emiliano.core.guardrails import GuardrailPipeline
+        from emiliano.core.traces import TaskTrace
+    except ImportError:
+        GuardrailPipeline = None  # type: ignore
+        TaskTrace = None  # type: ignore
+
 AGENT_SYSTEM_PROMPT = """You are an expert autonomous coding agent working in a local software repository.
 Your goal is to inspect the codebase, locate issues, make surgical code modifications, and verify your changes with tests.
 
@@ -452,6 +463,8 @@ class DirectAgentLoop:
         timeout: float = 180.0,
         auto_verify: bool = True,
         mcp: Optional[Any] = None,
+        guardrails: Optional[Any] = None,
+        trace: Optional[Any] = None,
     ):
         self.client = client
         # McpManager whose tools are offered next to the built-in ones (None = built-in tools only)
@@ -460,11 +473,13 @@ class DirectAgentLoop:
         self.max_turns = max_turns
         self.timeout = timeout
         self.auto_verify = auto_verify
+        self.guardrails = guardrails
+        self.trace = trace
         self.files_modified: set[str] = set()
         self.last_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
 
-    async def execute_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
-        """Dispatches an individual tool call."""
+    async def _dispatch_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
+        """Internal dispatch for built-in and MCP tools."""
         if tool_name == "read_file":
             path = args.get("path") or args.get("file") or ""
             start = int(args.get("start_line", 1))
@@ -506,6 +521,39 @@ class DirectAgentLoop:
         else:
             return f"Error: Unknown tool '{tool_name}'."
 
+    async def execute_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
+        """Dispatches an individual tool call wrapped in safety guardrails and spans."""
+        span = None
+        if self.trace:
+            span = self.trace.start_span("tool.execute", attributes={"tool_name": tool_name})
+
+        # Tool safety policy check
+        if self.guardrails:
+            allowed, reason, verdicts = self.guardrails.process_tool_call(tool_name, args, workspace=cwd)
+            if self.trace:
+                for v in verdicts:
+                    self.trace.record_guardrail(v)
+            if not allowed:
+                err_msg = f"Error: Tool execution blocked by safety guardrail - {reason}"
+                logger.warning(f"[DirectAgent] {err_msg}")
+                if span:
+                    span.finish(status="error", error=reason)
+                return err_msg
+
+        result = await self._dispatch_tool(tool_name, args, cwd)
+
+        # Output redaction (PII/Secret protection)
+        if self.guardrails and isinstance(result, str):
+            allowed, sanitized, verdicts = self.guardrails.process_output(result)
+            if self.trace:
+                for v in verdicts:
+                    self.trace.record_guardrail(v)
+            result = sanitized
+
+        if span:
+            span.finish(status="ok")
+        return result
+
     async def run(
         self,
         goal: str,
@@ -519,6 +567,21 @@ class DirectAgentLoop:
         Runs the agent loop up to max_turns.
         Returns the final combined output text.
         """
+        # 1. Input Guardrail Verification
+        if self.guardrails:
+            allowed, sanitized_goal, verdicts = self.guardrails.process_input(goal)
+            if self.trace:
+                for v in verdicts:
+                    self.trace.record_guardrail(v)
+            if not allowed:
+                blocked = next((v for v in verdicts if not v.allowed), None)
+                reason = blocked.reason if blocked else "Input blocked by security policy."
+                logger.warning(f"[DirectAgent] Input blocked by guardrails: {reason}")
+                if on_chunk:
+                    on_chunk(f"\n🚫 [Security Guardrail Block]: {reason}\n")
+                return f"Execution halted: {reason}"
+            goal = sanitized_goal
+
         history: List[Dict[str, str]] = []
         system_prompt = AGENT_SYSTEM_PROMPT + (self.mcp.prompt_section() if self.mcp is not None else "")
         history.append({"role": "system", "content": system_prompt})
@@ -534,8 +597,20 @@ class DirectAgentLoop:
         verification_attempted = False
 
         for turn in range(self.max_turns):
+            turn_span = None
+            if self.trace:
+                turn_span = self.trace.start_span("agent.turn", attributes={"turn": turn + 1, "model": self.model_id})
+
             logger.info(f"[DirectAgent] Turn {turn + 1}/{self.max_turns} on {self.model_id}")
             turn_chunks: List[str] = []
+
+            llm_span = None
+            if self.trace:
+                llm_span = self.trace.start_span(
+                    "llm.generate",
+                    parent_span_id=turn_span.span_id if turn_span else None,
+                    attributes={"model": self.model_id, "turn": turn + 1},
+                )
 
             async for chunk in self.client.stream_completion(
                 messages=history,
@@ -551,10 +626,18 @@ class DirectAgentLoop:
             turn_text = "".join(turn_chunks)
             full_output_parts.append(turn_text)
 
-            # Accumulate token usage
+            # Accumulate token usage & record span attributes
             if self.client.last_usage:
-                self.last_usage["prompt_tokens"] += self.client.last_usage.get("prompt_tokens", 0)
-                self.last_usage["completion_tokens"] += self.client.last_usage.get("completion_tokens", 0)
+                prompt_toks = self.client.last_usage.get("prompt_tokens", 0)
+                comp_toks = self.client.last_usage.get("completion_tokens", 0)
+                self.last_usage["prompt_tokens"] += prompt_toks
+                self.last_usage["completion_tokens"] += comp_toks
+                if llm_span:
+                    llm_span.set_attribute("prompt_tokens", prompt_toks)
+                    llm_span.set_attribute("completion_tokens", comp_toks)
+
+            if llm_span:
+                llm_span.finish(status="ok")
 
             # Parse tool calls from the model output
             tool_calls = parse_tool_calls(turn_text)
@@ -573,6 +656,8 @@ class DirectAgentLoop:
                             if on_chunk:
                                 on_chunk(f"\n✅ [Auto-verification passed: {v_cmd}]\n")
                             full_output_parts.append(f"\n\n✅ Verification passed: `{v_cmd}`")
+                            if turn_span:
+                                turn_span.finish(status="ok")
                             break
                         else:
                             logger.warning(f"[DirectAgent] Auto-verification failed: {v_cmd}; prompting self-correction")
@@ -585,10 +670,14 @@ class DirectAgentLoop:
                             )
                             history.append({"role": "assistant", "content": turn_text})
                             history.append({"role": "user", "content": correction_prompt})
+                            if turn_span:
+                                turn_span.finish(status="ok")
                             continue
 
                 # No tool calls made; model has finished
                 logger.info(f"[DirectAgent] Agent finished with no tool calls on turn {turn + 1}")
+                if turn_span:
+                    turn_span.finish(status="ok")
                 break
 
             # Add assistant message to history
@@ -611,5 +700,7 @@ class DirectAgentLoop:
                 on_chunk(f"\n{tool_feedback}\n")
 
             history.append({"role": "user", "content": tool_feedback})
+            if turn_span:
+                turn_span.finish(status="ok")
 
         return "\n".join(full_output_parts)

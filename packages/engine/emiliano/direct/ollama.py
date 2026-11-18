@@ -7,12 +7,13 @@ and dynamic model selection from installed models.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import AsyncGenerator, Dict, List, Optional, Union
 
 import httpx
 try:
@@ -139,6 +140,40 @@ class OllamaManager:
                 return res.status_code == 200
         except Exception as e:
             logger.debug(f"[Ollama] Unloading {model} failed: {e}")
+            return False
+
+    async def unload_all(self) -> List[str]:
+        """Frees memory for all loaded models. Returns list of unloaded model names."""
+        loaded = await self.list_loaded()
+        unloaded: List[str] = []
+        for name in loaded.keys():
+            if await self.unload(name):
+                unloaded.append(name)
+        return unloaded
+
+    async def pull_model_stream(self, model: str) -> AsyncGenerator[Dict, None]:
+        """Streams download progress dictionaries from Ollama's /api/pull."""
+        url = f"{self.base_url}/api/pull"
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("POST", url, json={"model": model, "stream": True}) as response:
+                if response.status_code != 200:
+                    err = await response.aread()
+                    raise RuntimeError(f"Ollama pull failed ({response.status_code}): {err.decode(errors='replace')}")
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        try:
+                            yield json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+    async def delete_model(self, model: str) -> bool:
+        """Deletes an installed model from local storage."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.request("DELETE", f"{self.base_url}/api/delete", json={"model": model})
+                return res.status_code == 200
+        except Exception as e:
+            logger.debug(f"[Ollama] Deleting {model} failed: {e}")
             return False
 
     async def list_loaded(self) -> Dict[str, Dict]:

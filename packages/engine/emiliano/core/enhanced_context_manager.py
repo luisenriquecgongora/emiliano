@@ -19,6 +19,7 @@ from .context.summarization import RecursiveSummarizer, SimpleTruncator
 from .context.persistent import PersistentContextLoader
 from .context.metrics import ContextMetricsCollector
 from .config import EmilianoConfig, load_config
+from .blackboard import Blackboard
 
 
 class EnhancedContextManager(ContextWindowManager):
@@ -40,6 +41,7 @@ class EnhancedContextManager(ContextWindowManager):
         strategy: TruncationStrategy = TruncationStrategy.SLIDING_WINDOW,
         reserve_tokens: int = 2000,
         safety_margin: float = 0.85,
+        blackboard: Optional[Blackboard] = None,
     ):
         """
         Initialize enhanced context manager.
@@ -50,6 +52,7 @@ class EnhancedContextManager(ContextWindowManager):
             strategy: Truncation strategy
             reserve_tokens: Tokens reserved for response
             safety_margin: Fraction of window to use
+            blackboard: Shared persistent SQLite memory store
         """
         # Call parent constructor
         super().__init__(
@@ -61,6 +64,7 @@ class EnhancedContextManager(ContextWindowManager):
 
         # Load config
         self.config = config or load_config()
+        self.blackboard = blackboard or Blackboard()
 
         # Override from config if not explicitly set
         if max_tokens is None and self.config.context.max_tokens:
@@ -128,6 +132,19 @@ class EnhancedContextManager(ContextWindowManager):
 
         return self._persistent_context_cache
 
+    def load_blackboard_context(self) -> List[Dict[str, str]]:
+        """
+        Renders persistent cross-session memory from the SQLite Blackboard
+        (previous session summaries, active entities, inter-harness facts).
+        """
+        context_str = self.blackboard.render_context_for_prompt()
+        if not context_str.strip():
+            return []
+        return [{
+            "role": "system",
+            "content": f"[Blackboard Memory & Multi-Session Handoff]\n{context_str}",
+        }]
+
     def get_metrics(
         self,
         messages: List[Dict[str, str]],
@@ -190,11 +207,16 @@ class EnhancedContextManager(ContextWindowManager):
             Tuple of (managed_messages, metadata)
         """
         # 1. Load persistent context (if enabled)
-        if include_persistent and self.persistent_loader:
-            persistent_msgs = self.load_persistent_context()
-            if persistent_msgs:
-                # Prepend persistent context (these are never truncated)
-                messages = persistent_msgs + messages
+        if include_persistent:
+            bb_msgs = self.load_blackboard_context()
+            if bb_msgs:
+                messages = bb_msgs + messages
+
+            if self.persistent_loader:
+                persistent_msgs = self.load_persistent_context()
+                if persistent_msgs:
+                    # Prepend persistent context (these are never truncated)
+                    messages = persistent_msgs + messages
 
         # 2. Check if summarization is needed
         if self.config.context.summarization.enabled:

@@ -53,17 +53,19 @@ As of November 2026. Rows describe what Emiliano does today; see [Planned](#plan
 ```
 emiliano/
 ├── apps/
-│   └── desktop/        # Tauri + React Cowork UI (Floating Dock + HUD Overlay)
+│   ├── browser-extension/ # Chrome Companion Extension (Silent Background Cowork Bridge)
+│   └── desktop/           # Tauri + React Cowork UI (Floating Dock + HUD Overlay)
 ├── packages/
-│   ├── engine/         # Python Meta-Harness Core + Cowork Perception Engine
-│   └── protocol/       # Shared TypeScript & Python Schema Definitions
-└── package.json        # Workspace configuration
+│   ├── engine/            # Python Meta-Harness Core + Cowork Perception Engine
+│   └── protocol/          # Shared TypeScript & Python Schema Definitions
+└── package.json           # Workspace configuration
 ```
 
 ## Features
 
 - **Harness of Harnesses**: Runs coding agents (`claude-code`, `codex`, `opencode`, `antigravity`) over the Agent Client Protocol (ACP) where an adapter is installed, with each permission request shown in the dock for you to approve; otherwise as a plain CLI process.
 - **Direct Multi-Model Engine**: Answers with Ollama, Anthropic, OpenAI, DeepSeek or Gemini models, with automatic fallback between them.
+- **Browser Companion Extension**: Manifest V3 Chrome extension (`apps/browser-extension`) enabling 100% silent background web automation without cursor hijacking or window focus stealing. See [Extension Documentation](apps/browser-extension/README.md) and [ADR 0006](docs/adr/0006-browser-companion-extension-architecture.md).
 - **Screen Perception**: Reads other apps' controls through Windows UI Automation (UIA), including browsers and Electron apps such as VS Code; falls back to Win32 child windows.
 - **Transparent HUD Overlay**: Draws bounding boxes over target elements before clicking.
 - **Safety Kill-Switch**: Global hotkey (`Esc`) to instantly pause actions and release OS input controls.

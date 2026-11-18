@@ -36,6 +36,8 @@ class TestCliModels(unittest.TestCase):
         # "/models" used to match the "/model" handler and only print its usage line
         self.assertEqual(split_command("/models"), ("/models", ""))
         self.assertEqual(split_command("/model  qwen3:4b "), ("/model", "qwen3:4b"))
+        self.assertEqual(split_command("/pull qwen2.5-coder:1.5b"), ("/pull", "qwen2.5-coder:1.5b"))
+        self.assertEqual(split_command("/delete llama3.2:1b"), ("/delete", "llama3.2:1b"))
         self.assertEqual(split_command(""), ("", ""))
 
     def test_report_lines(self):
@@ -67,11 +69,19 @@ class TestCliModels(unittest.TestCase):
     def test_completer_offers_model_names(self):
         completer = SlashCommandCompleter()
         completer.model_names = ["qwen3.5:2b", "llama3.1:8b"]
-        for typed in ("/model q", "/load q", "/unload q"):
+        for typed in ("/model q", "/load q", "/unload q", "/delete q", "/pull q"):
             doc = MagicMock()
             doc.text_before_cursor = typed
             with self.subTest(typed=typed):
                 self.assertEqual([c.text for c in completer.get_completions(doc)], ["qwen3.5:2b"])
+
+    def test_completer_offers_all_for_unload(self):
+        completer = SlashCommandCompleter()
+        completer.model_names = ["qwen3.5:2b", "llama3.1:8b"]
+        doc = MagicMock()
+        doc.text_before_cursor = "/unload a"
+        completions = [c.text for c in completer.get_completions(doc)]
+        self.assertIn("all", completions)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -20,8 +20,13 @@ from ..core.dispatcher import ExecutionDispatcher
 from ..history import HistoryStore
 from ..history.api import router as history_router
 from ..cowork import WindowPinManager, ScreenPerceiver, ActionSynthesizer, CoworkAgentLoop, SafetyInterruptedError
+from ..cowork.voice import VoiceTranscriber
+from ..core.blackboard import Blackboard
 from ..direct import UnifiedLLMClient
-from .security import get_allowed_origins, is_origin_allowed
+from ..routines.store import RoutineStore
+from ..routines.scheduler import RoutineScheduler
+from ..routines.models import Routine, TriggerType, StagedActionStatus
+from .security import get_allowed_origins, is_origin_allowed, get_ipc_token, verify_ipc_token
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -41,9 +46,27 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost
 
 @app.middleware("http")
 async def reject_foreign_origins(request: Request, call_next):
-    # Browsers attach Origin to cross-site requests: refuse pages other than the desktop app
+    # 1. Reject disallowed browser origins (checked first on ALL endpoints)
     if not is_origin_allowed(request.headers.get("origin")):
         return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+
+    # Allow unauthenticated health checks for monitoring
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    # 2. Enforce IPC token authentication when configured
+    expected_token = get_ipc_token()
+    if expected_token:
+        auth_header = request.headers.get("authorization", "")
+        token = None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "token" in request.query_params:
+            token = request.query_params["token"]
+
+        if not verify_ipc_token(token):
+            return JSONResponse({"detail": "Invalid or missing IPC authorization token"}, status_code=401)
+
     return await call_next(request)
 
 
@@ -52,7 +75,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(get_allowed_origins()),
     allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["content-type"],
+    allow_headers=["content-type", "authorization"],
 )
 
 # Connected UI clients (usually the desktop dock and HUD overlay windows)
@@ -66,6 +89,8 @@ active_tasks: Dict[str, asyncio.Task] = {}
 
 
 _history: Optional[HistoryStore] = None
+_routine_store: Optional[RoutineStore] = None
+_routine_scheduler: Optional[RoutineScheduler] = None
 
 
 def get_dispatcher() -> ExecutionDispatcher:
@@ -82,10 +107,89 @@ def get_history_store() -> HistoryStore:
     return _history
 
 
+def get_routine_store() -> RoutineStore:
+    global _routine_store
+    if _routine_store is None:
+        _routine_store = RoutineStore()
+    return _routine_store
+
+
+def get_routine_scheduler() -> RoutineScheduler:
+    global _routine_scheduler
+    if _routine_scheduler is None:
+        store = get_routine_store()
+        disp = get_dispatcher()
+        _routine_scheduler = RoutineScheduler(store=store, dispatcher=disp)
+        _routine_scheduler.on_staged_action = lambda action: asyncio.create_task(
+            broadcast_event("STAGED_ACTION_PROMPT", action.model_dump())
+        )
+    return _routine_scheduler
+
+
 # Saved chats (/api/chats, /api/chat); the routes find these through app.state
 app.state.get_dispatcher = lambda: get_dispatcher()
 app.state.get_history_store = lambda: get_history_store()
 app.include_router(history_router)
+
+
+# ---------------------------------------------------------------------------
+# Routines & Trust Gate REST API (Grok Bot Architecture)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/routines")
+async def api_list_routines(enabled_only: bool = False):
+    routines = get_routine_store().list_routines(enabled_only=enabled_only)
+    return {"routines": [r.model_dump() for r in routines]}
+
+
+@app.post("/api/routines")
+async def api_create_routine(payload: Dict[str, Any]):
+    try:
+        routine = Routine.model_validate(payload)
+        saved = get_routine_scheduler().schedule_routine(routine)
+        return saved.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/routines/{routine_id}/trigger")
+async def api_trigger_routine(routine_id: str, request: Request):
+    body = await request.json() if (await request.body()) else {}
+    try:
+        record = await get_routine_scheduler().execute_routine(
+            routine_id,
+            trigger_type=TriggerType.MANUAL,
+            override_inputs=body.get("inputs"),
+        )
+        return record.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/routines/staged")
+async def api_list_staged(status: Optional[str] = "pending"):
+    filter_status = StagedActionStatus(status) if status else None
+    actions = get_routine_store().list_staged_actions(status=filter_status)
+    return {"staged_actions": [a.model_dump() for a in actions]}
+
+
+@app.post("/api/routines/staged/{action_id}/approve")
+async def api_approve_staged(action_id: str):
+    action = get_routine_store().resolve_staged_action(action_id, StagedActionStatus.APPROVED)
+    if not action:
+        raise HTTPException(status_code=404, detail="Staged action not found")
+    await broadcast_event("STAGED_ACTION_RESOLVED", {"id": action_id, "status": "approved"})
+    return action.model_dump()
+
+
+@app.post("/api/routines/staged/{action_id}/reject")
+async def api_reject_staged(action_id: str, request: Request):
+    body = await request.json() if (await request.body()) else {}
+    action = get_routine_store().resolve_staged_action(action_id, StagedActionStatus.REJECTED, notes=body.get("notes"))
+    if not action:
+        raise HTTPException(status_code=404, detail="Staged action not found")
+    await broadcast_event("STAGED_ACTION_RESOLVED", {"id": action_id, "status": "rejected"})
+    return action.model_dump()
 
 
 @app.get("/health")
@@ -160,19 +264,41 @@ async def mcp_disconnect(payload: ConnectPayload):
 
 class ModelPayload(BaseModel):
     model: str
+    keep_alive: Optional[Union[int, str]] = None
 
 
 @app.post("/api/models/load")
 async def load_model(payload: ModelPayload):
-    """Loads a local model into memory and keeps it there until unloaded, so replies start at once."""
+    """Loads a local model into memory and keeps it there until unloaded or expired."""
     dispatcher = get_dispatcher()
     mgr = dispatcher.registry.ollama_mgr
     if payload.model not in await mgr.list_installed_models():
         raise HTTPException(status_code=404, detail=f"Model not installed: {payload.model}")
-    ok = await mgr.preload(payload.model, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=-1)
+
+    # Enforce VRAM headroom and perform LRU eviction if needed
+    from ..direct.lifecycle import ModelLifecycleGovernor
+    governor = ModelLifecycleGovernor.get_instance(config=dispatcher.config, ollama_mgr=mgr)
+    evicted = await governor.ensure_vram_headroom(payload.model)
+
+    keep_alive = (
+        payload.keep_alive
+        if payload.keep_alive is not None
+        else -1
+    )
+    ok = await mgr.preload(payload.model, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=keep_alive)
     if not ok:
         raise HTTPException(status_code=502, detail=f"Ollama could not load {payload.model}")
-    return {"status": "loaded", "model": payload.model}
+    governor.touch(payload.model)
+    return {"status": "loaded", "model": payload.model, "keep_alive": keep_alive, "evicted": evicted}
+
+
+@app.get("/api/models/memory")
+async def get_models_memory():
+    """Returns real-time VRAM and RAM telemetry and loaded model statistics."""
+    dispatcher = get_dispatcher()
+    from ..direct.lifecycle import ModelLifecycleGovernor
+    governor = ModelLifecycleGovernor.get_instance(config=dispatcher.config, ollama_mgr=dispatcher.registry.ollama_mgr)
+    return await governor.get_memory_telemetry()
 
 
 @app.post("/api/models/unload")
@@ -181,6 +307,96 @@ async def unload_model(payload: ModelPayload):
     if not await get_dispatcher().registry.ollama_mgr.unload(payload.model):
         raise HTTPException(status_code=502, detail=f"Ollama could not unload {payload.model}")
     return {"status": "unloaded", "model": payload.model}
+
+
+@app.post("/api/models/unload-all")
+async def unload_all_models():
+    """Frees memory for all currently loaded local models."""
+    unloaded = await get_dispatcher().registry.ollama_mgr.unload_all()
+    return {"status": "unloaded_all", "unloaded": unloaded}
+
+
+active_downloads: Dict[str, Dict[str, Any]] = {}
+
+
+class PullModelPayload(BaseModel):
+    model: str
+
+
+@app.post("/api/models/pull")
+async def start_pull_model(payload: PullModelPayload):
+    """Starts downloading/pulling a model from the Ollama library in the background."""
+    model_name = payload.model.strip()
+    if not model_name:
+        raise HTTPException(status_code=400, detail="Model name required")
+
+    current = active_downloads.get(model_name)
+    if current and current.get("status") in ("starting", "downloading"):
+        return {"status": "already_downloading", "model": model_name}
+
+    active_downloads[model_name] = {
+        "status": "starting",
+        "step": "Connecting to Ollama registry...",
+        "progress": 0,
+        "completed": 0,
+        "total": 0,
+        "error": None,
+    }
+
+    async def _download():
+        mgr = get_dispatcher().registry.ollama_mgr
+        try:
+            async for chunk in mgr.pull_model_stream(model_name):
+                status_text = chunk.get("status", "")
+                completed = chunk.get("completed", 0)
+                total = chunk.get("total", 0)
+                pct = int((completed / total) * 100) if total > 0 else 0
+                active_downloads[model_name] = {
+                    "status": "downloading" if pct < 100 else "finalizing",
+                    "step": status_text,
+                    "progress": pct,
+                    "completed": completed,
+                    "total": total,
+                    "error": None,
+                }
+            active_downloads[model_name] = {
+                "status": "completed",
+                "step": "Download complete",
+                "progress": 100,
+                "error": None,
+            }
+        except Exception as e:
+            logger.error(f"[Ollama] Pull {model_name} failed: {e}")
+            active_downloads[model_name] = {
+                "status": "error",
+                "step": f"Failed: {e}",
+                "progress": 0,
+                "error": str(e),
+            }
+
+    asyncio.create_task(_download())
+    return {"status": "started", "model": model_name}
+
+
+@app.get("/api/models/pull/status")
+async def get_pull_status(model: Optional[str] = None):
+    """Returns the progress of active model downloads."""
+    if model:
+        return {"downloads": {model: active_downloads.get(model, {"status": "idle"})}}
+    return {"downloads": active_downloads}
+
+
+@app.delete("/api/models/delete")
+async def delete_model_endpoint(payload: Optional[PullModelPayload] = None, model: Optional[str] = None):
+    """Deletes an installed model to reclaim disk space."""
+    target = (payload.model if payload else None) or model
+    if not target:
+        raise HTTPException(status_code=400, detail="Model name required")
+    mgr = get_dispatcher().registry.ollama_mgr
+    ok = await mgr.delete_model(target)
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Failed to delete {target}")
+    return {"status": "deleted", "model": target}
 
 
 # Cowork singletons
@@ -214,6 +430,33 @@ class CoworkRunPayload(BaseModel):
     timeout: float = 120.0
 
 
+class BrowserCommandPayload(BaseModel):
+    action: str
+    params: Optional[Dict[str, Any]] = None
+    timeout: float = 20.0
+
+
+class SynthesizeSkillPayload(BaseModel):
+    id: str
+    title: str
+    description: str
+    instructions_md: str
+    triggers: Optional[List[str]] = None
+    requirements: Optional[List[str]] = None
+    selectors: Optional[Dict[str, str]] = None
+    category: Optional[str] = "workflow"
+
+
+class PatchSkillPayload(BaseModel):
+    selectors: Optional[Dict[str, str]] = None
+    append_notes: Optional[str] = None
+
+
+BrowserCommandPayload.model_rebuild()
+SynthesizeSkillPayload.model_rebuild()
+PatchSkillPayload.model_rebuild()
+
+
 @app.get("/api/cowork/windows")
 async def get_windows():
     return {"windows": screen_perceiver.list_windows()}
@@ -229,6 +472,204 @@ async def pin_window(payload: PinPayload):
 async def unpin_window():
     pin_manager.unpin()
     return {"status": "unpinned"}
+
+
+class ResizeHudPayload(BaseModel):
+    width: Optional[int] = None
+    height: Optional[int] = None
+    x: Optional[int] = None
+    y: Optional[int] = None
+    direction: Optional[str] = "West"
+
+
+@app.post("/api/cowork/resize_hud")
+async def resize_hud(payload: ResizeHudPayload):
+    """Dynamically resizes the Emiliano HUD window on Windows across any border/corner."""
+    import sys
+    if sys.platform != "win32":
+        return {"status": "unsupported", "platform": sys.platform}
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        target_hwnd = None
+        def enum_windows_callback(hwnd, _lparam):
+            nonlocal target_hwnd
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                if "emiliano" in title.lower():
+                    target_hwnd = hwnd
+                    return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        cb = WNDENUMPROC(enum_windows_callback)
+        hdesk = user32.OpenInputDesktop(0, False, 0x0100)
+        if hdesk:
+            user32.EnumDesktopWindows(hdesk, cb, 0)
+            user32.CloseDesktop(hdesk)
+        if not target_hwnd:
+            user32.EnumWindows(cb, 0)
+
+        if not target_hwnd:
+            return {"status": "not_found", "message": "Emiliano HUD window not found"}
+
+        rect = wintypes.RECT()
+        user32.GetWindowRect(target_hwnd, ctypes.byref(rect))
+        current_w = rect.right - rect.left
+        current_h = rect.bottom - rect.top
+        current_x = rect.left
+        current_y = rect.top
+
+        new_w = max(360, min(2400, payload.width)) if payload.width else current_w
+        new_h = max(320, min(1800, payload.height)) if payload.height else current_h
+
+        direction = (payload.direction or "West").lower()
+
+        # Calculate new_x and new_y based on resize direction
+        if payload.x is not None:
+            new_x = payload.x
+        elif "east" in direction:
+            new_x = current_x # right edge dragged: left edge remains fixed
+        elif "west" in direction:
+            new_x = rect.right - new_w # left edge dragged: right edge remains fixed
+        else:
+            new_x = current_x
+
+        if payload.y is not None:
+            new_y = payload.y
+        elif "south" in direction:
+            new_y = current_y # bottom edge dragged: top edge remains fixed
+        elif "north" in direction:
+            new_y = rect.bottom - new_h # top edge dragged: bottom edge remains fixed
+        else:
+            new_y = current_y
+
+        user32.SetWindowPos(target_hwnd, 0, new_x, new_y, new_w, new_h, 0x0004) # SWP_NOZORDER
+        return {"status": "ok", "width": new_w, "height": new_h, "x": new_x, "y": new_y}
+    except Exception as e:
+        logger.error(f"[Server] Failed to resize HUD: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/skills")
+async def list_skills():
+    """Discovered companion skills and workflow extensions available to the desktop agent."""
+    from ..core.extensions import ExtensionManager
+    from ..core.skills import SkillManager
+
+    skill_mgr = SkillManager.get_instance()
+    all_skills = skill_mgr.get_all_skills()
+
+    # Also discover extensions and map them if not already in SkillManager
+    ext_mgr = ExtensionManager()
+    for name, ext in ext_mgr.extensions.items():
+        if not any(s.get("id") == ext.name for s in all_skills):
+            all_skills.append({
+                "id": ext.name,
+                "title": ext.title,
+                "description": ext.description,
+                "triggers": ext.intents[:6],
+                "category": "workflow",
+                "status": "active",
+                "badge": "Hospitality & Nightlife",
+                "path": str(ext.path),
+                "quickActions": [
+                    "outreach 1 restaurant lead",
+                    "outreach autonomous",
+                    "crm status",
+                ],
+            })
+
+    # Add email outreach engine quick action if not present
+    if not any(s.get("id") == "email-outreach-engine" for s in all_skills):
+        all_skills.append({
+            "id": "email-outreach-engine",
+            "title": "B2B Waterfall Email Enrichment",
+            "description": "Multi-source waterfall email enrichment and vertical-tailored 3-paragraph pitch drafting",
+            "triggers": ["send email", "email leads", "enrich emails"],
+            "category": "workflow",
+            "status": "active",
+            "badge": "Email + Phone Waterfall",
+            "path": "emiliano-cowork-plaatoos.email_outreach",
+            "quickActions": [
+                "send email leads",
+                "enrich next 5 lead emails",
+            ],
+        })
+
+    return {"skills": all_skills}
+
+
+@app.get("/api/skills/{skill_id}/content")
+async def get_skill_content(skill_id: str):
+    from ..core.skills import SkillManager
+    skill_mgr = SkillManager.get_instance()
+    skill = skill_mgr.get_skill(skill_id)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
+    return {"skill": skill.to_dict()}
+
+
+@app.post("/api/skills/synthesize")
+async def synthesize_skill_endpoint(payload: SynthesizeSkillPayload):
+    from ..core.skills import SkillManager
+    skill_mgr = SkillManager.get_instance()
+    try:
+        skill = skill_mgr.synthesize_skill(
+            id=payload.id,
+            title=payload.title,
+            description=payload.description,
+            instructions_md=payload.instructions_md,
+            triggers=payload.triggers,
+            requirements=payload.requirements,
+            selectors=payload.selectors,
+            category=payload.category or "workflow"
+        )
+        return {"status": "ok", "skill": skill.to_dict()}
+    except Exception as e:
+        logger.error(f"[Server] Failed to synthesize skill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/skills/{skill_id}/approve")
+async def approve_skill_endpoint(skill_id: str):
+    from ..core.skills import SkillManager
+    skill_mgr = SkillManager.get_instance()
+    success = skill_mgr.approve_skill(skill_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Could not approve '{skill_id}'")
+    return {"status": "ok", "skill_id": skill_id, "state": "active"}
+
+
+@app.post("/api/skills/{skill_id}/discard")
+async def discard_skill_endpoint(skill_id: str):
+    from ..core.skills import SkillManager
+    skill_mgr = SkillManager.get_instance()
+    success = skill_mgr.discard_skill(skill_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Could not discard '{skill_id}'")
+    return {"status": "ok", "skill_id": skill_id, "state": "discarded"}
+
+
+@app.post("/api/skills/{skill_id}/patch")
+async def patch_skill_endpoint(skill_id: str, payload: PatchSkillPayload):
+    from ..core.skills import SkillManager
+    skill_mgr = SkillManager.get_instance()
+    success = skill_mgr.patch_skill(
+        skill_id=skill_id,
+        selectors=payload.selectors,
+        append_notes=payload.append_notes
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Could not patch '{skill_id}'")
+    return {"status": "ok", "skill_id": skill_id, "state": "patched"}
 
 
 @app.get("/api/cowork/elements")
@@ -287,6 +728,84 @@ async def run_cowork_agent(payload: CoworkRunPayload):
         await broadcast_event("HUD_CLEAR", {})
 
 
+voice_transcriber = VoiceTranscriber()
+blackboard = Blackboard()
+
+
+@app.get("/api/voice/status")
+async def get_voice_status():
+    return {
+        "status": "ok",
+        "local_available": voice_transcriber.is_local_available,
+        "whisper_binary": voice_transcriber.whisper_binary,
+    }
+
+
+@app.post("/api/voice/transcribe")
+async def transcribe_voice(request: Request):
+    audio_bytes = await request.body()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio payload")
+    language = request.query_params.get("lang")
+    text = voice_transcriber.transcribe(audio_bytes=audio_bytes, language=language)
+    return {"status": "ok", "text": text}
+
+
+@app.get("/api/blackboard/context")
+async def get_blackboard_context():
+    return {
+        "context": blackboard.render_context_for_prompt(),
+        "entities": blackboard.list_entities(),
+        "last_session": blackboard.get_last_session_summary(),
+    }
+
+
+@app.websocket("/ws/browser")
+async def browser_websocket_endpoint(websocket: WebSocket):
+    origin = websocket.headers.get("origin")
+    if not is_origin_allowed(origin):
+        logger.warning(f"[Server] Rejected Browser Extension WebSocket connection from origin: {origin}")
+        await websocket.close(code=1008)
+        return
+
+    expected_token = get_ipc_token()
+    if expected_token:
+        token = websocket.query_params.get("token") or websocket.headers.get("authorization", "").replace("Bearer ", "")
+        if not verify_ipc_token(token):
+            logger.warning("[Server] Rejected Browser Extension WebSocket: unauthorized token")
+            await websocket.close(code=1008)
+            return
+
+    await websocket.accept()
+    from emiliano.cowork.browser_bridge import get_browser_bridge
+    bridge = get_browser_bridge()
+    await bridge.handle_connection(websocket)
+
+
+@app.get("/api/browser/status")
+async def get_browser_status():
+    from emiliano.cowork.browser_bridge import get_browser_bridge
+    bridge = get_browser_bridge()
+    return {
+        "connected": bridge.is_connected,
+        "extension_info": bridge.extension_info
+    }
+
+
+@app.post("/api/browser/command")
+async def execute_browser_command(payload: BrowserCommandPayload):
+    from emiliano.cowork.browser_bridge import get_browser_bridge
+    bridge = get_browser_bridge()
+    if not bridge.is_connected:
+        raise HTTPException(status_code=503, detail="Browser extension is not connected.")
+    try:
+        res = await bridge.send_command(payload.action, payload.params, timeout=payload.timeout)
+        return {"status": "ok", "result": res}
+    except Exception as e:
+        logger.error(f"[Server] Browser command failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     origin = websocket.headers.get("origin")
@@ -295,6 +814,14 @@ async def websocket_endpoint(websocket: WebSocket):
         # Closing before accept() rejects the handshake with HTTP 403
         await websocket.close(code=1008)
         return
+
+    expected_token = get_ipc_token()
+    if expected_token:
+        token = websocket.query_params.get("token") or websocket.headers.get("authorization", "").replace("Bearer ", "")
+        if not verify_ipc_token(token):
+            logger.warning("[Server] Rejected UI WebSocket: unauthorized token")
+            await websocket.close(code=1008)
+            return
 
     await websocket.accept()
     active_connections.add(websocket)

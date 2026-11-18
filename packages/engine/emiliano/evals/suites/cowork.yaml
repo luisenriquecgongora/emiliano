@@ -1,0 +1,173 @@
+# Emiliano Cowork & Autonomous Workflows Evaluation Suite
+# Evaluates desktop cowork intent recognition, routing to workspace companion
+# extensions, dry-run client outreach workflows, and negative routing safety.
+name: cowork
+description: Cowork intent routing, outreach workflows, CRM sync, and UI safety gates
+tasks:
+  # 1. Cowork & Outreach Intent Routing (positive routing)
+  - id: route-outreach-basic
+    kind: route
+    goal: "please outreach new clients"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-send-dms
+    kind: route
+    goal: "send 5 dms to restaurant prospects"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-outreach-dryrun
+    kind: route
+    goal: "outreach 3 new clients (dry run)"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-instagram-outreach
+    kind: route
+    goal: "reach out to new clients on instagram"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-client-outreach
+    kind: route
+    goal: "run outreach pipeline"
+    expect: {route: plaatoos-outreach}
+
+  # 2. Negative Routing (ensuring general chat and coding tasks never trigger outreach)
+  - id: route-neg-chat
+    kind: route
+    goal: "Hello Emiliano, what is your purpose?"
+    expect: {route: direct}
+
+  - id: route-neg-mutex
+    kind: route
+    goal: "Explain what a mutex is in computer science"
+    expect: {route: direct}
+
+  - id: route-neg-git
+    kind: route
+    goal: "git status"
+    expect: {route: harness}
+
+  - id: route-neg-tests
+    kind: route
+    goal: "Run the pytest suite in this repo"
+    expect: {route: harness}
+
+  - id: route-neg-refactor
+    kind: route
+    goal: "Refactor utils.py to use pathlib"
+    expect: {route: harness}
+
+  # 3. Autonomous Cowork Workflow Execution (Dry Run)
+  - id: cowork-outreach-dryrun-2
+    kind: cowork
+    goal: "please outreach 2 new clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Batch Size"
+        - "2 leads processed"
+        - "Remaining Pending in CRM"
+        - "dm-sender.html"
+
+  - id: cowork-outreach-dryrun-1
+    kind: cowork
+    goal: "outreach 1 new client (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Batch Size"
+        - "1 leads processed"
+        - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-dryrun-default
+    kind: cowork
+    goal: "outreach new clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-cafe
+    kind: cowork
+    goal: "please outreach 2 cafe leads (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [CAFE]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-outreach-bar
+    kind: cowork
+    goal: "outreach 2 bar prospects (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [BAR]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-outreach-hotel
+    kind: cowork
+    goal: "reach out to 2 hotels (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [HOTEL]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-look-for-clients
+    kind: cowork
+    goal: "look for 2 cafe clients (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [CAFE]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-crm-status
+    kind: cowork
+    goal: "check crm status"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS CRM Live Status Report"
+        - "Total Tracked Leads"
+        - "Pending (`new`)"
+
+  - id: cowork-check-replies
+    kind: cowork
+    goal: "check replies"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Reply Tracker"
+
+  - id: cowork-follow-up-leads
+    kind: cowork
+    goal: "follow up on leads"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Multi-Day Follow-Up Sequence"
+        - "Day 3–5"
+
+  - id: cowork-research-client
+    kind: cowork
+    goal: "research lead Café Mozaika"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS Client Research Battle Card"
+        - "Business Intelligence"
+        - "Customized Pitch"
+
+  - id: cowork-prospect-clients
+    kind: cowork
+    goal: "prospect new clients in Krakow"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Autonomous Prospecting Engine Activated"
+        - "Prospecting Discovery Report"
+        - "Lead Score:"

@@ -303,11 +303,66 @@ HTTP endpoints: `GET /api/cowork/windows`, `POST /api/cowork/pin`, `/unpin`, `GE
 | Direct models | `packages/engine/emiliano/direct` | Unified client (Ollama directly, cloud APIs through litellm), DirectAgentLoop (file tools, ReAct loop), Ollama manager, credentials | Ollama, cloud APIs, workspace |
 | Harnesses | `packages/engine/emiliano/harnesses` | One adapter per coding agent; ACP client (`acp.py`); stopping a running agent (`cancel()`) | Agent CLIs |
 | MCP host | `packages/engine/emiliano/mcp` | Starts the stdio MCP servers listed under `mcp_servers` in the config and offers their tools to DirectAgentLoop as `server__tool`; ACP harnesses get the same servers. `emiliano mcp` lists them | MCP servers |
-| History | `packages/engine/emiliano/history` | SQLite store and API for chats and messages | Server |
+| History | `packages/engine/emiliano/history` | SQLite store and API for chats, messages, workspace projects (local folder binding, custom system prompt guidelines), and persistent deliverables (artifacts) | Server |
 | Traces | `packages/engine/emiliano/core/traces.py` | One local record per task: route, fallbacks, timings, tokens/s, permission decisions | Dispatcher |
 | Evals | `packages/engine/emiliano/evals` | Fixed tasks with automatic checks, run against a model or harness (`emiliano eval`) | Dispatcher |
 | Cowork | `packages/engine/emiliano/cowork` | Window pinning, screen perception (UI Automation in `uia.py`, Win32 fallback), mouse and keyboard actions. With a vision model (`vision.py`, config `cowork.vision`), each observation also carries a window screenshot: numbered boxes on detected elements, or a screen-coordinate grid when none are readable | Other windows |
 | CLI | `packages/engine/emiliano/cli.py` | Run requests, list harnesses, diagnostics, without the desktop app | Dispatcher |
+
+## Local Workspaces (Projects) and Persistent Deliverables (Artifacts)
+
+Emiliano uses a local-first, zero-cloud data model stored at `~/.emiliano/history.db`:
+
+```mermaid
+erDiagram
+    PROJECTS ||--o{ CHATS : "contains"
+    PROJECTS ||--o{ ARTIFACTS : "owns"
+    CHATS ||--o{ MESSAGES : "contains"
+    CHATS ||--o{ ARTIFACTS : "generates"
+
+    PROJECTS {
+        string id PK
+        string name
+        string description
+        string root_path
+        string system_prompt
+        datetime created_at
+        datetime updated_at
+    }
+
+    CHATS {
+        string id PK
+        string project_id FK
+        string title
+        int message_count
+        datetime created_at
+        datetime updated_at
+    }
+
+    MESSAGES {
+        string id PK
+        string chat_id FK
+        string role
+        string content
+        datetime created_at
+    }
+
+    ARTIFACTS {
+        string id PK
+        string chat_id FK
+        string project_id FK
+        string title
+        string kind
+        string content
+        string file_path
+        datetime created_at
+        datetime updated_at
+    }
+```
+
+1. **Local Projects & Directory Scoping:** Each project associates with an explicit local folder on disk (`root_path`, e.g. `C:\...\Oracliom` or `C:\...\emiliano-cowork-plaatoos`). When a chat belongs to a project, tasks executed by DirectAgentLoop or coding harnesses run directly in that directory as their workspace root, and any custom `system_prompt` is dynamically prepended to model instructions.
+2. **Persistent Artifacts Gallery:** Generated deliverables (architecture diagrams, execution plans, source code files, and analytical reports) are extracted and stored in the `artifacts` table. The UI sub-panel allows filtering by kind (`All`, `Diagrams`, `Plans`, `Code`, `Reports`), previewing rendered Markdown, copying content, and triggering direct operating system opening (`open-folder` / `open-file`).
+3. **Live Thinking Stream:** Frontier reasoning models (DeepSeek-R1, Qwen 2.5/3.5, Claude 3.7 Sonnet) stream their reasoning chain via `{"type": "reasoning", "content": "..."}` or `<think>` tags. The desktop UI presents an active glowing card (`Thinking process in progress… [Streaming]`) which automatically collapses into `Thought process (completed)` upon finish to preserve answer clarity while maintaining full auditability.
 
 ## Where to change what
 

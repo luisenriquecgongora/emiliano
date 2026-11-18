@@ -64,10 +64,12 @@ class ScreenPerceiver:
                             self._user32.GetWindowRect(hwnd, ctypes.byref(rect))
                             width = max(0, rect.right - rect.left)
                             height = max(0, rect.bottom - rect.top)
-                            if width > 100 and height > 100:  # Skip tiny system hooks
+                            is_minimized = bool(self._user32.IsIconic(hwnd))
+                            if (width > 100 and height > 100) or is_minimized:  # Keep normal and minimized apps
                                 windows.append({
                                     "hwnd": int(hwnd),
                                     "title": title,
+                                    "is_minimized": is_minimized,
                                     "bounds": {
                                         "x": int(rect.left),
                                         "y": int(rect.top),

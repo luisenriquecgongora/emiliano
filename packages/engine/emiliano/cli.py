@@ -44,6 +44,8 @@ class SlashCommandCompleter(Completer):
         "/model": "Pick the model that answers: no name shows a numbered list rated for this machine",
         "/load": "Load a local model into memory now, so replies start at once",
         "/unload": "Free the memory a loaded local model holds",
+        "/pull": "Download a model from the Ollama library into local storage",
+        "/delete": "Delete an installed local model to free disk space",
         "/doctor": "Run diagnostic check of models, credentials, and harnesses",
         "/models": "List models, rated for this machine's GPU and RAM, plus suggested downloads",
         "/harnesses": "List external CLI agent harnesses and auth status",
@@ -123,10 +125,12 @@ class SlashCommandCompleter(Completer):
                     )
             return
 
-        # 4. Model names for /model, /load and /unload
-        for cmd in ("/model ", "/load ", "/unload "):
+        # 4. Model names for /model, /load, /unload, /delete and /pull
+        for cmd in ("/model ", "/load ", "/unload ", "/delete ", "/pull "):
             if stripped.startswith(cmd):
                 current_arg = stripped[len(cmd):]
+                if cmd == "/unload " and "all".startswith(current_arg.lower()):
+                    yield Completion("all", start_position=-len(current_arg), display="all")
                 for name in self.model_names:
                     if name.lower().startswith(current_arg.lower()):
                         yield Completion(name, start_position=-len(current_arg), display=name)
@@ -646,7 +650,9 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
             click.echo("  • /policy <p>      : Switch routing policy (auto, local, harness, api)")
             click.echo("  • /model [name|n]  : Pick the model; no name shows a numbered list rated for this machine")
             click.echo("  • /load [name]     : Keep a local model in memory (default: the recommended one)")
-            click.echo("  • /unload [name]   : Free a loaded local model's memory (default: all loaded)")
+            click.echo("  • /unload [name|all] : Free a loaded local model's memory (default: all loaded)")
+            click.echo("  • /pull <name>     : Download a model into local storage (with streaming progress)")
+            click.echo("  • /delete <name>   : Delete an installed local model to free disk space")
             click.echo("  • /clear           : Clear conversation history")
             click.echo("  • /history         : Show conversation turn count")
             click.echo("  • /doctor          : Run diagnostic check")
@@ -808,10 +814,19 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                                            fg="yellow"))
                     continue
                 click.echo(click.style(f"Loading {name} (can take ~20 s)...", dim=True))
-                ok = asyncio.run(mgr.preload(name, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=-1))
-                click.echo(click.style(f"✓ {name} is in memory until you /unload it." if ok
+                ttl = dispatcher.config.models.idle_unload_timeout_seconds
+                ok = asyncio.run(mgr.preload(name, num_ctx=dispatcher.config.models.ollama_num_ctx, keep_alive=ttl))
+                ttl_msg = f" (idle timeout: {ttl}s)" if ttl and ttl > 0 else " until you /unload it"
+                click.echo(click.style(f"✓ {name} is in memory{ttl_msg}." if ok
                                        else f"Ollama could not load {name}.", fg="green" if ok else "red"))
             else:
+                if cmd_arg.lower() in ("all", "*"):
+                    unloaded = asyncio.run(mgr.unload_all())
+                    if unloaded:
+                        click.echo(click.style(f"✓ Unloaded all models ({', '.join(unloaded)}).", fg="green"))
+                    else:
+                        click.echo(click.style("No local models were loaded.", fg="cyan"))
+                    continue
                 names = [cmd_arg] if cmd_arg else [m["name"] for m in local if m["loaded"]]
                 if not names:
                     click.echo(click.style("No local models are loaded.", fg="cyan"))
@@ -820,6 +835,63 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
                     ok = asyncio.run(mgr.unload(name))
                     click.echo(click.style(f"✓ Unloaded {name}." if ok else f"Ollama could not unload {name}.",
                                            fg="green" if ok else "red"))
+            continue
+
+        if cmd_word in ("/pull", "pull"):
+            if not cmd_arg:
+                click.echo(click.style("Usage: /pull <model-name> (e.g. /pull qwen2.5-coder:1.5b)", fg="yellow"))
+                continue
+            click.echo(click.style(f"Pulling model '{cmd_arg}' from Ollama...", fg="cyan"))
+            mgr = dispatcher.registry.ollama_mgr
+
+            async def _run_pull(name: str):
+                last_line_len = 0
+                async for update in mgr.pull_model_stream(name):
+                    status = update.get("status", "")
+                    completed = update.get("completed", 0)
+                    total = update.get("total", 0)
+                    if total > 0:
+                        pct = (completed / total) * 100
+                        mb_done = completed // (1024 * 1024)
+                        mb_tot = total // (1024 * 1024)
+                        msg = f"\rPulling {name}: {pct:.1f}% ({mb_done}MB / {mb_tot}MB) - {status}"
+                    else:
+                        msg = f"\rPulling {name}: {status}"
+                    pad = " " * max(0, last_line_len - len(msg))
+                    click.echo(msg + pad, nl=False)
+                    last_line_len = len(msg)
+                click.echo("\n" + click.style(f"✓ Model '{name}' downloaded successfully.", fg="green"))
+
+            try:
+                asyncio.run(_run_pull(cmd_arg))
+                if completer and mgr:
+                    refreshed = asyncio.run(mgr.list_installed_models())
+                    completer.model_names = refreshed
+            except Exception as e:
+                click.echo("\n" + click.style(f"Failed to pull '{cmd_arg}': {e}", fg="red"))
+            continue
+
+        if cmd_word in ("/delete", "delete"):
+            if not cmd_arg:
+                click.echo(click.style("Usage: /delete <model-name> (e.g. /delete llama3.2:1b)", fg="yellow"))
+                continue
+            confirm = click.confirm(f"Are you sure you want to delete local model '{cmd_arg}'?", default=False)
+            if not confirm:
+                click.echo("Cancelled.")
+                continue
+
+            mgr = dispatcher.registry.ollama_mgr
+            try:
+                ok = asyncio.run(mgr.delete_model(cmd_arg))
+                if ok:
+                    click.echo(click.style(f"✓ Successfully deleted model '{cmd_arg}'.", fg="green"))
+                    if completer and mgr:
+                        refreshed = asyncio.run(mgr.list_installed_models())
+                        completer.model_names = refreshed
+                else:
+                    click.echo(click.style(f"Could not delete model '{cmd_arg}'. Check that it exists.", fg="red"))
+            except Exception as e:
+                click.echo(click.style(f"Error deleting model '{cmd_arg}': {e}", fg="red"))
             continue
 
         if cmd_lower in ("/doctor", "doctor"):
@@ -888,6 +960,203 @@ def chat(policy: str, harness: Optional[str], provider: Optional[str], model: Op
 
         asyncio.run(_execute_turn())
         click.echo()
+
+
+# =====================================================================
+# Grok Bot SOTA: Routines, Trust Gates & Coworker Daemon Subcommands
+# =====================================================================
+
+@cli.group(name="routines")
+def routines_group():
+    """Manage standing autonomous routines, schedules, and Trust Gates."""
+    pass
+
+
+@routines_group.command(name="list")
+@click.option("--all", "show_all", is_flag=True, help="Include disabled routines")
+def list_routines_cmd(show_all: bool):
+    """List configured routines and their schedules."""
+    import datetime
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    routines = store.list_routines(enabled_only=not show_all)
+    if not routines:
+        click.echo("No routines found. Create one with `emiliano routines add`.")
+        return
+
+    click.echo(click.style(f"{'ID':<20} {'NAME':<28} {'PERSONA':<12} {'TRIGGER':<18} {'NEXT RUN':<16} {'RUNS':>6}", bold=True))
+    for r in routines:
+        trig_str = r.trigger.type.value
+        if r.trigger.cron_expression:
+            trig_str += f" ({r.trigger.cron_expression})"
+        elif r.trigger.interval_seconds:
+            trig_str += f" ({r.trigger.interval_seconds}s)"
+
+        next_str = "-"
+        if r.next_run_at:
+            next_dt = datetime.datetime.fromtimestamp(r.next_run_at)
+            next_str = next_dt.strftime("%m-%d %H:%M")
+
+        status_color = "green" if r.enabled else "yellow"
+        click.echo(
+            f"{click.style(r.id[:19], fg=status_color):<20} "
+            f"{r.name[:27]:<28} "
+            f"{r.bot_persona:<12} "
+            f"{trig_str[:17]:<18} "
+            f"{next_str:<16} "
+            f"{r.total_runs:>6}"
+        )
+
+
+@routines_group.command(name="add")
+@click.option("--id", "routine_id", required=True, help="Unique routine ID")
+@click.option("--name", required=True, help="Human-readable routine name")
+@click.option("--goal", required=True, help="Task goal or prompt template")
+@click.option("--cron", default=None, help="Cron expression (e.g. '0 8 * * 1-5' or '@daily')")
+@click.option("--interval", default=None, type=int, help="Interval in seconds")
+@click.option("--persona", default="emiliano", help="Bot persona (@browser, @researcher, @coder, etc.)")
+@click.option("--skill", default=None, help="Optional bound skill ID")
+def add_routine_cmd(routine_id: str, name: str, goal: str, cron: Optional[str], interval: Optional[int], persona: str, skill: Optional[str]):
+    """Add a new standing autonomous routine."""
+    import datetime
+    from .routines.models import Routine, TriggerConfig, TriggerType
+    from .routines.scheduler import RoutineScheduler
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    scheduler = RoutineScheduler(store=store)
+
+    if cron:
+        trig = TriggerConfig(type=TriggerType.CRON, cron_expression=cron)
+    elif interval:
+        trig = TriggerConfig(type=TriggerType.INTERVAL, interval_seconds=interval)
+    else:
+        trig = TriggerConfig(type=TriggerType.MANUAL)
+
+    r = Routine(
+        id=routine_id,
+        name=name,
+        bot_persona=persona,
+        skill_id=skill,
+        goal_template=goal,
+        trigger=trig,
+    )
+    scheduled = scheduler.schedule_routine(r)
+    click.echo(click.style(f"✓ Routine '{scheduled.name}' ({scheduled.id}) saved.", fg="green"))
+    if scheduled.next_run_at:
+        dt = datetime.datetime.fromtimestamp(scheduled.next_run_at)
+        click.echo(f"  Next scheduled run: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+@routines_group.command(name="trigger")
+@click.argument("routine_id")
+def trigger_routine_cmd(routine_id: str):
+    """Trigger a routine immediately."""
+    from .core.dispatcher import ExecutionDispatcher
+    from .routines.scheduler import RoutineScheduler
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    dispatcher = ExecutionDispatcher()
+    scheduler = RoutineScheduler(store=store, dispatcher=dispatcher)
+
+    click.echo(f"Triggering routine '{routine_id}'...")
+    record = asyncio.run(scheduler.execute_routine(routine_id))
+    color = "green" if record.status.value == "succeeded" else ("yellow" if record.status.value == "awaiting_approval" else "red")
+    click.echo(f"Run completed with status: {click.style(record.status.value.upper(), fg=color)}")
+    if record.output:
+        click.echo(f"Output: {record.output}")
+    if record.error:
+        click.echo(click.style(f"Error: {record.error}", fg="red"))
+
+
+@routines_group.command(name="staged")
+def staged_cmd():
+    """List pending Trust Gate approval actions."""
+    import datetime
+    from .routines.models import StagedActionStatus
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    actions = store.list_staged_actions(status=StagedActionStatus.PENDING)
+    if not actions:
+        click.echo(click.style("No actions pending approval. All clear!", fg="green"))
+        return
+
+    click.echo(click.style(f"{'ACTION ID':<18} {'ROUTINE':<20} {'TYPE':<16} {'TARGET':<18} {'CREATED':<16}", bold=True))
+    for a in actions:
+        dt = datetime.datetime.fromtimestamp(a.created_at).strftime("%m-%d %H:%M")
+        click.echo(f"{a.id:<18} {a.routine_id:<20} {click.style(a.action_type, fg='yellow'):<16} {a.target:<18} {dt:<16}")
+        if a.notes:
+            click.echo(click.style(f"  Notes: {a.notes}", dim=True))
+
+
+@routines_group.command(name="approve")
+@click.argument("action_id")
+def approve_cmd(action_id: str):
+    """Approve a pending Trust Gate action."""
+    from .routines.models import StagedActionStatus
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    resolved = store.resolve_staged_action(action_id, StagedActionStatus.APPROVED)
+    if not resolved:
+        click.echo(click.style(f"Action '{action_id}' not found.", fg="red"))
+        return
+    click.echo(click.style(f"✓ Action '{action_id}' APPROVED.", fg="green"))
+
+
+@routines_group.command(name="reject")
+@click.argument("action_id")
+@click.option("--reason", default="Rejected by user", help="Rejection reason")
+def reject_cmd(action_id: str, reason: str):
+    """Reject a pending Trust Gate action."""
+    from .routines.models import StagedActionStatus
+    from .routines.store import RoutineStore
+
+    store = RoutineStore()
+    resolved = store.resolve_staged_action(action_id, StagedActionStatus.REJECTED, notes=reason)
+    if not resolved:
+        click.echo(click.style(f"Action '{action_id}' not found.", fg="red"))
+        return
+    click.echo(click.style(f"✓ Action '{action_id}' REJECTED.", fg="yellow"))
+
+
+@cli.command(name="daemon")
+@click.option("--start", "action_start", is_flag=True, help="Start daemon in foreground")
+@click.option("--status", "action_status", is_flag=True, help="Check daemon status")
+@click.option("--stop", "action_stop", is_flag=True, help="Stop background daemon")
+@click.option("--port", default=8766, help="Daemon REST and webhook port")
+def daemon_cmd(action_start: bool, action_status: bool, action_stop: bool, port: int):
+    """Manage the 24/7 background coworker daemon."""
+    from .routines.daemon import DaemonService
+
+    service = DaemonService(port=port)
+
+    if action_stop:
+        if service.stop():
+            click.echo(click.style("✓ Emiliano Daemon stopped.", fg="green"))
+        else:
+            click.echo("Daemon is not running.")
+        return
+
+    if action_status:
+        pid = service.is_running()
+        if pid:
+            click.echo(click.style(f"✓ Emiliano Daemon is RUNNING (PID {pid}, port {port}).", fg="green"))
+        else:
+            click.echo("Emiliano Daemon is STOPPED.")
+        return
+
+    # Default action or --start
+    pid = service.is_running()
+    if pid:
+        click.echo(click.style(f"Daemon already running (PID {pid}).", fg="yellow"))
+        return
+
+    click.echo(click.style(f"Starting Emiliano Coworker Daemon on 127.0.0.1:{port}...", fg="cyan", bold=True))
+    service.start_foreground()
 
 
 def main():

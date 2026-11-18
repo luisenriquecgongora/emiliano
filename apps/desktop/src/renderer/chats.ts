@@ -88,13 +88,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const chatsApi = {
   list: () => request<ChatSummary[]>('/api/chats'),
   get: (id: string) => request<ChatDetail>(`/api/chats/${id}`),
-  create: () => request<ChatSummary>('/api/chats', { method: 'POST', body: '{}' }),
+  create: (title?: string, projectId?: string) =>
+    request<ChatSummary>('/api/chats', {
+      method: 'POST',
+      body: JSON.stringify({ title, project_id: projectId }),
+    }),
   remove: (id: string) => request<void>(`/api/chats/${id}`, { method: 'DELETE' }),
   removeAll: () => request<{ deleted: number }>('/api/chats', { method: 'DELETE' }),
   getContext: (id: string, modelId?: string) =>
     request<ContextMetrics>(`/api/chats/${id}/context${modelId ? `?model_id=${encodeURIComponent(modelId)}` : ''}`),
   compact: (id: string) =>
     request<CompactResult>(`/api/chats/${id}/compact`, { method: 'POST' }),
+  clear: (id: string) =>
+    request<{ status: string; chat_id: string }>(`/api/chats/${id}/clear`, { method: 'POST' }),
 };
 
 /** A provider or harness from GET /api/models. */
@@ -135,7 +141,13 @@ export interface ModelSuggestion {
 }
 
 export interface ModelRecommendations {
-  hardware: { gpuName: string | null; vramBytes: number; ramBytes: number };
+  hardware: {
+    gpuName: string | null;
+    vramBytes: number;
+    ramBytes: number;
+    vramUsedBytes?: number;
+    vramFreeBytes?: number;
+  };
   models: LocalModel[];
   suggestions: ModelSuggestion[];
 }
@@ -146,12 +158,41 @@ export const FIT_LABELS: Record<ModelFit, { icon: string; text: string }> = {
   too_big: { icon: '❌', text: 'Too big for this machine' },
 };
 
+export interface DownloadStatus {
+  status: 'idle' | 'starting' | 'downloading' | 'finalizing' | 'completed' | 'error';
+  step?: string;
+  progress: number;
+  completed?: number;
+  total?: number;
+  error?: string | null;
+}
+
 export const modelsApi = {
   list: () => request<{ models: ModelProvider[] }>('/api/models'),
   recommendations: () => request<ModelRecommendations>('/api/models/recommendations'),
-  load: (model: string) => request<{ status: string }>('/api/models/load', { method: 'POST', body: JSON.stringify({ model }) }),
+  load: (model: string, keepAlive?: number | string) =>
+    request<{ status: string; keep_alive?: number | string }>('/api/models/load', {
+      method: 'POST',
+      body: JSON.stringify({ model, keep_alive: keepAlive }),
+    }),
   unload: (model: string) =>
     request<{ status: string }>('/api/models/unload', { method: 'POST', body: JSON.stringify({ model }) }),
+  unloadAll: () =>
+    request<{ status: string; unloaded: string[] }>('/api/models/unload-all', { method: 'POST' }),
+  pull: (model: string) =>
+    request<{ status: string; model: string }>('/api/models/pull', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
+  pullStatus: (model?: string) =>
+    request<{ downloads: Record<string, DownloadStatus> }>(
+      model ? `/api/models/pull/status?model=${encodeURIComponent(model)}` : '/api/models/pull/status',
+    ),
+  delete: (model: string) =>
+    request<{ status: string; model: string }>('/api/models/delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ model }),
+    }),
 };
 
 /** An MCP service Emiliano can sign in to (GET /api/mcp/connections). */
@@ -176,6 +217,126 @@ export const connectionsApi = {
     request<ConnectResult>('/api/mcp/connect', { method: 'POST', body: JSON.stringify({ service }) }),
   disconnect: (service: string) =>
     request<{ service: string }>('/api/mcp/disconnect', { method: 'POST', body: JSON.stringify({ service }) }),
+};
+
+export interface SkillItem {
+  id: string;
+  title: string;
+  description: string;
+  intents?: string[];
+  triggers?: string[];
+  category: 'workflow' | 'system' | 'custom';
+  enabled?: boolean;
+  status?: 'active' | 'staged' | 'archived';
+  version?: string;
+  badge?: string;
+  path?: string;
+  quickActions?: string[];
+  selectors?: Record<string, string>;
+  instructions_md?: string;
+}
+
+export interface ProjectItem {
+  id: string;
+  name: string;
+  description: string;
+  root_path: string;
+  system_prompt: string;
+  created_at: string;
+  updated_at: string;
+  chat_count: number;
+}
+
+export interface ArtifactItem {
+  id: string;
+  chat_id?: string;
+  project_id?: string;
+  title: string;
+  kind: 'html' | 'code' | 'diagram' | 'plan' | 'diff' | 'markdown';
+  content: string;
+  file_path?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const skillsApi = {
+  list: () => request<{ skills: SkillItem[] }>('/api/skills'),
+};
+
+export interface RoutineItem {
+  id: string;
+  name: string;
+  description: string;
+  bot_persona: string;
+  skill_id?: string;
+  goal_template?: string;
+  inputs?: Record<string, any>;
+  trigger: {
+    type: 'cron' | 'interval' | 'webhook' | 'manual';
+    cron_expression?: string;
+    interval_seconds?: number;
+    webhook_path?: string;
+  };
+  enabled: boolean;
+  last_run_at?: number;
+  next_run_at?: number;
+  total_runs: number;
+}
+
+export interface StagedActionItem {
+  id: string;
+  routine_id: string;
+  run_id: string;
+  action_type: string;
+  target: string;
+  payload: Record<string, any>;
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
+  created_at: number;
+  notes?: string;
+}
+
+export const routinesApi = {
+  list: (enabledOnly = false) =>
+    request<{ routines: RoutineItem[] }>(`/api/routines${enabledOnly ? '?enabled_only=true' : ''}`),
+  create: (body: Partial<RoutineItem>) =>
+    request<RoutineItem>('/api/routines', { method: 'POST', body: JSON.stringify(body) }),
+  trigger: (id: string, inputs?: Record<string, any>) =>
+    request<any>(`/api/routines/${id}/trigger`, { method: 'POST', body: JSON.stringify({ inputs }) }),
+  listStaged: (status = 'pending') =>
+    request<{ staged_actions: StagedActionItem[] }>(`/api/routines/staged?status=${status}`),
+  approveStaged: (id: string) =>
+    request<StagedActionItem>(`/api/routines/staged/${id}/approve`, { method: 'POST' }),
+  rejectStaged: (id: string, notes?: string) =>
+    request<StagedActionItem>(`/api/routines/staged/${id}/reject`, { method: 'POST', body: JSON.stringify({ notes }) }),
+};
+
+export const projectsApi = {
+  list: () => request<ProjectItem[]>('/api/projects'),
+  get: (id: string) => request<ProjectItem & { chats: ChatSummary[] }>(`/api/projects/${id}`),
+  create: (body: { name: string; root_path?: string; description?: string; system_prompt?: string }) =>
+    request<ProjectItem>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: { name?: string; root_path?: string; description?: string; system_prompt?: string }) =>
+    request<ProjectItem>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  openFolder: (id: string) =>
+    request<{ opened: boolean; path: string }>(`/api/projects/${id}/open-folder`, { method: 'POST' }),
+  remove: (id: string) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
+};
+
+export const artifactsApi = {
+  list: (params?: { chatId?: string; projectId?: string; kind?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.chatId) q.set('chat_id', params.chatId);
+    if (params?.projectId) q.set('project_id', params.projectId);
+    if (params?.kind) q.set('kind', params.kind);
+    const qs = q.toString();
+    return request<ArtifactItem[]>(`/api/artifacts${qs ? `?${qs}` : ''}`);
+  },
+  get: (id: string) => request<ArtifactItem>(`/api/artifacts/${id}`),
+  create: (body: { title: string; kind?: string; content: string; chat_id?: string; project_id?: string; file_path?: string }) =>
+    request<ArtifactItem>('/api/artifacts', { method: 'POST', body: JSON.stringify(body) }),
+  openFile: (id: string) =>
+    request<{ opened: boolean; path: string }>(`/api/artifacts/${id}/open`, { method: 'POST' }),
+  remove: (id: string) => request<void>(`/api/artifacts/${id}`, { method: 'DELETE' }),
 };
 
 export function formatGb(bytes: number): string {

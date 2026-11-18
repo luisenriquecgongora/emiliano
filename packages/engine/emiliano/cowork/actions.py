@@ -6,9 +6,17 @@ HWND window pinning, and 400ms shadow countdown previews.
 
 from __future__ import annotations
 
+import sys
 import time
 from typing import Callable, Optional
 from loguru import logger
+
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-Monitor V2 DPI awareness
+    except Exception:
+        pass
 
 from .pinning import WindowPinManager, SafetyInterruptedError
 from .uia import UiaReader
@@ -20,7 +28,7 @@ def _pyautogui():
     import pyautogui
 
     # Set safety settings for pyautogui
-    pyautogui.FAILSAFE = True  # Moving cursor to any screen corner triggers FailSafeException
+    pyautogui.FAILSAFE = False  # Emiliano uses native global Escape killswitch and pin boundary checks
     pyautogui.PAUSE = 0.05     # 50ms pause between actions
     return pyautogui
 
@@ -45,6 +53,32 @@ class ActionSynthesizer:
     def is_paused(self) -> bool:
         return self._paused
 
+    def ensure_foreground_and_restored(self) -> None:
+        """Restores pinned window if minimized and forces it to foreground before interacting."""
+        if not self.pin_manager.is_pinned():
+            return
+        hwnd = self.pin_manager.pinned_hwnd
+        if not hwnd:
+            return
+        import sys
+        if sys.platform == "win32":
+            import ctypes
+            user32 = ctypes.windll.user32
+            if user32 and user32.IsWindow(hwnd):
+                # If window is already the foreground window and not minimized, do NOT touch it!
+                # Invoking force_foreground toggles Z-order and simulates Alt keys, which clears
+                # internal web document keyboard focus in Chromium browsers (resetting document.activeElement to body).
+                if user32.GetForegroundWindow() == hwnd and not user32.IsIconic(hwnd):
+                    return
+                if user32.IsIconic(hwnd):
+                    logger.info(f"[Action] Pinned window {hwnd} is minimized! Restoring before interaction...")
+                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    time.sleep(0.25)
+                if user32.GetForegroundWindow() != hwnd:
+                    logger.info(f"[Action] Pinned window {hwnd} is in background! Bringing to foreground...")
+                    self.pin_manager.force_foreground(hwnd)
+                    time.sleep(0.15)
+
     def click(
         self,
         x: float,
@@ -66,6 +100,9 @@ class ActionSynthesizer:
         if self._paused:
             logger.warning("[Action] Aborted click: synthesizer is currently paused.")
             raise SafetyInterruptedError("Synthesizer is paused")
+
+        # Invariant 0: Ensure target window is restored and foreground
+        self.ensure_foreground_and_restored()
 
         # Invariant 1: Target must be inside pinned application window
         if not self.pin_manager.is_point_within_pinned_window(x, y):
@@ -109,11 +146,14 @@ class ActionSynthesizer:
         x: Optional[float] = None,
         y: Optional[float] = None,
         interval: float = 0.02,
+        use_clipboard: Optional[bool] = None,
     ) -> None:
         """Types text safely into the pinned active window. Uses ghost SetValue when coordinates are provided."""
         if self._paused:
             logger.warning("[Action] Aborted type: synthesizer is currently paused.")
             raise SafetyInterruptedError("Synthesizer is paused")
+
+        self.ensure_foreground_and_restored()
 
         if not self.pin_manager.verify_active(auto_focus=True):
             msg = "Target pinned window lost focus before typing!"
@@ -127,6 +167,21 @@ class ActionSynthesizer:
                     return
                 logger.debug(f"[Action] Ghost set_value not supported at ({x}, {y}); falling back to synthetic keystrokes")
 
+        # Fallback to clipboard paste for non-ASCII characters (Polish diacritics, emojis, etc.)
+        # or when multiline / explicit use_clipboard is requested. pyautogui.typewrite fails on Unicode!
+        has_unicode = any(ord(c) > 127 for c in text)
+        if use_clipboard or has_unicode or "\n" in text:
+            try:
+                import pyperclip
+                logger.info(f"[Action] Pasting Unicode/multiline text via clipboard: {text[:20]}... (length={len(text)})")
+                pyperclip.copy(text)
+                time.sleep(0.05)
+                self.hotkey("ctrl", "v")
+                time.sleep(0.05)
+                return
+            except Exception as e:
+                logger.warning(f"[Action] Clipboard paste fallback failed, falling back to typewrite: {e}")
+
         logger.info(f"[Action] Typing: {text[:20]}... (length={len(text)})")
         _pyautogui().typewrite(text, interval=interval)
 
@@ -134,6 +189,7 @@ class ActionSynthesizer:
         """Presses a single key."""
         if self._paused:
             return
+        self.ensure_foreground_and_restored()
         if not self.pin_manager.verify_active(auto_focus=True):
             raise SafetyInterruptedError("Target window lost focus before key press")
         logger.info(f"[Action] Pressing key: {key}")
@@ -143,7 +199,74 @@ class ActionSynthesizer:
         """Executes a key combination (e.g. Ctrl+C)."""
         if self._paused:
             return
+        self.ensure_foreground_and_restored()
         if not self.pin_manager.verify_active(auto_focus=True):
             raise SafetyInterruptedError("Target window lost focus before hotkey")
         logger.info(f"[Action] Hotkey: {keys}")
         _pyautogui().hotkey(*keys)
+
+    def scroll(self, clicks: int, x: Optional[float] = None, y: Optional[float] = None) -> None:
+        """
+        Executes mouse wheel scroll (positive = up, negative = down).
+        Respects pinned window bounds if coordinates are given.
+        """
+        if self._paused:
+            logger.warning("[Action] Aborted scroll: synthesizer is paused.")
+            raise SafetyInterruptedError("Synthesizer is paused")
+
+        self.ensure_foreground_and_restored()
+        if not self.pin_manager.verify_active(auto_focus=True):
+            raise SafetyInterruptedError("Target window lost focus before scroll")
+
+        if x is not None and y is not None:
+            if not self.pin_manager.is_point_within_pinned_window(x, y):
+                raise SafetyInterruptedError(f"Scroll target ({x}, {y}) is outside pinned window bounds!")
+            _pyautogui().moveTo(x, y, duration=0.1)
+
+        logger.info(f"[Action] Scrolling {clicks} clicks at ({x}, {y})")
+        _pyautogui().scroll(clicks)
+
+    def navigate_browser(self, url: str) -> None:
+        """
+        Navigates an active browser window to a URL by focusing the address bar,
+        clearing any residual content, pasting the URL via clipboard, and pressing Enter.
+        """
+        if self._paused:
+            raise SafetyInterruptedError("Synthesizer is paused")
+        self.ensure_foreground_and_restored()
+        if not self.pin_manager.verify_active(auto_focus=True):
+            raise SafetyInterruptedError("Target window lost focus before browser navigation")
+
+        logger.info(f"[Action] Navigating browser to: {url}")
+        # Focus address bar (Ctrl+L)
+        self.hotkey("ctrl", "l")
+        time.sleep(0.2)
+        # Select all and delete residual text so URLs never concatenate or drop the 'h'
+        self.hotkey("ctrl", "a")
+        time.sleep(0.05)
+        self.press_key("backspace")
+        time.sleep(0.05)
+        # Paste URL atomically via clipboard
+        import pyperclip
+        pyperclip.copy(url)
+        time.sleep(0.05)
+        self.hotkey("ctrl", "v")
+        time.sleep(0.15)
+        self.press_key("enter")
+        time.sleep(0.3)
+
+    def human_jitter(self, min_seconds: float = 1.0, max_seconds: float = 3.0) -> float:
+        """
+        Sleeps for a random interval between min_seconds and max_seconds,
+        checking for pause / safety interrupt every 50ms.
+        """
+        import random
+        target_sleep = random.uniform(min_seconds, max_seconds)
+        elapsed = 0.0
+        step = 0.05
+        while elapsed < target_sleep:
+            if self._paused:
+                raise SafetyInterruptedError("Halted during jitter sleep")
+            time.sleep(step)
+            elapsed += step
+        return target_sleep

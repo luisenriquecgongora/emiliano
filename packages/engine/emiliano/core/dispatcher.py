@@ -29,6 +29,9 @@ from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
 from .routing import needs_workspace
 from .traces import TaskTrace, TraceStore
+from .blackboard import Blackboard
+from .extensions import ExtensionManager
+from .guardrails import GuardrailPipeline
 from ..direct.agent import DirectAgentLoop
 from ..direct.client import UnifiedLLMClient, load_litellm
 
@@ -73,16 +76,20 @@ class ExecutionDispatcher:
     def __init__(self, config: Optional[EmilianoConfig] = None):
         self.config = config or load_config()
         self.registry = CapabilityRegistry(config=self.config)
+        self.blackboard = Blackboard()
         # include_harnesses -> (time, capabilities); a full discovery (True) also serves direct-only requests
         self._discovered: Dict[bool, Tuple[float, Dict[str, Capability]]] = {}
 
-        # Initialize enhanced context manager (Phase 1 features)
+        # Initialize enhanced context manager (Phase 1 features + Blackboard Memory)
         self.context_manager = EnhancedContextManager(
             config=self.config,
             strategy=TruncationStrategy(self.config.context.truncation_strategy),
+            blackboard=self.blackboard,
         )
         self.traces = TraceStore()
         self.last_trace: Optional[TaskTrace] = None  # the most recent task's trace (evals read it)
+        self.extension_mgr = ExtensionManager()
+        self.guardrails = GuardrailPipeline()
         self._mcp = None  # McpManager, started on the first tool task when mcp_servers are configured
 
     async def route_task(
@@ -224,6 +231,7 @@ class ExecutionDispatcher:
         reasoning: Optional[bool] = None,
         isolate_workspace: bool = False,
         merge_on_success: bool = True,
+        workspace: Optional[str] = None,
     ) -> Tuple[Capability, str]:
         """
         Executes the goal using the best viable candidate, falling back on recoverable failures.
@@ -257,7 +265,7 @@ class ExecutionDispatcher:
                 return choice
 
         isolated: Optional[IsolatedWorkspace] = None
-        target_dir = os.getcwd()
+        target_dir = workspace or os.getcwd()
         if isolate_workspace:
             try:
                 candidate_iso = IsolatedWorkspace(base_dir=target_dir)
@@ -270,6 +278,38 @@ class ExecutionDispatcher:
                 isolated = None
 
         try:
+            # Check if goal matches a workspace companion extension (e.g. PlaatoOS client outreach)
+            matched_ext = self.extension_mgr.match_intent(goal)
+            if matched_ext:
+                logger.info(f"[Dispatcher] Routing goal '{goal[:50]}' to extension '{matched_ext.name}'")
+                ext_cap = Capability(
+                    name=matched_ext.name,
+                    display_name=matched_ext.title,
+                    execution_type=ExecutionType.DIRECT_MODEL,
+                    priority=100,
+                )
+                if on_route_selected:
+                    on_route_selected(ext_cap)
+                try:
+                    reply = await self.extension_mgr.execute_extension(
+                        extension=matched_ext,
+                        goal=goal,
+                        on_chunk=traced_chunk,
+                        on_reasoning=traced_reasoning,
+                    )
+                    trace.finish("succeeded")
+                    try:
+                        self.blackboard.post_event(
+                            source=matched_ext.name,
+                            event_type="extension_task_completed",
+                            payload={"goal": goal, "duration": trace.duration_seconds},
+                        )
+                    except Exception:
+                        pass
+                    return ext_cap, reply
+                except Exception as ext_err:
+                    logger.warning(f"[Dispatcher] Extension execution failed: {ext_err}; falling back to standard routes.")
+
             result = await self._execute_with_fallback(
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
                 traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
@@ -284,6 +324,23 @@ class ExecutionDispatcher:
                     if changed:
                         isolated.commit(f"chore: changes from task {isolated.task_id}")
             trace.finish("succeeded")
+            cap, reply = result
+            try:
+                self.blackboard.post_event(
+                    source=cap.name,
+                    event_type="task_completed",
+                    payload={"goal": goal, "duration": trace.duration_seconds},
+                )
+                if len(goal) > 10 and len(reply) > 30:
+                    summary_title = goal[:60] + ("..." if len(goal) > 60 else "")
+                    summary_text = f"Goal: {goal}\nAgent: {cap.display_name}\nSummary: {reply[:400]}"
+                    self.blackboard.record_session_summary(
+                        session_id=trace.task_id or f"task_{int(time.time())}",
+                        title=summary_title,
+                        summary=summary_text,
+                    )
+            except Exception as e:
+                logger.debug(f"[Dispatcher] Blackboard update failed: {e}")
             return result
         except (KeyboardInterrupt, asyncio.CancelledError):
             if isolated:
@@ -377,8 +434,14 @@ class ExecutionDispatcher:
 
                     if is_task:
                         active_ws = workspace or os.getcwd()
-                        agent = DirectAgentLoop(client=client, model_id=model_id, timeout=timeout,
-                                                mcp=await self._mcp_tools(active_ws))
+                        agent = DirectAgentLoop(
+                            client=client,
+                            model_id=model_id,
+                            timeout=timeout,
+                            mcp=await self._mcp_tools(active_ws),
+                            guardrails=self.guardrails,
+                            trace=trace,
+                        )
                         output = await agent.run(
                             goal=goal,
                             workspace=active_ws,
@@ -399,12 +462,13 @@ class ExecutionDispatcher:
                         return candidate, output
 
                     output_parts = []
+                    think = reasoning if reasoning is not None else (None if is_task else False)
                     async for chunk in client.stream_completion(
                         messages=task_messages,
                         model_name=model_id,
                         timeout=timeout,
                         on_reasoning=on_reasoning,
-                        think=reasoning if reasoning is not None else False,
+                        think=think,
                     ):
                         output_parts.append(chunk)
                         if on_chunk:
@@ -423,6 +487,14 @@ class ExecutionDispatcher:
                     harness = harness_instances.get(candidate.name)
                     if not harness:
                         raise RuntimeError(f"Harness adapter '{candidate.name}' not found.")
+
+                    # Pre-emptively offload local models to free VRAM for external agent harnesses
+                    if getattr(self.config.models, "offload_on_harness_delegation", False):
+                        try:
+                            await self.registry.ollama_mgr.unload_all()
+                            logger.info(f"[Dispatcher] Offloaded local models from VRAM before delegating to {candidate.display_name}")
+                        except Exception as e:
+                            logger.debug(f"[Dispatcher] Offload on harness delegation skipped/failed: {e}")
 
                     # Snapshot the workspace so a failure can be checked for partial changes
                     active_ws = workspace or os.getcwd()
@@ -513,6 +585,28 @@ class ExecutionDispatcher:
         workspace untouched. Raises ExecutionAbortedError when it changed files, or when
         changes cannot be detected, because running the goal again could apply it twice.
         """
+        # If the harness failed at authentication, billing, or pre-execution launch time,
+        # it never ran code or modified the workspace. Allow falling back to alternative routes.
+        fail_low = failure.lower()
+        startup_auth_signals = (
+            "can't use your claude subscription",
+            "can’t use your claude subscription",
+            "subscription",
+            "past due",
+            "unauthenticated",
+            "not authenticated",
+            "login required",
+            "authentication required",
+            "oauth credential",
+            "api key not found",
+            "invalid api key",
+            "not found on path",
+            "cannot find the file specified",
+        )
+        if any(sig in fail_low for sig in startup_auth_signals):
+            logger.info(f"[Dispatcher] Harness '{candidate.display_name}' failed at startup/auth without modifying workspace. Falling back.")
+            raise RuntimeError(failure)
+
         if before is None or after is None:
             raise ExecutionAbortedError(
                 f"{failure}\nNot retrying with another route: {workspace} is not a git repository, "
@@ -573,7 +667,8 @@ class ExecutionDispatcher:
         if harness_override or policy_norm == RoutingPolicy.HARNESS.value:
             return
         # Only remote providers go through litellm; Ollama is called directly
-        remote_possible = provider_override != "ollama" and policy_norm != RoutingPolicy.LOCAL.value
+        has_remote_keys = self.registry.cred_mgr.has_any_key() if hasattr(self.registry, "cred_mgr") else True
+        remote_possible = provider_override != "ollama" and policy_norm != RoutingPolicy.LOCAL.value and has_remote_keys
         steps = [asyncio.to_thread(load_litellm)] if import_litellm and remote_possible else []
         local_possible = provider_override in (None, "ollama") and policy_norm != RoutingPolicy.API.value
         if local_possible and self.config.models.preload_local_model:
@@ -589,8 +684,16 @@ class ExecutionDispatcher:
         model = mgr.select_best_model(installed, model_override)
         if not model:
             return
+
+        # Enforce VRAM headroom via Governor
+        from ..direct.lifecycle import ModelLifecycleGovernor
+        governor = ModelLifecycleGovernor.get_instance(config=self.config, ollama_mgr=mgr)
+        await governor.ensure_vram_headroom(model)
+
         started = time.monotonic()
-        if await mgr.preload(model, self.config.models.ollama_num_ctx):
+        keep_alive = self.config.models.idle_unload_timeout_seconds
+        if await mgr.preload(model, self.config.models.ollama_num_ctx, keep_alive=keep_alive):
+            governor.touch(model)
             logger.info(f"[Dispatcher] Preloaded local model {model} in {time.monotonic() - started:.1f}s")
 
     async def _discover(self, include_harnesses: bool = True) -> Dict[str, Capability]:

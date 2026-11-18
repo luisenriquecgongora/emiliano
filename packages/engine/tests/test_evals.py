@@ -30,11 +30,13 @@ class FakeDispatcher:
 
     requires_agent_harness = staticmethod(ExecutionDispatcher.requires_agent_harness)
 
-    def __init__(self, reply="", edit=None, error=None, replies=None):
+    def __init__(self, reply="", edit=None, error=None, replies=None, cap=None, extension_mgr=None):
         self.reply, self.edit, self.error = reply, edit, error
         self.replies = list(replies) if replies else None  # one reply per call, in order
         self.calls = []
         self.last_trace = None
+        self.cap = cap
+        self.extension_mgr = extension_mgr
 
     async def execute_task(self, goal, timeout=None, **kwargs):
         self.calls.append({"goal": goal, "cwd": os.getcwd(), **kwargs})
@@ -50,7 +52,7 @@ class FakeDispatcher:
             raise RuntimeError(self.error)
         if self.edit:
             self.edit(os.getcwd())
-        return None, self.reply
+        return self.cap, self.reply
 
 
 def run(runner, task, target="ollama"):
@@ -151,6 +153,78 @@ class TestRunner(unittest.TestCase):
         path = save_report(report, Path(tempfile.mkdtemp()))
         self.assertEqual(json.loads(path.read_text())["suite"], "mini")
 
+    def test_route_task_with_extension(self):
+        class FakeExt:
+            name = "plaatoos-outreach"
+
+        class FakeExtMgr:
+            def match_intent(self, goal):
+                if "outreach" in goal.lower():
+                    return FakeExt()
+                return None
+
+        dispatcher = FakeDispatcher(extension_mgr=FakeExtMgr())
+        runner = EvalRunner(dispatcher=dispatcher)
+
+        # Matches extension by name or generic 'extension'
+        r1 = run(runner, {"id": "r1", "kind": "route", "goal": "please outreach new clients", "expect": {"route": "plaatoos-outreach"}})
+        self.assertEqual(r1.status, "passed")
+        self.assertEqual(r1.route, "plaatoos-outreach")
+
+        r2 = run(runner, {"id": "r2", "kind": "route", "goal": "send outreach", "expect": {"route": "extension"}})
+        self.assertEqual(r2.status, "passed")
+
+        # Non-matching goal routes to direct or harness
+        r3 = run(runner, {"id": "r3", "kind": "route", "goal": "hi", "expect": {"route": "direct"}})
+        self.assertEqual(r3.status, "passed")
+
+        r4 = run(runner, {"id": "r4", "kind": "route", "goal": "git status", "expect": {"route": "harness"}})
+        self.assertEqual(r4.status, "passed")
+
+    def test_workflow_task_executes_and_verifies_expectations(self):
+        class FakeCap:
+            name = "plaatoos-outreach"
+
+        dispatcher = FakeDispatcher(
+            reply="### Outreach Completed\nBatch Size: 2\nRemaining Pending in CRM: 1222",
+            cap=FakeCap()
+        )
+        runner = EvalRunner(dispatcher=dispatcher)
+        task = {
+            "id": "wf-1",
+            "kind": "cowork",
+            "goal": "outreach 2 new clients (dry run)",
+            "expect": {
+                "route": "plaatoos-outreach",
+                "all_of": ["Outreach Completed", "Batch Size", "1222"],
+            }
+        }
+        res = run(runner, task)
+        self.assertEqual(res.status, "passed")
+        self.assertEqual(res.route, "plaatoos-outreach")
+        self.assertIn("Outreach Completed", res.output)
+
+    def test_workflow_task_fails_when_expectation_missing(self):
+        class FakeCap:
+            name = "plaatoos-outreach"
+
+        dispatcher = FakeDispatcher(
+            reply="Failed batch: no leads available",
+            cap=FakeCap()
+        )
+        runner = EvalRunner(dispatcher=dispatcher)
+        task = {
+            "id": "wf-fail",
+            "kind": "workflow",
+            "goal": "outreach 2 new clients",
+            "expect": {
+                "contains": "Batch Completed",
+            }
+        }
+        res = run(runner, task)
+        self.assertEqual(res.status, "failed")
+        self.assertIn("missing 'Batch Completed'", res.detail)
+
 
 class TestRepeat(unittest.TestCase):
     def test_combine_runs(self):
@@ -195,7 +269,7 @@ class TestBuiltinSuites(unittest.TestCase):
         for name in list_suites():
             for task in load_suite(name)["tasks"]:
                 kind = task.get("kind", "answer")
-                self.assertIn(kind, ("route", "answer", "code"), f"{name}/{task['id']}")
+                self.assertIn(kind, ("route", "answer", "code", "workflow", "cowork"), f"{name}/{task['id']}")
                 if kind == "code":
                     self.assertTrue(task.get("check") and task.get("files"), f"{name}/{task['id']}")
                 else:

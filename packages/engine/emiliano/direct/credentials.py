@@ -79,3 +79,12 @@ class CredentialManager:
             "env_var": env_var,
             "redacted_key": redact_key(key) if configured else "[not configured]",
         }
+
+    def has_any_key(self) -> bool:
+        """Returns True if at least one remote API key is configured."""
+        return bool(
+            self.get_anthropic_key()
+            or self.get_openai_key()
+            or self.get_deepseek_key()
+            or self.get_gemini_key()
+        )

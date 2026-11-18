@@ -280,6 +280,56 @@ class TestHttpRequestChecks(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://tauri.localhost")
 
+    def test_ipc_token_enforcement(self):
+        with patch.dict(os.environ, {"EMILIANO_IPC_TOKEN": "secret-test-token-12345"}):
+            # Unauthenticated request without token should fail with 401
+            resp_unauth = self.client.get("/api/models")
+            self.assertEqual(resp_unauth.status_code, 401)
+            self.assertIn("Invalid or missing IPC authorization token", resp_unauth.json()["detail"])
+
+            # Request with invalid token should fail with 401
+            resp_wrong = self.client.get("/api/models", headers={"Authorization": "Bearer wrong-token"})
+            self.assertEqual(resp_wrong.status_code, 401)
+
+            # Request with valid bearer token should succeed
+            resp_valid = self.client.get("/api/models", headers={"Authorization": "Bearer secret-test-token-12345"})
+            self.assertEqual(resp_valid.status_code, 200)
+
+            # Request with valid query parameter token should succeed
+            resp_query = self.client.get("/api/models?token=secret-test-token-12345")
+            self.assertEqual(resp_query.status_code, 200)
+
+    def test_extension_id_whitelist(self):
+        with patch.dict(os.environ, {"EMILIANO_ALLOWED_EXTENSIONS": "trustedextid123"}):
+            # Whitelisted extension origin succeeds
+            self.assertEqual(self.client.get("/health", headers={"origin": "chrome-extension://trustedextid123"}).status_code, 200)
+            # Untrusted extension origin fails with 403
+            self.assertEqual(self.client.get("/health", headers={"origin": "chrome-extension://maliciousextid456"}).status_code, 403)
+
+
+    def test_voice_status_and_transcribe(self):
+        resp = self.client.get("/api/voice/status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("local_available", data)
+
+        # Empty body returns 400
+        resp_empty = self.client.post("/api/voice/transcribe", content=b"")
+        self.assertEqual(resp_empty.status_code, 400)
+
+        # Mock transcribe
+        with patch("emiliano.server.app.voice_transcriber.transcribe", return_value="hello emiliano"):
+            resp_audio = self.client.post("/api/voice/transcribe", content=b"fake_wav_bytes")
+            self.assertEqual(resp_audio.status_code, 200)
+            self.assertEqual(resp_audio.json()["text"], "hello emiliano")
+
+    def test_blackboard_context_endpoint(self):
+        resp = self.client.get("/api/blackboard/context")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("entities", data)
+        self.assertIn("context", data)
+
 
 if __name__ == "__main__":
     unittest.main()
