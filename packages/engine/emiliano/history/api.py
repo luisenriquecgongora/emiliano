@@ -391,6 +391,9 @@ async def chat_socket(websocket: WebSocket):
             reasoning_parts.append(text)
             emit({"type": "reasoning", "content": text})
 
+        def on_tool(tool_info: dict) -> None:
+            emit({"type": "tool_call", **tool_info})
+
         try:
             logger.info(f"[History] Processing user message for chat_id={chat_id} (mode={mode}, policy={policy}, harness={harness}): {content[:100]}")
             chat_obj = store.get_chat(chat_id) or {}
@@ -430,6 +433,7 @@ async def chat_socket(websocket: WebSocket):
                 on_chunk=on_chunk,
                 on_reasoning=on_reason,
                 on_route_selected=lambda c: emit({"type": "route", "name": c.name, "display_name": c.display_name}),
+                on_tool_call=on_tool,
                 on_permission=ask_permission,
                 reasoning=None,
                 workspace=project_workspace,
@@ -481,6 +485,13 @@ async def chat_socket(websocket: WebSocket):
                 "route": cap.display_name if cap else None,
             }
 
+            executed_tools = getattr(trace, "executed_tools", []) if trace else []
+            if executed_tools:
+                metrics["tool_calls"] = executed_tools
+                metrics["tools_count"] = len(executed_tools)
+                if not metrics.get("tool_duration_s"):
+                    metrics["tool_duration_s"] = round(sum(t.get("duration_s", 0) for t in executed_tools), 2)
+
             from ..core.artifacts import extract_artifacts
             for art in extract_artifacts(full):
                 emit({"type": "artifact", **art})
@@ -495,8 +506,15 @@ async def chat_socket(websocket: WebSocket):
                 except Exception as art_err:
                     logger.warning(f"[Artifact] Failed to save artifact: {art_err}")
             full_reasoning = "".join(reasoning_parts).strip() if reasoning_parts else None
-            saved = store.add_message(chat_id, "assistant", full, reasoning=full_reasoning, metrics=metrics)
-            emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id), "metrics": metrics})
+            saved = store.add_message(
+                chat_id,
+                "assistant",
+                full,
+                reasoning=full_reasoning,
+                metrics=metrics,
+                tool_calls=executed_tools,
+            )
+            emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id), "metrics": metrics, "tool_calls": executed_tools})
         except asyncio.CancelledError:
             t_done = time.perf_counter()
             total_duration_s = max(0.001, t_done - t0)

@@ -65,6 +65,7 @@ import {
   ENGINE_HTTP_URL,
   ChatMessage,
   ChatSummary,
+  ToolCallRecord,
   DownloadStatus,
   ContextMetrics,
   FIT_LABELS,
@@ -510,6 +511,15 @@ export default function Dock() {
             artifacts: [...(m.artifacts ?? []), event as any],
           }));
           break;
+        case 'tool_call':
+          updatePending((m) => {
+            const existing = m.tool_calls || [];
+            return {
+              ...m,
+              tool_calls: [...existing, event as any],
+            };
+          });
+          break;
         case 'permission_request':
           setPermission(event as PermissionRequest);
           break;
@@ -523,6 +533,7 @@ export default function Dock() {
             reasoning: m.reasoning,
             route: m.route,
             metrics: event.metrics || event.message?.metrics,
+            tool_calls: event.tool_calls || event.message?.tool_calls || m.tool_calls,
           }));
           setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
           if (event.chat?.id) refreshMetrics(event.chat.id);
@@ -3231,6 +3242,98 @@ function ThinkingProcessCard({ reasoning, pending }: { reasoning: string; pendin
   );
 }
 
+function ToolCallCard({ tool }: { tool: ToolCallRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const isMcp = tool.tool.includes('__') || Boolean(tool.mcp_server);
+  const serverName = tool.mcp_server || (tool.tool.includes('__') ? tool.tool.split('__')[0] : 'core');
+  const actionName = tool.tool_name || (tool.tool.includes('__') ? tool.tool.split('__')[1] : tool.tool);
+  const isSuccess = tool.status !== 'error';
+
+  const copyArgs = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(JSON.stringify(tool.args || {}, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="my-1.5 rounded-lg border border-slate-700/70 bg-slate-900/90 overflow-hidden text-xs transition-all shadow-sm">
+      {/* Header / Summary Bar */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between px-2.5 py-1.5 cursor-pointer hover:bg-slate-800/60 select-none"
+      >
+        <div className="flex items-center space-x-2 min-w-0">
+          {isMcp ? (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-950/80 border border-purple-700/60 text-purple-300">
+              <Blocks className="w-3 h-3 text-purple-400" />
+              MCP: {serverName}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/80 border border-amber-700/60 text-amber-300">
+              <Wrench className="w-3 h-3 text-amber-400" />
+              Tool
+            </span>
+          )}
+          <span className="font-mono text-[11px] text-slate-200 truncate font-semibold">
+            {actionName}
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2 shrink-0 text-[10px] font-mono">
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${
+            isSuccess
+              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/50'
+              : 'bg-rose-950/80 text-rose-300 border border-rose-800/50'
+          }`}>
+            {isSuccess ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
+            {tool.duration_s ? `${tool.duration_s}s` : 'done'}
+          </span>
+          <button className="text-slate-400 hover:text-white p-0.5">
+            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsible Accordion Drawer */}
+      {expanded && (
+        <div className="border-t border-slate-800/90 p-2.5 space-y-2 bg-slate-950/50 font-mono text-[11px]">
+          {/* Input Arguments */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span className="font-semibold text-slate-300">Parameters / Input:</span>
+              <button
+                onClick={copyArgs}
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+              >
+                {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px] leading-relaxed max-h-40 overflow-y-auto">
+              {JSON.stringify(tool.args || {}, null, 2)}
+            </pre>
+          </div>
+
+          {/* Tool Output Result */}
+          {tool.result && (
+            <div>
+              <div className="text-[10px] text-slate-400 mb-1 font-semibold text-slate-300">
+                Server Output Receipt:
+              </div>
+              <pre className="p-2 rounded bg-slate-900/90 border border-slate-800 text-emerald-300/90 overflow-x-auto text-[10px] leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                {tool.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LiveResponseTimer({ startTime }: { startTime: number }) {
   const [elapsed, setElapsed] = useState<number>(0);
 
@@ -3276,6 +3379,20 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {message.reasoning && (
           <ThinkingProcessCard reasoning={message.reasoning} pending={Boolean(message.pending)} />
         )}
+
+        {/* Render Executed Tool & MCP Calls */}
+        {message.tool_calls && message.tool_calls.length > 0 && (
+          <div className="my-2 space-y-1">
+            <div className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
+              <Blocks className="w-3 h-3 text-purple-400" />
+              <span>Executed Tools & MCPs ({message.tool_calls.length}):</span>
+            </div>
+            {message.tool_calls.map((t, idx) => (
+              <ToolCallCard key={idx} tool={t} />
+            ))}
+          </div>
+        )}
+
         {waiting && !message.reasoning ? (
           <div className="flex items-center space-x-2 py-1.5 text-slate-400">
             <Sparkles className="w-4 h-4 text-cyan-400 animate-spin" />

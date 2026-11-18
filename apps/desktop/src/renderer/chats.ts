@@ -13,6 +13,16 @@ export interface ChatSummary {
   message_count: number;
 }
 
+export interface ToolCallRecord {
+  tool: string;
+  mcp_server?: string;
+  tool_name?: string;
+  args?: Record<string, any>;
+  result?: string;
+  duration_s?: number;
+  status?: 'ok' | 'error' | string;
+}
+
 export interface ResponseMetrics {
   total_duration_s: number;
   formatted_duration: string;
@@ -24,6 +34,7 @@ export interface ResponseMetrics {
   tools_count?: number;
   route?: string;
   status?: string;
+  tool_calls?: ToolCallRecord[];
 }
 
 export interface ChatMessage {
@@ -37,6 +48,7 @@ export interface ChatMessage {
   pending?: boolean;
   artifacts?: ArtifactPayload[];
   metrics?: ResponseMetrics;
+  tool_calls?: ToolCallRecord[];
 }
 
 export interface ChatDetail extends ChatSummary {
