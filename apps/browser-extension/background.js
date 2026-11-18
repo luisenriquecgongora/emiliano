@@ -443,8 +443,6 @@ async function ensureDebuggerAttached(tabId) {
     await chrome.debugger.sendCommand({ tabId }, "Runtime.enable", {});
   } catch (_) {}
 }
-  } catch (_) {}
-}
 
 async function sendCdpCommand(params) {
   const { method, params: cdpParams = {}, targetUrlMatch } = params;
