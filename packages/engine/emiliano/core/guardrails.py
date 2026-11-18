@@ -242,8 +242,10 @@ class ToolSafetyGuardrail(BaseGuardrail):
         if not path_str:
             return True
         try:
+            # Normalize backslashes to forward slashes for cross-platform traversal prevention
+            normalized = path_str.replace("\\", "/")
             ws = Path(workspace_root).resolve()
-            target = (ws / path_str).resolve() if not Path(path_str).is_absolute() else Path(path_str).resolve()
+            target = (ws / normalized).resolve() if not Path(normalized).is_absolute() else Path(normalized).resolve()
             # Path must either be workspace itself or inside it
             return target == ws or ws in target.parents
         except Exception:
