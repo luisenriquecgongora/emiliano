@@ -784,8 +784,8 @@ async def browser_websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/browser/status")
 async def get_browser_status():
-    from emiliano.cowork.browser_bridge import get_browser_bridge
-    bridge = get_browser_bridge()
+    from emiliano.cowork.browser_bridge import BrowserBridge
+    bridge = BrowserBridge.get_instance()
     return {
         "connected": bridge.is_connected,
         "extension_info": bridge.extension_info
@@ -794,8 +794,8 @@ async def get_browser_status():
 
 @app.post("/api/browser/command")
 async def execute_browser_command(payload: BrowserCommandPayload):
-    from emiliano.cowork.browser_bridge import get_browser_bridge
-    bridge = get_browser_bridge()
+    from emiliano.cowork.browser_bridge import BrowserBridge
+    bridge = BrowserBridge.get_instance()
     if not bridge.is_connected:
         raise HTTPException(status_code=503, detail="Browser extension is not connected.")
     try:

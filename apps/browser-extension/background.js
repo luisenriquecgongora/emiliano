@@ -188,6 +188,28 @@ async function executeScript(params) {
   const tab = await resolveTab(params.targetUrlMatch);
   if (!tab) throw new Error("No matching browser tab found.");
 
+  // Prefer CDP Runtime.evaluate: bypasses page Content Security Policy (CSP) and unsafe-eval restrictions
+  try {
+    await ensureDebuggerAttached(tab.id);
+    const evalRes = await chrome.debugger.sendCommand({ tabId: tab.id }, "Runtime.evaluate", {
+      expression: params.code,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (evalRes) {
+      if (evalRes.exceptionDetails) {
+        console.warn("[Emiliano Bridge] Runtime.evaluate exception:", evalRes.exceptionDetails);
+        return { __error: evalRes.exceptionDetails.text || "Runtime evaluation error" };
+      }
+      if (evalRes.result) {
+        if (evalRes.result.type === "undefined") return undefined;
+        return evalRes.result.value;
+      }
+    }
+  } catch (cdpErr) {
+    console.warn("[Emiliano Bridge] CDP Runtime.evaluate failed, falling back to scripting:", cdpErr);
+  }
+
   const [res] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: "ISOLATED",
@@ -358,6 +380,9 @@ async function ensureDebuggerAttached(tabId) {
   attachedDebuggers.add(tabId);
   try {
     await chrome.debugger.sendCommand({ tabId }, "Page.enable", {});
+    await chrome.debugger.sendCommand({ tabId }, "Runtime.enable", {});
+  } catch (_) {}
+}
   } catch (_) {}
 }
 

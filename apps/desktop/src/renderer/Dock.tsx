@@ -57,6 +57,7 @@ import {
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, PhysicalSize } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
 import {
@@ -1440,6 +1441,50 @@ function Header(props: {
 }) {
   const iconButton =
     'text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg p-1.5 transition-colors disabled:opacity-40';
+
+  const handleMinimize = async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      await win.minimize();
+    } catch (err) {
+      console.warn('[Dock] minimize error, falling back to hide:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.hide();
+      } catch (e) {
+        console.error('[Dock] hide fallback failed:', e);
+      }
+    }
+  };
+
+  const handleMaximize = async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      const isMax = await win.isMaximized().catch(() => false);
+      if (isMax) {
+        await win.unmaximize();
+        return;
+      }
+      await win.toggleMaximize();
+    } catch (err) {
+      console.warn('[Dock] native maximize failed, toggling dock width:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        const curSize = await win.outerSize();
+        const scale = window.devicePixelRatio || 1;
+        if (curSize.width > 550 * scale) {
+          await win.setSize(new PhysicalSize(Math.round(480 * scale), curSize.height));
+        } else {
+          await win.setSize(new PhysicalSize(Math.round(880 * scale), curSize.height));
+        }
+      } catch (e) {
+        console.error('[Dock] size toggle failed:', e);
+      }
+    }
+  };
+
   return (
     // data-tauri-drag-region: the window is frameless, so the header moves it
     <div
@@ -1474,29 +1519,29 @@ function Header(props: {
       </div>
 
       {/* Right controls */}
-      <div className="flex items-center space-x-1.5">
-        {/* Chrome Extension Live Connection Indicator: Unmistakably clear when disconnected */}
+      <div className="flex items-center space-x-1.5 shrink-0">
+        {/* Chrome Extension Live Connection Indicator */}
         {props.browserStatus?.connected ? (
           <button
             onClick={props.onOpenBrowserSetup}
             title={`Chrome Companion Connected${
               props.browserStatus.extension_info?.version ? ` (v${props.browserStatus.extension_info.version})` : ''
             }. Background DOM automation active. Click to view companion.`}
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/50 text-[10px] text-emerald-300 font-mono hover:bg-emerald-900/60 transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/50 text-[10px] text-emerald-300 font-mono hover:bg-emerald-900/60 transition-colors cursor-pointer shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_#34d399]" />
             <Globe className="w-3 h-3 text-emerald-400 shrink-0" />
-            <span className="font-medium">{props.currentWidth >= 620 ? 'Chrome Ext' : 'Ext'}</span>
+            {props.currentWidth >= 520 && <span className="font-medium">{props.currentWidth >= 620 ? 'Chrome Ext' : 'Ext'}</span>}
           </button>
         ) : (
           <button
             onClick={props.onOpenBrowserSetup}
             title="Chrome Companion Extension is DISCONNECTED! Click to open companion setup."
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-rose-950/90 border border-rose-500/80 text-[10px] text-rose-300 font-mono font-bold animate-pulse hover:bg-rose-900 transition-all cursor-pointer shadow-[0_0_8px_rgba(244,63,94,0.35)]"
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-rose-950/90 border border-rose-500/80 text-[10px] text-rose-300 font-mono font-bold animate-pulse hover:bg-rose-900 transition-all cursor-pointer shadow-[0_0_8px_rgba(244,63,94,0.35)] shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
             <Globe className="w-3 h-3 text-rose-400 shrink-0" />
-            <span>{props.currentWidth >= 500 ? 'Chrome Offline' : 'Offline'}</span>
+            {props.currentWidth >= 520 && <span>{props.currentWidth >= 620 ? 'Chrome Offline' : 'Offline'}</span>}
             <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
           </button>
         )}
@@ -1508,7 +1553,7 @@ function Header(props: {
               : 'Attach to target window (e.g. Chrome, Excel)'
           }
           onClick={props.onToggleWindows}
-          className={`${iconButton} ${
+          className={`${iconButton} shrink-0 ${
             props.pinnedTitle
               ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60 shadow-xs'
               : props.windowsOpen
@@ -1524,31 +1569,37 @@ function Header(props: {
           title="New chat"
           onClick={props.onNewChat}
           disabled={props.busy}
-          className={iconButton}
+          className={`${iconButton} shrink-0`}
         >
           <Plus className="w-4 h-4" />
         </button>
 
         {isTauri() && (
-          <div className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5">
+          <div className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5 shrink-0">
             <button
               title="Minimize to taskbar"
-              onClick={() => getCurrentWindow().minimize()}
-              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors"
+              onClick={handleMinimize}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors shrink-0"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
             <button
               title="Maximize / Restore window"
-              onClick={() => getCurrentWindow().toggleMaximize()}
-              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors"
+              onClick={handleMaximize}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors shrink-0"
             >
               <Square className="w-3 h-3" />
             </button>
             <button
               title="Close Emiliano"
-              onClick={() => getCurrentWindow().close()}
-              className="text-slate-400 hover:text-white hover:bg-rose-600/80 rounded-md p-1.5 transition-colors"
+              onClick={async () => {
+                try {
+                  await getCurrentWebviewWindow().close();
+                } catch {
+                  getCurrentWindow().close();
+                }
+              }}
+              className="text-slate-400 hover:text-white hover:bg-rose-600/80 rounded-md p-1.5 transition-colors shrink-0"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -3097,6 +3148,78 @@ function HistoryPanel(props: {
   );
 }
 
+function ThinkingProcessCard({ reasoning, pending }: { reasoning: string; pending?: boolean }) {
+  const [isOpen, setIsOpen] = useState(Boolean(pending));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [userScrolled, setUserScrolled] = useState(false);
+
+  // Auto-collapse when generation finishes; auto-open when generating
+  useEffect(() => {
+    if (!pending) {
+      setIsOpen(false);
+    } else {
+      setIsOpen(true);
+    }
+  }, [pending]);
+
+  // Rolling teleprompter effect: auto-scroll to bottom as new reasoning chunks arrive
+  useEffect(() => {
+    if (pending && !userScrolled && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [reasoning, pending, userScrolled]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 24;
+    setUserScrolled(!atBottom);
+  };
+
+  return (
+    <div className="mb-2.5 rounded-xl border border-cyan-500/20 bg-slate-900/40 backdrop-blur-md transition-all shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full text-left cursor-pointer select-none text-[11px] font-medium flex items-center justify-between text-cyan-300/90 hover:text-cyan-200 px-3 py-2 transition-colors"
+      >
+        <div className="flex items-center space-x-2">
+          <Sparkles className={`w-3.5 h-3.5 ${pending ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+          <span>{pending ? 'Thinking process in progress…' : 'Thought process (completed)'}</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          {pending && (
+            <span className="flex items-center space-x-1.5 text-[10px] text-cyan-300 font-mono bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+              <span>Rolling</span>
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="relative border-t border-slate-700/40 bg-slate-950/30 px-3 py-2">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className={`whitespace-pre-wrap text-[11px] font-mono leading-relaxed overflow-y-auto text-slate-300/90 selection:bg-cyan-500/30 transition-all ${
+              pending
+                ? 'max-h-24 [mask-image:linear-gradient(to_bottom,transparent_0%,black_20%,black_100%)]'
+                : 'max-h-56'
+            }`}
+          >
+            {reasoning}
+            {pending && (
+              <span className="inline-block w-1.5 h-3 bg-cyan-400 animate-pulse ml-1 align-middle" />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   if (message.role === 'user') {
     return (
@@ -3113,29 +3236,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       {message.route && <span className="text-[10px] text-slate-500 mb-0.5 ml-1">via {message.route}</span>}
       <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
         {message.reasoning && (
-          <details
-            open={Boolean(message.pending)}
-            className="group mb-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 p-2.5 text-slate-300 transition-all shadow-inner"
-          >
-            <summary className="cursor-pointer select-none text-[11px] font-semibold uppercase tracking-wider flex items-center justify-between text-cyan-300">
-              <div className="flex items-center space-x-2">
-                <Sparkles className={`w-3.5 h-3.5 ${message.pending ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
-                <span>{message.pending ? 'Thinking process in progress…' : 'Thought process (completed)'}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                {message.pending && (
-                  <span className="flex items-center space-x-1.5 text-[10px] text-cyan-400 font-mono bg-cyan-950/80 px-2 py-0.5 rounded-full border border-cyan-700/50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                    <span>Streaming</span>
-                  </span>
-                )}
-                <ChevronDown className="w-3.5 h-3.5 transition-transform duration-200 group-open:rotate-180 text-slate-400" />
-              </div>
-            </summary>
-            <div className="mt-2 whitespace-pre-wrap text-[11px] font-mono leading-relaxed max-h-56 overflow-y-auto text-slate-300 bg-slate-950/90 p-2.5 rounded-lg border border-slate-800/90 selection:bg-cyan-500/30">
-              {message.reasoning}
-            </div>
-          </details>
+          <ThinkingProcessCard reasoning={message.reasoning} pending={Boolean(message.pending)} />
         )}
         {waiting && !message.reasoning ? (
           <div className="flex items-center space-x-2 py-1.5 text-slate-400">
