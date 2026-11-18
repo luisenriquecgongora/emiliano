@@ -384,6 +384,7 @@ async def chat_socket(websocket: WebSocket):
             emit({"type": "reasoning", "content": text})
 
         try:
+            logger.info(f"[History] Processing user message for chat_id={chat_id} (mode={mode}, policy={policy}, harness={harness}): {content[:100]}")
             chat_obj = store.get_chat(chat_id) or {}
             chat_proj_id = chat_obj.get("project_id")
             project = store.get_project(chat_proj_id) if chat_proj_id else None
@@ -410,6 +411,7 @@ async def chat_socket(websocket: WebSocket):
                         guideline = f"Workspace Project Guidelines:\n{project_prompt}"
                     conv_msgs = [{"role": "system", "content": guideline}] + conv_msgs
 
+            logger.info(f"[History] Dispatching to execute_task (goal: {content[:80]}...)")
             cap, full = await websocket.app.state.get_dispatcher().execute_task(
                 goal=content,
                 policy=policy,
@@ -421,9 +423,10 @@ async def chat_socket(websocket: WebSocket):
                 on_reasoning=on_reason,
                 on_route_selected=lambda c: emit({"type": "route", "name": c.name, "display_name": c.display_name}),
                 on_permission=ask_permission,
-                reasoning=True,
+                reasoning=None,
                 workspace=project_workspace,
             )
+            logger.info(f"[History] Task completed via {cap.display_name}. Response length: {len(full)} chars.")
             from ..core.artifacts import extract_artifacts
             for art in extract_artifacts(full):
                 emit({"type": "artifact", **art})

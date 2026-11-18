@@ -281,6 +281,38 @@ class UnifiedLLMClient:
                         body = json.loads(body).get("error", body)
                     except ValueError:
                         pass
+                    if "does not support thinking" in str(body).lower():
+                        logger.info(f"[LLM] Model {target_model} does not support thinking; retrying without 'think' parameter.")
+                        payload.pop("think", None)
+                        async with client.stream("POST", url, json=payload) as res_retry:
+                            if res_retry.status_code != 200:
+                                retry_body = (await res_retry.aread()).decode("utf-8", errors="replace")
+                                raise RuntimeError(f"Ollama returned HTTP {res_retry.status_code}: {str(retry_body)[:300]}")
+                            async for line in res_retry.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                data = json.loads(line)
+                                if data.get("error"):
+                                    raise RuntimeError(f"Ollama error: {data['error']}")
+                                message = data.get("message") or {}
+                                content = message.get("content") or ""
+                                thinking = message.get("thinking") or ""
+                                tool_calls = message.get("tool_calls")
+                                if tool_calls and isinstance(tool_calls, list):
+                                    for tc in tool_calls:
+                                        fn = tc.get("function") or {}
+                                        fn_name = fn.get("name")
+                                        fn_args = fn.get("arguments") or {}
+                                        if fn_name:
+                                            tool_block = f"\n<tool_call>{json.dumps({'name': fn_name, 'arguments': fn_args})}</tool_call>\n"
+                                            content = (content + tool_block) if content else tool_block
+                                yield content, thinking
+                                if data.get("done"):
+                                    if isinstance(data.get("eval_count"), int):
+                                        self.last_usage = {"prompt_tokens": data.get("prompt_eval_count") or 0,
+                                                           "completion_tokens": data["eval_count"]}
+                                    return
+                        return
                     raise RuntimeError(f"Ollama returned HTTP {res.status_code}: {str(body)[:300]}")
                 async for line in res.aiter_lines():
                     if not line.strip():

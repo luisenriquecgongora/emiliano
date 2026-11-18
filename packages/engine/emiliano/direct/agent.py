@@ -430,6 +430,38 @@ class StreamTagFilter:
         self.in_block = False
 
 
+def extract_json_tool_objects(s: str) -> List[Dict[str, Any]]:
+    """Extracts top-level or embedded JSON tool call objects with arbitrary nesting depth."""
+    results = []
+    idx = 0
+    while idx < len(s):
+        start = s.find('{', idx)
+        if start == -1:
+            break
+        depth = 0
+        end = -1
+        for i in range(start, len(s)):
+            if s[i] == '{':
+                depth += 1
+            elif s[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end != -1:
+            snippet = s[start:end]
+            try:
+                obj = json.loads(snippet)
+                if isinstance(obj, dict) and any(k in obj for k in ("name", "tool")):
+                    results.append((obj, start, end))
+            except Exception:
+                pass
+            idx = end
+        else:
+            idx = start + 1
+    return results
+
+
 def clean_user_facing_text(text: str) -> str:
     """Strips any residual internal tool calling tags from text before presenting final output."""
     t = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL)
@@ -438,6 +470,12 @@ def clean_user_facing_text(text: str) -> str:
     t = re.sub(r"<(?:call:)?([a-zA-Z0-9_]+)[^>]*?/>", "", t, flags=re.DOTALL | re.IGNORECASE)
     t = re.sub(r"</call:[a-zA-Z0-9_]+>", "", t, flags=re.IGNORECASE)
     t = re.sub(r"<tool_response[^>]*?>.*?</tool_response>", "", t, flags=re.DOTALL)
+
+    # Strip raw JSON tool objects
+    json_objs = extract_json_tool_objects(t)
+    for _, start, end in reversed(json_objs):
+        t = t[:start] + t[end:]
+
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
     return t
 
@@ -449,12 +487,15 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
     1. <call:tool_name attr="val">body</call:tool_name> or self-closing
     2. <tool_call>{"name": "...", "arguments": {...}}</tool_call>
     3. Markdown JSON ```json {"name": "...", "arguments": {...}} ```
-    4. Direct tags <read_file path="..."/>, <bash command="..."/>
+    4. Raw JSON {"name": "...", "arguments": {...}}
+    5. Direct tags <read_file path="..."/>, <bash command="..."/>
     """
     calls: List[Dict[str, Any]] = []
+    parsed_spans = []
 
     # 1. JSON tool calls: <tool_call>...</tool_call>
     for match in re.finditer(r"<tool_call>\s*({.*?})\s*</tool_call>", text, re.DOTALL):
+        parsed_spans.append(match.span())
         try:
             data = json.loads(match.group(1))
             name = data.get("name")
@@ -466,6 +507,7 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
 
     # 2. Markdown JSON code blocks: ```json {"name": "...", "arguments": {...}} ```
     for match in re.finditer(r"```(?:json)?\s*({.*?})\s*```", text, re.DOTALL):
+        parsed_spans.append(match.span())
         try:
             data = json.loads(match.group(1))
             name = data.get("name") or data.get("tool")
@@ -474,6 +516,15 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
                 calls.append({"tool": name, "args": args})
         except Exception:
             pass
+
+    # 3. Raw JSON tool objects: {"name": "...", "arguments": {...}}
+    for obj, start, end in extract_json_tool_objects(text):
+        if any(s <= start and end <= e or (start < e and end > s) for s, e in parsed_spans):
+            continue
+        name = obj.get("name") or obj.get("tool")
+        args = obj.get("arguments") or obj.get("parameters") or {}
+        if name and isinstance(name, str):
+            calls.append({"tool": name, "args": args})
 
     # 2. XML call format: <call:name ...> or <name ...>
     xml_pattern = re.compile(
