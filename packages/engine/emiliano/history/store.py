@@ -105,6 +105,7 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tool_calls: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     chat: Mapped[Chat] = relationship(back_populates="messages")
 
@@ -123,6 +124,11 @@ class Message(Base):
                 res["metrics"] = json.loads(self.metrics)
             except Exception:
                 res["metrics"] = self.metrics
+        if self.tool_calls:
+            try:
+                res["tool_calls"] = json.loads(self.tool_calls)
+            except Exception:
+                res["tool_calls"] = self.tool_calls
         return res
 
 
@@ -179,6 +185,9 @@ class HistoryStore:
                 conn.commit()
             if "metrics" not in msg_cols:
                 conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN metrics TEXT")
+                conn.commit()
+            if "tool_calls" not in msg_cols:
+                conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN tool_calls TEXT")
                 conn.commit()
 
         self._session = sessionmaker(self.engine, expire_on_commit=False)
@@ -299,6 +308,7 @@ class HistoryStore:
         content: str,
         reasoning: Optional[str] = None,
         metrics: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[Dict]:
         """Appends a message; the first user message also becomes the chat's title."""
         with self._session.begin() as db:
@@ -306,7 +316,15 @@ class HistoryStore:
             if chat is None:
                 return None
             metrics_str = json.dumps(metrics) if metrics else None
-            message = Message(chat_id=chat_id, role=role, content=content, reasoning=reasoning, metrics=metrics_str)
+            tool_calls_str = json.dumps(tool_calls) if tool_calls else None
+            message = Message(
+                chat_id=chat_id,
+                role=role,
+                content=content,
+                reasoning=reasoning,
+                metrics=metrics_str,
+                tool_calls=tool_calls_str,
+            )
             db.add(message)
             chat.message_count += 1
             chat.updated_at = _now()

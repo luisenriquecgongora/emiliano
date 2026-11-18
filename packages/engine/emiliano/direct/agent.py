@@ -635,6 +635,7 @@ class DirectAgentLoop:
         self.trace = trace
         self.files_modified: set[str] = set()
         self.last_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        self.executed_tools: List[Dict[str, Any]] = []
 
     async def _dispatch_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
         """Internal dispatch for built-in and MCP tools."""
@@ -719,6 +720,7 @@ class DirectAgentLoop:
         messages: Optional[List[Dict[str, str]]] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
         reasoning: Optional[bool] = None,
     ) -> str:
         """
@@ -858,6 +860,7 @@ class DirectAgentLoop:
                 tool_name = call["tool"]
                 args = call["args"]
                 logger.info(f"[DirectAgent] Executing tool: {tool_name}({args})")
+                t_tool_start = time.perf_counter()
                 if on_chunk:
                     if "__" in tool_name:
                         on_chunk(f"\n[MCP Tool: {tool_name}]\n")
@@ -865,9 +868,32 @@ class DirectAgentLoop:
                         on_chunk(f"\n[Executing: {tool_name} {args.get('path') or args.get('command') or ''}]\n")
 
                 result = await self.execute_tool(tool_name, args, cwd=workspace)
+                t_tool_end = time.perf_counter()
+                tool_dur = round(max(0.001, t_tool_end - t_tool_start), 2)
+
+                mcp_server = tool_name.split("__")[0] if "__" in tool_name else None
+                short_tool_name = tool_name.split("__")[1] if "__" in tool_name else tool_name
+                tool_entry = {
+                    "tool": tool_name,
+                    "mcp_server": mcp_server,
+                    "tool_name": short_tool_name,
+                    "args": args,
+                    "result": str(result)[:3000] if result is not None else "",
+                    "duration_s": tool_dur,
+                    "status": "error" if "error" in str(result).lower()[:60] else "ok",
+                }
+                self.executed_tools.append(tool_entry)
+                if self.trace:
+                    self.trace.executed_tools.append(tool_entry)
+                if on_tool_call:
+                    try:
+                        on_tool_call(tool_entry)
+                    except Exception as cb_err:
+                        logger.debug(f"[DirectAgent] on_tool_call callback error: {cb_err}")
+
                 tool_responses.append(f"<tool_response name=\"{tool_name}\">\n{result}\n</tool_response>")
                 if on_chunk:
-                    on_chunk(f"\n[MCP Tool Completed: {tool_name}]\n" if "__" in tool_name else f"\n[Completed: {tool_name}]\n")
+                    on_chunk(f"\n[MCP Tool Completed: {tool_name} ({tool_dur}s)]\n" if "__" in tool_name else f"\n[Completed: {tool_name} ({tool_dur}s)]\n")
 
             tool_feedback = "\n\n".join(tool_responses)
             # Do NOT stream internal <tool_response> tags to the UI callback

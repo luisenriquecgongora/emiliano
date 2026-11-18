@@ -144,6 +144,7 @@ class TaskTrace:
     permissions: List[Dict[str, Any]] = field(default_factory=list)  # tool, decision
     spans: List[TraceSpan] = field(default_factory=list)  # fine-grained execution spans
     guardrails: List[Dict[str, Any]] = field(default_factory=list)  # guardrail verdicts and events
+    executed_tools: List[Dict[str, Any]] = field(default_factory=list)  # structured tool calls & MCP receipts
     _t0: float = field(default_factory=time.monotonic, repr=False)
     _first_token_s: Optional[float] = field(default=None, repr=False)  # first token of any kind, reasoning included
 

@@ -226,6 +226,7 @@ class ExecutionDispatcher:
         on_chunk: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
         on_route_selected: Optional[Callable[[Capability], None]] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
         timeout: float = 300.0,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]] = None,
         reasoning: Optional[bool] = None,
@@ -449,6 +450,7 @@ class ExecutionDispatcher:
                             messages=task_messages,
                             on_chunk=on_chunk,
                             on_reasoning=on_reasoning,
+                            on_tool_call=on_tool_call,
                             reasoning=reasoning if reasoning is not None else None,
                         )
                         if not output.strip():
