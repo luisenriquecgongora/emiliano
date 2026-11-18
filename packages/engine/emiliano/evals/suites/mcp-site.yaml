@@ -1,0 +1,68 @@
+# Emiliano MCP & Site Updates Evaluation Suite
+# Evaluates website management, PlaatoOS MCP tool routing, project site updates
+# (Luis Enrique Builds & La Estación del Verano), and negative routing boundaries.
+name: mcp-site
+description: Site management, business queries, PlaatoOS MCP tool invocation, and negative boundary routing
+tasks:
+  # 1. Site Query & Inspection Routing
+  - id: route-query-site
+    kind: route
+    goal: "Query our business website title and navigation structure on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-query-business
+    kind: route
+    goal: "Query the business profile and venue details on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-check-website
+    kind: route
+    goal: "Check our website pages and hero block on PlaatoOS"
+    expect: {route: direct}
+
+  # 2. Site Updates & Theming Routing (Luis Enrique Builds & La Estación del Verano)
+  - id: route-patch-hero
+    kind: route
+    goal: "Update the hero block on the website to announce Summer 2026 events"
+    expect: {route: direct}
+
+  - id: route-apply-tokens
+    kind: route
+    goal: "Apply cinematic teal and amber design tokens to our website theme"
+    expect: {route: direct}
+
+  - id: route-update-luis-enrique-builds
+    kind: route
+    goal: "Update Luis Enrique Builds site with new project subpages and download buttons"
+    expect: {route: direct}
+
+  - id: route-update-estacion-verano
+    kind: route
+    goal: "Update La Estacion del Verano site with the latest weekend cocktail schedule"
+    expect: {route: direct}
+
+  - id: route-propose-site-page
+    kind: route
+    goal: "Propose a new FAQ page for our website on PlaatoOS"
+    expect: {route: direct}
+
+  # 3. Negative Routing Boundaries (Ensuring other workflows stay in their proper lanes)
+  - id: route-neg-greeting
+    kind: route
+    goal: "Hello Emiliano, how are you today?"
+    expect: {route: direct}
+
+  - id: route-neg-git-status
+    kind: route
+    goal: "git status"
+    expect: {route: harness}
+
+  - id: route-neg-pytest
+    kind: route
+    goal: "Run the pytest suite in this repo"
+    expect: {route: harness}
+
+  - id: route-neg-outreach
+    kind: route
+    goal: "please outreach new restaurant clients"
+    expect: {route: plaatoos-outreach}
