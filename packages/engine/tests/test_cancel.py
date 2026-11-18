@@ -11,7 +11,7 @@ import time
 import unittest
 from pathlib import Path
 from typing import List
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from emiliano.core.capabilities import Capability, CapabilityStatus, ExecutionType
 from emiliano.harnesses import acp
@@ -33,6 +33,7 @@ class SleepHarness(BaseHarness):
 
     def __init__(self):
         super().__init__(name="sleeper", command=sys.executable)
+        self.started = threading.Event()
 
     def check_authentication(self):
         return True, "ok"
@@ -41,6 +42,7 @@ class SleepHarness(BaseHarness):
         return [sys.executable, "-c", "import time; time.sleep(60)"]
 
     def build_invocation(self, prompt: str) -> HarnessInvocation:
+        self.started.set()
         return HarnessInvocation(args=self.build_task_command(prompt))
 
 
@@ -123,13 +125,14 @@ class TestDispatcherStopsHarness(unittest.TestCase):
 
         async def scenario():
             task = asyncio.create_task(dispatcher.execute_task(goal="fix the bug"))
-            await asyncio.sleep(1.5)
+            await asyncio.to_thread(harness.started.wait, 5)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
 
         with patch.object(dispatcher, "route_task", return_value=[cap]), \
              patch.object(dispatcher.registry, "get_harness_instances", return_value={"sleeper": harness}), \
+             patch.object(dispatcher.registry.ollama_mgr, "unload_all", new_callable=AsyncMock), \
              patch.object(harness, "cancel", side_effect=spy_cancel):
             asyncio.run(scenario())
         self.assertTrue(cancelled.wait(5))

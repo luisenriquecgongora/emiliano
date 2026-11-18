@@ -16,16 +16,27 @@ from emiliano.cowork.agent import CoworkAgentLoop
 
 class TestCDPDiscovery(unittest.TestCase):
     def test_find_chrome_executable(self):
-        # On this Windows machine, Chrome is installed
         path = find_chrome_executable()
-        self.assertIsNotNone(path)
-        self.assertTrue(path.endswith("chrome.exe"))
+        if path is not None:
+            self.assertTrue(path.lower().endswith("chrome.exe"))
 
     def test_list_chrome_profiles(self):
         profiles = list_chrome_profiles()
-        # Profiles exist on this machine
         self.assertIsInstance(profiles, list)
-        self.assertIn("Default", profiles)
+
+    def test_list_chrome_profiles_with_mock_data(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "Default").mkdir()
+            (tmp_path / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+            (tmp_path / "Profile 1").mkdir()
+            (tmp_path / "Profile 1" / "Preferences").write_text("{}", encoding="utf-8")
+            with patch("emiliano.cowork.cdp.get_chrome_user_data_dir", return_value=tmp_path):
+                profiles = list_chrome_profiles()
+                self.assertIn("Default", profiles)
+                self.assertIn("Profile 1", profiles)
 
     @patch("urllib.request.urlopen")
     def test_is_cdp_available_mock(self, mock_urlopen):
