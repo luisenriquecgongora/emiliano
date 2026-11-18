@@ -315,6 +315,7 @@ class ExecutionDispatcher:
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
                 traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
                 workspace=target_dir,
+                on_tool_call=on_tool_call,
             )
             if isolated:
                 if merge_on_success:
@@ -378,6 +379,7 @@ class ExecutionDispatcher:
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]],
         reasoning: Optional[bool] = None,
         workspace: Optional[str] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Tuple[Capability, str]:
         candidates = await self.route_task(
             goal=goal,

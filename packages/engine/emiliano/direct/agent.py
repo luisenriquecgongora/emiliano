@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -39,8 +40,8 @@ Your goal is to inspect the codebase, locate issues, make surgical code modifica
 
 You have access to the following workspace tools:
 - read_file(path, start_line=1, end_line=None): Read file contents with line numbers
-- edit_file(path, target, replacement): Replace target string with replacement string in path (supports indentation tolerance)
-- write_file(path, content): Create or overwrite a file with content
+- edit_file(path, target, replacement): Replace target string with replacement string in path. To append a new function to the end of the file, pass an empty target: target=""
+- write_file(path, content): Create a NEW file (DO NOT use on existing files to avoid overwriting existing code/functions!)
 - list_dir(path="."): List files in a directory
 - grep(pattern, path=".", glob=None): Search for regex pattern or text across codebase files
 - bash(command): Execute a shell command in the current directory and get stdout/stderr/exit code
@@ -48,18 +49,16 @@ You have access to the following workspace tools:
 To invoke a tool, output a tool call block using one of these formats:
 
 Format 1 (XML - Recommended):
-<call:read_file path="calc.py"/>
+<call:read_file path="example.py"/>
 <call:list_dir path="."/>
-<call:grep pattern="def total" path="."/>
+<call:grep pattern="target_symbol" path="."/>
 <call:bash command="python check.py"/>
-<call:edit_file path="calc.py">
+<call:edit_file path="example.py">
 <target>
-def total(n):
-    return sum(range(n))
+old_code_here
 </target>
 <replacement>
-def total(n):
-    return sum(range(1, n + 1))
+new_code_here
 </replacement>
 </call:edit_file>
 <call:write_file path="new_file.py">
@@ -68,14 +67,16 @@ file content here
 
 Format 2 (JSON):
 <tool_call>
-{"name": "read_file", "arguments": {"path": "calc.py"}}
+{"name": "read_file", "arguments": {"path": "example.py"}}
 </tool_call>
 
 Workflow Guidelines:
-1. Always read existing files before modifying them to understand context and exact formatting.
-2. When editing code, provide exact target lines including indentation.
-3. Always run the check/test command (via bash) to verify your fix.
-4. When finished and all checks pass, output a concise explanation of what was done without any further tool calls.
+1. Always read existing files (`read_file`) before modifying them to understand context and existing code.
+2. SURGICAL EDITS: Always use `edit_file` when modifying existing files. Never use `write_file` on existing files, because it erases all other existing functions and imports! To add a new function or import, use `edit_file`.
+3. INVESTIGATE: If an import or symbol is missing or failing, search with `list_dir` or `grep` for the actual symbol name to find where it is defined.
+4. DEPENDENCIES: If you use helper libraries (e.g. `import re`), make sure to add the import at the top of the file.
+5. VERIFY: Always run the check/test command (via `bash`) to verify your fix passes before concluding.
+6. When finished and all checks pass, output a concise explanation of what was done without any further tool calls.
 """
 
 
@@ -194,6 +195,13 @@ def tool_edit_file(path: str, target: str, replacement: str, cwd: str = ".") -> 
         return f"Error: File '{path}' does not exist."
     try:
         content = target_path.read_text(encoding="utf-8", errors="replace")
+        if not target or not target.strip():
+            # Empty target -> append replacement to the end of the file
+            sep = "\n" if content and not content.endswith("\n") else ""
+            new_content = content + sep + replacement + "\n"
+            target_path.write_text(new_content, encoding="utf-8")
+            return f"Successfully appended to '{path}'."
+
         new_content, matches = fuzzy_replace(content, target, replacement)
         if new_content is None:
             return f"Error: Target text not found in '{path}'. Please inspect the file with read_file or grep first."
