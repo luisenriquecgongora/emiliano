@@ -117,6 +117,47 @@ def needs_workspace(goal: str) -> bool:
         return True
     if _COMMAND.search(g) and (specific or _BARE_THING.search(g)):       # C
         return True
-    # "run tests", "npm test" as a command, even without a determiner
+# "run tests", "npm test" as a command, even without a determiner
     return bool(re.search(r"\b(?:run|ejecuta|corre)\s+(?:the\s+|los\s+)?(?:tests?|pruebas)\b|"
                           r"\b(?:pytest|npm test|cargo test|go test|yarn test)\b", low))
+
+
+# External MCP tools & service operations (PlaatoOS, site editing, business operations)
+_MCP_ACTIONS = (
+    r"query|check|show|list|get|find|view|inspect|fetch|update|change|modify|patch|propose|"
+    r"create|add|remove|delete|audit|apply|load|run|publish|design|set|draft|suggest|analyze|"
+    r"consulta|muestra|lista|obten|encuentra|actualiza|cambia|modifica|prop[oó]n|crea|agrega|elimina|publica"
+)
+
+_MCP_ENTITIES = (
+    r"site|website|webpage|web page|landing page|home page|homepage|subpage|blocks?|hero|"
+    r"theme|themes|branding|design tokens?|palette|colors?|navigation|nav|"
+    r"business|venue|venues|events?|tickets?|menu|menu items?|dishes|products?|orders?|"
+    r"reservations?|bookings?|shifts?|finances?|revenue|forecast|inventory|schedule|loyalty|"
+    r"sitio|sitio web|p[aá]gina|bloque|bloques|tema|negocio|local|locales|evento|eventos|men[uú]|reservas"
+)
+
+_MCP_ACTION_PATTERN = re.compile(
+    rf"\b(?:{_MCP_ACTIONS})\b.*?\b(?:{_MCP_ENTITIES})\b|\b(?:{_MCP_ENTITIES})\b.*?\b(?:{_MCP_ACTIONS})\b",
+    re.IGNORECASE
+)
+
+_MCP_DIRECT_MENTION = re.compile(
+    r"\b(?:plaatoos|mcp|mcp_tools?|api-takient|la estaci[oó]n(?: del verano)?|luis enrique builds?)\b",
+    re.IGNORECASE
+)
+
+
+def needs_mcp_or_tools(goal: str) -> bool:
+    """
+    True when a user's goal targets external service actions, business queries, or website modifications
+    provided by MCP servers (such as PlaatoOS website management, business configuration, or venue operations).
+    """
+    g = " ".join(goal.split())
+    if not g:
+        return False
+    if _MCP_DIRECT_MENTION.search(g):
+        return True
+    if _MCP_ACTION_PATTERN.search(g):
+        return True
+    return False

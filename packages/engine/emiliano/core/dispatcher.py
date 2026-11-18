@@ -27,7 +27,7 @@ from .registry import CapabilityRegistry
 from .workspace import IsolatedWorkspace, WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
-from .routing import needs_workspace
+from .routing import needs_workspace, needs_mcp_or_tools
 from .traces import TaskTrace, TraceStore
 from .blackboard import Blackboard
 from .extensions import ExtensionManager
@@ -405,8 +405,9 @@ class ExecutionDispatcher:
                         config=self.config,
                     )
                     # Conversation (e.g. "hi") gets a fast, direct reply; tasks keep the model's
-                    # reasoning and the project's context files (EMILIANO.md, CLAUDE.md)
-                    is_task = self.requires_agent_harness(goal)
+                    # reasoning, MCP tool access, and the project's context files (EMILIANO.md, CLAUDE.md)
+                    has_mcp = bool(getattr(self.config, "mcp_servers", None))
+                    is_task = self.requires_agent_harness(goal) or (has_mcp and needs_mcp_or_tools(goal))
                     task_messages = list(messages) if messages else [{"role": "user", "content": goal}]
                     if not any(m.get("role") == "system" for m in task_messages):
                         task_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
