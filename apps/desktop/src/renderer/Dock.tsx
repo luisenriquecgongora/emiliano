@@ -518,7 +518,12 @@ export default function Dock() {
           break;
         case 'done':
           setPermission(null);
-          updatePending((m) => ({ ...event.message, reasoning: m.reasoning, route: m.route }));
+          updatePending((m) => ({
+            ...event.message,
+            reasoning: m.reasoning,
+            route: m.route,
+            metrics: event.metrics || event.message?.metrics,
+          }));
           setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
           if (event.chat?.id) refreshMetrics(event.chat.id);
           refreshArtifacts();
@@ -526,7 +531,13 @@ export default function Dock() {
           break;
         case 'cancelled':
           setPermission(null);
-          updatePending((m) => ({ ...m, id: `stopped-${Date.now()}`, pending: false, content: `${m.content}\n\n[stopped]` }));
+          updatePending((m) => ({
+            ...m,
+            id: `stopped-${Date.now()}`,
+            pending: false,
+            content: `${m.content}\n\n[stopped]`,
+            metrics: event.metrics,
+          }));
           setBusy(false);
           break;
         case 'error':
@@ -3220,7 +3231,26 @@ function ThinkingProcessCard({ reasoning, pending }: { reasoning: string; pendin
   );
 }
 
+function LiveResponseTimer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState<number>(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsed((Date.now() - startTime) / 1000);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [startTime]);
+
+  return (
+    <span className="font-mono text-cyan-400 font-medium">
+      ({elapsed.toFixed(1)}s)
+    </span>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
+  const [renderStartTime] = useState(() => Date.now());
+
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -3232,8 +3262,16 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   }
   const waiting = message.pending && !message.content;
   return (
-    <div className="flex flex-col items-start w-full">
-      {message.route && <span className="text-[10px] text-slate-500 mb-0.5 ml-1">via {message.route}</span>}
+    <div className="flex flex-col items-start w-full group">
+      <div className="flex items-center space-x-2 text-[10px] text-slate-500 mb-0.5 ml-1">
+        {message.route && <span>via {message.route}</span>}
+        {message.metrics?.formatted_duration && (
+          <span className="flex items-center gap-1 text-cyan-400 font-mono font-medium">
+            <Zap className="w-2.5 h-2.5 text-amber-400" />
+            {message.metrics.formatted_duration}
+          </span>
+        )}
+      </div>
       <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
         {message.reasoning && (
           <ThinkingProcessCard reasoning={message.reasoning} pending={Boolean(message.pending)} />
@@ -3242,9 +3280,47 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <div className="flex items-center space-x-2 py-1.5 text-slate-400">
             <Sparkles className="w-4 h-4 text-cyan-400 animate-spin" />
             <span className="text-xs animate-pulse">Pondering and formulating solution…</span>
+            <LiveResponseTimer startTime={renderStartTime} />
           </div>
         ) : (
           <ParsedMessageContent content={message.content} />
+        )}
+
+        {/* State-of-the-Art Response Performance & Execution Telemetry */}
+        {message.metrics && !message.pending && (
+          <div className="mt-2 pt-1.5 border-t border-slate-700/50 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400 select-none">
+            <span
+              className="inline-flex items-center gap-1 bg-cyan-950/60 border border-cyan-800/50 text-cyan-300 rounded px-1.5 py-0.5 font-medium"
+              title={`Total Execution Time: ${message.metrics.total_duration_s}s`}
+            >
+              <Zap className="w-2.5 h-2.5 text-amber-400" />
+              {message.metrics.formatted_duration}
+            </span>
+
+            {message.metrics.tokens_per_second && (
+              <span className="text-slate-300" title="Generation Throughput">
+                {message.metrics.tokens_per_second} t/s
+              </span>
+            )}
+
+            {message.metrics.completion_tokens && (
+              <span className="text-slate-400" title="Output Tokens">
+                · {message.metrics.completion_tokens} tok
+              </span>
+            )}
+
+            {message.metrics.ttft_ms && (
+              <span className="text-slate-500 hidden sm:inline" title="Time to First Token (TTFT)">
+                · TTFT {message.metrics.ttft_ms}ms
+              </span>
+            )}
+
+            {message.metrics.tool_duration_s && message.metrics.tool_duration_s > 0 && (
+              <span className="text-emerald-400 font-medium inline-flex items-center gap-0.5" title="Tool Execution Duration">
+                · Tools {message.metrics.tool_duration_s}s
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>

@@ -319,6 +319,39 @@ class TestChatSocket(HistoryTestCase):
         messages = self.store.get_chat(chat_id)["messages"]
         self.assertTrue(any("Summarized conversation." in m["content"] for m in messages))
 
+    def test_message_metrics_persistence(self):
+        chat = self.client.post("/api/chats", json={"title": "Metrics Test"}).json()
+        chat_id = chat["id"]
+        metrics = {
+            "total_duration_s": 1.45,
+            "formatted_duration": "1.45s",
+            "ttft_ms": 280.5,
+            "tokens_per_second": 42.1,
+            "completion_tokens": 61,
+            "prompt_tokens": 120,
+            "tool_duration_s": 0.45,
+            "tools_count": 1,
+            "route": "Ollama (qwen2.5-coder:3b)",
+        }
+        saved = self.store.add_message(
+            chat_id=chat_id,
+            role="assistant",
+            content="Hello world with metrics",
+            reasoning="Thinking carefully",
+            metrics=metrics,
+        )
+        self.assertIsNotNone(saved)
+        self.assertIn("metrics", saved)
+        self.assertEqual(saved["metrics"]["total_duration_s"], 1.45)
+        self.assertEqual(saved["metrics"]["tokens_per_second"], 42.1)
+        self.assertEqual(saved["metrics"]["formatted_duration"], "1.45s")
+
+        # Test retrieve via API
+        retrieved = self.client.get(f"/api/chats/{chat_id}").json()
+        self.assertEqual(len(retrieved["messages"]), 1)
+        self.assertEqual(retrieved["messages"][0]["metrics"]["ttft_ms"], 280.5)
+        self.assertEqual(retrieved["messages"][0]["metrics"]["route"], "Ollama (qwen2.5-coder:3b)")
+
 
 if __name__ == "__main__":
     unittest.main()

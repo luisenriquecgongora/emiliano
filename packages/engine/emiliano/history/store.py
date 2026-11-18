@@ -5,11 +5,12 @@ Chat history storage: chats, messages, projects, and artifacts in a local SQLite
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, event, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -103,6 +104,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String)  # "user" or "assistant"
     content: Mapped[str] = mapped_column(Text)
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     chat: Mapped[Chat] = relationship(back_populates="messages")
 
@@ -116,6 +118,11 @@ class Message(Base):
         }
         if self.reasoning:
             res["reasoning"] = self.reasoning
+        if self.metrics:
+            try:
+                res["metrics"] = json.loads(self.metrics)
+            except Exception:
+                res["metrics"] = self.metrics
         return res
 
 
@@ -169,6 +176,9 @@ class HistoryStore:
             msg_cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(messages)")]
             if "reasoning" not in msg_cols:
                 conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN reasoning TEXT")
+                conn.commit()
+            if "metrics" not in msg_cols:
+                conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN metrics TEXT")
                 conn.commit()
 
         self._session = sessionmaker(self.engine, expire_on_commit=False)
@@ -282,13 +292,21 @@ class HistoryStore:
                 db.delete(chat)
             return len(chats)
 
-    def add_message(self, chat_id: str, role: str, content: str, reasoning: Optional[str] = None) -> Optional[Dict]:
+    def add_message(
+        self,
+        chat_id: str,
+        role: str,
+        content: str,
+        reasoning: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict]:
         """Appends a message; the first user message also becomes the chat's title."""
         with self._session.begin() as db:
             chat = db.get(Chat, chat_id)
             if chat is None:
                 return None
-            message = Message(chat_id=chat_id, role=role, content=content, reasoning=reasoning)
+            metrics_str = json.dumps(metrics) if metrics else None
+            message = Message(chat_id=chat_id, role=role, content=content, reasoning=reasoning, metrics=metrics_str)
             db.add(message)
             chat.message_count += 1
             chat.updated_at = _now()

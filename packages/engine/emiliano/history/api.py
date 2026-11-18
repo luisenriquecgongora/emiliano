@@ -374,12 +374,20 @@ async def chat_socket(websocket: WebSocket):
         policy, harness = (None, None) if provider else resolve_mode(mode)
         answer = []
         reasoning_parts = []
+        t0 = time.perf_counter()
+        first_token_time: Optional[float] = None
 
         def on_chunk(text: str) -> None:
+            nonlocal first_token_time
+            if first_token_time is None:
+                first_token_time = time.perf_counter()
             answer.append(text)
             emit({"type": "chunk", "content": text})
 
         def on_reason(text: str) -> None:
+            nonlocal first_token_time
+            if first_token_time is None:
+                first_token_time = time.perf_counter()
             reasoning_parts.append(text)
             emit({"type": "reasoning", "content": text})
 
@@ -427,6 +435,52 @@ async def chat_socket(websocket: WebSocket):
                 workspace=project_workspace,
             )
             logger.info(f"[History] Task completed via {cap.display_name}. Response length: {len(full)} chars.")
+            t_done = time.perf_counter()
+            total_duration_s = max(0.001, t_done - t0)
+            ttft_ms = round((first_token_time - t0) * 1000, 1) if first_token_time else None
+
+            # Retrieve fine-grained trace metrics if recorded by dispatcher
+            dispatcher = websocket.app.state.get_dispatcher()
+            trace = getattr(dispatcher, "last_trace", None)
+            tool_duration_s = 0.0
+            tool_spans_count = 0
+            prompt_tokens = None
+            completion_tokens = None
+
+            if trace:
+                prompt_tokens = getattr(trace, "prompt_tokens", None)
+                completion_tokens = getattr(trace, "completion_tokens", None)
+                tool_spans = [s for s in getattr(trace, "spans", []) if getattr(s, "name", "").startswith("tool.")]
+                tool_spans_count = len(tool_spans)
+                if tool_spans:
+                    tool_duration_s = sum((getattr(s, "duration_ms", 0) or 0) / 1000.0 for s in tool_spans)
+
+            if not completion_tokens and full:
+                completion_tokens = max(1, int(len(full.split()) * 1.3))
+
+            tps = round(completion_tokens / total_duration_s, 1) if completion_tokens and total_duration_s > 0 else None
+
+            if total_duration_s >= 60.0:
+                mins = int(total_duration_s // 60)
+                secs = total_duration_s % 60
+                formatted_duration = f"{mins}m {secs:.1f}s"
+            elif total_duration_s >= 1.0:
+                formatted_duration = f"{total_duration_s:.2f}s"
+            else:
+                formatted_duration = f"{int(total_duration_s * 1000)}ms"
+
+            metrics = {
+                "total_duration_s": round(total_duration_s, 2),
+                "formatted_duration": formatted_duration,
+                "ttft_ms": ttft_ms,
+                "tokens_per_second": tps,
+                "completion_tokens": completion_tokens,
+                "prompt_tokens": prompt_tokens,
+                "tool_duration_s": round(tool_duration_s, 2) if tool_duration_s > 0 else None,
+                "tools_count": tool_spans_count,
+                "route": cap.display_name if cap else None,
+            }
+
             from ..core.artifacts import extract_artifacts
             for art in extract_artifacts(full):
                 emit({"type": "artifact", **art})
@@ -441,14 +495,21 @@ async def chat_socket(websocket: WebSocket):
                 except Exception as art_err:
                     logger.warning(f"[Artifact] Failed to save artifact: {art_err}")
             full_reasoning = "".join(reasoning_parts).strip() if reasoning_parts else None
-            saved = store.add_message(chat_id, "assistant", full, reasoning=full_reasoning)
-            emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id)})
+            saved = store.add_message(chat_id, "assistant", full, reasoning=full_reasoning, metrics=metrics)
+            emit({"type": "done", "message": saved, "chat": store.get_chat(chat_id), "metrics": metrics})
         except asyncio.CancelledError:
-            # Keep what was already shown, so the saved chat matches the screen
+            t_done = time.perf_counter()
+            total_duration_s = max(0.001, t_done - t0)
+            formatted_duration = f"{total_duration_s:.2f}s" if total_duration_s >= 1.0 else f"{int(total_duration_s * 1000)}ms"
+            metrics = {
+                "total_duration_s": round(total_duration_s, 2),
+                "formatted_duration": formatted_duration,
+                "status": "cancelled",
+            }
             full_reasoning = "".join(reasoning_parts).strip() if reasoning_parts else None
             if answer:
-                store.add_message(chat_id, "assistant", "".join(answer) + "\n\n[stopped]", reasoning=full_reasoning)
-            emit({"type": "cancelled"})
+                store.add_message(chat_id, "assistant", "".join(answer) + "\n\n[stopped]", reasoning=full_reasoning, metrics=metrics)
+            emit({"type": "cancelled", "metrics": metrics})
         except Exception as e:
             logger.warning(f"[History] Reply failed: {e}")
             emit({"type": "error", "message": str(e), "code": "EXECUTION_ERROR"})

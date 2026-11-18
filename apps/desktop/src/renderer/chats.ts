@@ -13,6 +13,19 @@ export interface ChatSummary {
   message_count: number;
 }
 
+export interface ResponseMetrics {
+  total_duration_s: number;
+  formatted_duration: string;
+  ttft_ms?: number;
+  tokens_per_second?: number;
+  completion_tokens?: number;
+  prompt_tokens?: number;
+  tool_duration_s?: number;
+  tools_count?: number;
+  route?: string;
+  status?: string;
+}
+
 export interface ChatMessage {
   id: number | string;
   role: 'user' | 'assistant';
@@ -23,6 +36,7 @@ export interface ChatMessage {
   route?: string;
   pending?: boolean;
   artifacts?: ArtifactPayload[];
+  metrics?: ResponseMetrics;
 }
 
 export interface ChatDetail extends ChatSummary {
