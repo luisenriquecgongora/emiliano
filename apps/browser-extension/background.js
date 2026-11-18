@@ -7,12 +7,35 @@
 const DEFAULT_SERVER_URL = "ws://127.0.0.1:8765/ws/browser";
 let socket = null;
 let reconnectTimer = null;
+let heartbeatTimer = null;
 let isConnecting = false;
 const attachedDebuggers = new Set();
 
 // ---------------------------------------------------------------------------
-// WebSocket Lifecycle & Auto-Reconnect
+// WebSocket Lifecycle, Heartbeat & Auto-Reconnect
 // ---------------------------------------------------------------------------
+
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatTimer = setInterval(() => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ type: "PING", timestamp: Date.now() }));
+        // Calling a lightweight Chrome API resets the MV3 30-second idle shutdown timer
+        chrome.runtime.getPlatformInfo(() => {});
+      } catch (err) {
+        console.warn("[Emiliano Bridge] Heartbeat ping failed:", err);
+      }
+    }
+  }, 15000); // Send ping every 15 seconds
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
 
 function connect() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
@@ -35,6 +58,9 @@ function connect() {
     chrome.action.setBadgeText({ text: "ON" });
     chrome.action.setBadgeBackgroundColor({ color: "#10b981" }); // Emerald green
 
+    // Start periodic keepalive heartbeat
+    startHeartbeat();
+
     // Handshake
     socket.send(JSON.stringify({
       type: "EXTENSION_HANDSHAKE",
@@ -49,6 +75,10 @@ function connect() {
   socket.onmessage = async (event) => {
     try {
       const msg = JSON.parse(event.data);
+      if (msg.type === "PONG") {
+        // Heartbeat ACK from server
+        return;
+      }
       if (msg.action) {
         await handleCommand(msg);
       }
@@ -60,6 +90,7 @@ function connect() {
   socket.onclose = (event) => {
     isConnecting = false;
     socket = null;
+    stopHeartbeat();
     console.warn(`[Emiliano Bridge] Disconnected (code: ${event.code}). Retrying...`);
     chrome.action.setBadgeText({ text: "OFF" });
     chrome.action.setBadgeBackgroundColor({ color: "#ef4444" }); // Red
@@ -69,6 +100,7 @@ function connect() {
 
   socket.onerror = (err) => {
     console.error("[Emiliano Bridge] WebSocket error:", err);
+    stopHeartbeat();
     if (socket) socket.close();
   };
 }
@@ -79,6 +111,34 @@ function scheduleReconnect() {
     connect();
   }, 3000);
 }
+
+// Keep service worker alive and reconnect even if Chrome suspends the thread
+chrome.alarms.create("emiliano-keep-alive", { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "emiliano-keep-alive") {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.log("[Emiliano Bridge] Alarm keep-alive reconnecting to engine...");
+      connect();
+    } else {
+      try {
+        socket.send(JSON.stringify({ type: "PING", timestamp: Date.now() }));
+        chrome.runtime.getPlatformInfo(() => {});
+      } catch (e) {
+        connect();
+      }
+    }
+  }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  console.log("[Emiliano Bridge] Browser startup detected. Connecting...");
+  connect();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("[Emiliano Bridge] Extension installed or updated. Connecting...");
+  connect();
+});
 
 // ---------------------------------------------------------------------------
 // Command Dispatcher
