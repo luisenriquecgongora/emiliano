@@ -31,6 +31,7 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  Minus,
   Monitor,
   PanelLeft,
   PanelLeftClose,
@@ -1041,7 +1042,7 @@ export default function Dock() {
                 <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${showContextDetails ? 'rotate-180 text-cyan-400' : ''}`} />
               </div>
               <div className="flex items-center space-x-1.5">
-                {messages.length >= 4 && (
+                {messages.length >= 2 && (
                   <button
                     onClick={handleCompact}
                     disabled={compacting || busy}
@@ -1499,39 +1500,23 @@ function Header(props: {
             <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
           </button>
         )}
-        {/* HUD Width Preset Badge */}
-        <button
-          title={`HUD Width: ${props.currentWidth}px. Click to cycle (420px | 640px | 940px)`}
-          onClick={props.onCycleSize}
-          className={`${iconButton} text-[10px] font-mono flex items-center space-x-1 px-1.5 py-1`}
-        >
-          {props.currentWidth >= 550 ? (
-            <Minimize2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          ) : (
-            <Maximize2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          )}
-          <span className="text-[10px] text-slate-300">
-            {props.currentWidth < 350 ? '420' : props.currentWidth < 550 ? '640' : '940'}
-          </span>
-        </button>
-
-        {/* Window Pinning */}
+        {/* Target Window Attachment */}
         <button
           title={
             props.pinnedTitle
-              ? `Pinned to: ${props.pinnedTitle}`
-              : 'Pin to target desktop window (e.g. Chrome, Excel)'
+              ? `Attached to window: ${props.pinnedTitle} (Click to change or detach)`
+              : 'Attach to target window (e.g. Chrome, Excel)'
           }
           onClick={props.onToggleWindows}
           className={`${iconButton} ${
             props.pinnedTitle
-              ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60'
+              ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60 shadow-xs'
               : props.windowsOpen
                 ? 'bg-slate-700 text-white'
                 : ''
           }`}
         >
-          {props.pinnedTitle ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+          <Crosshair className="w-4 h-4" />
         </button>
 
         {/* New Chat */}
@@ -1545,13 +1530,29 @@ function Header(props: {
         </button>
 
         {isTauri() && (
-          <button
-            title="Quit Emiliano"
-            onClick={() => getCurrentWindow().close()}
-            className={iconButton}
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5">
+            <button
+              title="Minimize to taskbar"
+              onClick={() => getCurrentWindow().minimize()}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              title="Maximize / Restore window"
+              onClick={() => getCurrentWindow().toggleMaximize()}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors"
+            >
+              <Square className="w-3 h-3" />
+            </button>
+            <button
+              title="Close Emiliano"
+              onClick={() => getCurrentWindow().close()}
+              className="text-slate-400 hover:text-white hover:bg-rose-600/80 rounded-md p-1.5 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -1675,7 +1676,7 @@ function FixedSidebar(props: {
           : "w-72 shrink-0 h-full border-r border-slate-800/80 pr-3 flex flex-col overflow-hidden select-none"
       }
     >
-      {/* 1. Top Segmented Switcher: [ Home | <> Cowork ] exactly like Claude Desktop */}
+      {/* 1. Top Segmented Switcher: [ Home | Customize ] */}
       <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800/80 mb-2.5 shrink-0">
         <button
           onClick={() => {
@@ -1702,8 +1703,8 @@ function FixedSidebar(props: {
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Code2 className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Cowork</span>
+          <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Customize</span>
         </button>
       </div>
 
@@ -1928,6 +1929,15 @@ function FixedSidebar(props: {
                         )}
 
                         <div className="min-w-0 flex-1 truncate">{chat.title || 'Untitled chat'}</div>
+
+                        {chat.message_count > 0 && (
+                          <span
+                            title={`${chat.message_count} messages in this conversation`}
+                            className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-400 shrink-0 ml-1.5 group-hover:bg-slate-700/80"
+                          >
+                            {chat.message_count}
+                          </span>
+                        )}
 
                         <button
                           onClick={(e) => {
