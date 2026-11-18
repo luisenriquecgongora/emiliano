@@ -87,6 +87,20 @@ class TestPillar1_IntentRoutingAndDiscipline(unittest.TestCase):
             self.assertTrue(needs_mcp_or_tools(goal), f"Expected MCP tool requirement for '{goal}'")
             self.assertFalse(needs_workspace(goal), f"Site goal should not require local coding workspace: '{goal}'")
 
+    def test_mcp_business_intelligence_gating(self):
+        """Finances, shift money, song requests, playlists, settings, and ML revenue forecast must route cleanly to MCP."""
+        bi_goals = [
+            "Query our business finances and monthly income breakdown on PlaatoOS",
+            "Query our shift money breakdown, cash in till, and card payouts on PlaatoOS",
+            "What are the top most requested karaoke songs this month on PlaatoOS?",
+            "Query our active karaoke playlists and room queues on PlaatoOS",
+            "Query our venue settings, opening hours, and contact details on PlaatoOS",
+            "Forecast our expected revenue for tonight on PlaatoOS using predictive analytics",
+        ]
+        for goal in bi_goals:
+            self.assertTrue(needs_mcp_or_tools(goal), f"Expected MCP tool requirement for BI goal '{goal}'")
+            self.assertFalse(needs_workspace(goal), f"BI goal must not be misrouted to git/coding workspace: '{goal}'")
+
 
 class TestPillar2_BrowserBridgeNonActivatingDOM(unittest.TestCase):
     """Pillar 2: Evaluates silent background browser automation and DOM perception via Chrome Companion."""

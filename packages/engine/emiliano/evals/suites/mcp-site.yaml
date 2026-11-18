@@ -20,7 +20,38 @@ tasks:
     goal: "Check our website pages and hero block on PlaatoOS"
     expect: {route: direct}
 
-  # 2. Site Updates & Theming Routing (Luis Enrique Builds & La Estación del Verano)
+  # 2. Business Intelligence & Telemetry Routing (Finances, Shifts, Songs, Predictions)
+  - id: route-query-finances
+    kind: route
+    goal: "Query our business finances and monthly income breakdown on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-query-shift-money
+    kind: route
+    goal: "Query our shift money breakdown, cash in till, and card payouts on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-query-song-requests
+    kind: route
+    goal: "What are the top most requested karaoke songs this month on PlaatoOS?"
+    expect: {route: direct}
+
+  - id: route-query-playlists
+    kind: route
+    goal: "Query our active karaoke playlists and room queues on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-query-business-settings
+    kind: route
+    goal: "Query our venue settings, opening hours, and contact details on PlaatoOS"
+    expect: {route: direct}
+
+  - id: route-predict-revenue
+    kind: route
+    goal: "Forecast our expected revenue for tonight on PlaatoOS using predictive analytics"
+    expect: {route: direct}
+
+  # 3. Site Updates & Theming Routing (Luis Enrique Builds & La Estación del Verano)
   - id: route-patch-hero
     kind: route
     goal: "Update the hero block on the website to announce Summer 2026 events"

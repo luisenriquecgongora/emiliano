@@ -126,7 +126,9 @@ def needs_workspace(goal: str) -> bool:
 _MCP_ACTIONS = (
     r"query|check|show|list|get|find|view|inspect|fetch|update|change|modify|patch|propose|"
     r"create|add|remove|delete|audit|apply|load|run|publish|design|set|draft|suggest|analyze|"
-    r"consulta|muestra|lista|obten|encuentra|actualiza|cambia|modifica|prop[oó]n|crea|agrega|elimina|publica"
+    r"predict|forecast|estimate|breakdown|"
+    r"consulta|muestra|lista|obten|encuentra|actualiza|cambia|modifica|prop[oó]n|crea|agrega|elimina|publica|"
+    r"pronostica|predice"
 )
 
 _MCP_ENTITIES = (
@@ -134,7 +136,11 @@ _MCP_ENTITIES = (
     r"theme|themes|branding|design tokens?|palette|colors?|navigation|nav|"
     r"business|venue|venues|events?|tickets?|menu|menu items?|dishes|products?|orders?|"
     r"reservations?|bookings?|shifts?|finances?|revenue|forecast|inventory|schedule|loyalty|"
-    r"sitio|sitio web|p[aá]gina|bloque|bloques|tema|negocio|local|locales|evento|eventos|men[uú]|reservas"
+    r"income|sales|till|cash in till|shift money|payouts?|profit|"
+    r"songs?|song requests?|playlists?|karaoke|dj requests?|music queue|"
+    r"opening hours?|business settings?|venue profile|venue contact|"
+    r"sitio|sitio web|p[aá]gina|bloque|bloques|tema|negocio|local|locales|evento|eventos|men[uú]|reservas|"
+    r"ingresos|ventas|caja|canciones|cancion|horarios"
 )
 
 _MCP_ACTION_PATTERN = re.compile(
