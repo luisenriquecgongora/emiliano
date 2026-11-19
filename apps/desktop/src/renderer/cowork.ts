@@ -139,6 +139,21 @@ export const coworkApi = {
     return res.json();
   },
 
+  setAlwaysOnTop: async (enabled: boolean): Promise<{ status: string; always_on_top?: boolean }> => {
+    try {
+      const res = await fetch(`${ENGINE_HTTP_URL}/api/cowork/always_on_top`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    } catch (e) {
+      console.warn('[coworkApi] setAlwaysOnTop failed:', e);
+      return { status: 'error' };
+    }
+  },
+
   getSkillContent: async (skillId: string): Promise<Record<string, any>> => {
     const res = await fetch(`${ENGINE_HTTP_URL}/api/skills/${encodeURIComponent(skillId)}/content`);
     if (!res.ok) throw new Error(`Failed to load skill content: ${res.status}`);

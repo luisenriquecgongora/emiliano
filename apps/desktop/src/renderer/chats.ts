@@ -30,6 +30,8 @@ export interface ResponseMetrics {
   tokens_per_second?: number;
   completion_tokens?: number;
   prompt_tokens?: number;
+  thinking_duration_s?: number;
+  generation_duration_s?: number;
   tool_duration_s?: number;
   tools_count?: number;
   route?: string;

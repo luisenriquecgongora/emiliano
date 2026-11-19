@@ -820,6 +820,26 @@ export default function Dock() {
     }
   }, []);
 
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = useState<boolean>(() => {
+    const saved = localStorage.getItem('emiliano_always_on_top');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const handleToggleAlwaysOnTop = useCallback(async () => {
+    const next = !isAlwaysOnTop;
+    setIsAlwaysOnTop(next);
+    localStorage.setItem('emiliano_always_on_top', String(next));
+    if (isTauri()) {
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.setAlwaysOnTop(next);
+      } catch (err) {
+        console.warn('[Dock] tauri setAlwaysOnTop error:', err);
+      }
+    }
+    await coworkApi.setAlwaysOnTop(next).catch(() => {});
+  }, [isAlwaysOnTop]);
+
   const handleOpenMcp = useCallback(() => {
     setSidebarOpen(true);
     setSidebarTab('connects');
@@ -913,70 +933,62 @@ export default function Dock() {
   return (
     <div className={`w-full h-full flex flex-col relative select-none ${isMaximized ? 'p-0' : 'p-2.5'}`}>
       {/* ========================================================================= */}
-      {/* 8-Direction Frameless Window Border Drag Handles (Claude Cowork Style)    */}
+      {/* 8-Direction Frameless Window Border Drag Handles (Subtle Native Style)     */}
       {/* ========================================================================= */}
       {!isMaximized && (
         <>
           {/* 1. Left Border (West) */}
           <div
-            className="absolute left-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            className="absolute left-0 top-3 bottom-3 w-1.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
             title="Drag left border to resize horizontally"
             onMouseDown={(e) => handleStartResize(e, 'West')}
-          >
-            <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-          </div>
+          />
 
           {/* 2. Right Border (East) */}
           <div
-            className="absolute right-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            className="absolute right-0 top-3 bottom-3 w-1.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
             title="Drag right border to resize horizontally"
             onMouseDown={(e) => handleStartResize(e, 'East')}
-          >
-            <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-          </div>
+          />
 
           {/* 3. Top Border (North) */}
           <div
-            className="absolute top-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            className="absolute top-0 left-3 right-3 h-1.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
             title="Drag top border to resize vertically"
             onMouseDown={(e) => handleStartResize(e, 'North')}
-          >
-            <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-          </div>
+          />
 
           {/* 4. Bottom Border (South) */}
           <div
-            className="absolute bottom-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            className="absolute bottom-0 left-3 right-3 h-1.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
             title="Drag bottom border to resize vertically"
             onMouseDown={(e) => handleStartResize(e, 'South')}
-          >
-            <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-          </div>
+          />
 
           {/* 5. Top-Left Corner (NorthWest) */}
           <div
-            className="absolute top-0 left-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
+            className="absolute top-0 left-0 w-3 h-3 cursor-nwse-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
             title="Drag corner to resize diagonally"
             onMouseDown={(e) => handleStartResize(e, 'NorthWest')}
           />
 
           {/* 6. Top-Right Corner (NorthEast) */}
           <div
-            className="absolute top-0 right-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
+            className="absolute top-0 right-0 w-3 h-3 cursor-nesw-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
             title="Drag corner to resize diagonally"
             onMouseDown={(e) => handleStartResize(e, 'NorthEast')}
           />
 
           {/* 7. Bottom-Left Corner (SouthWest) */}
           <div
-            className="absolute bottom-0 left-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
+            className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
             title="Drag corner to resize diagonally"
             onMouseDown={(e) => handleStartResize(e, 'SouthWest')}
           />
 
           {/* 8. Bottom-Right Corner (SouthEast) */}
           <div
-            className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
+            className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
             title="Drag corner to resize diagonally"
             onMouseDown={(e) => handleStartResize(e, 'SouthEast')}
           />
@@ -991,6 +1003,8 @@ export default function Dock() {
         <Header
           isMaximized={isMaximized}
           onToggleMaximize={handleToggleMaximize}
+          isAlwaysOnTop={isAlwaysOnTop}
+          onToggleAlwaysOnTop={handleToggleAlwaysOnTop}
           connected={!!ws}
           plaatoosConnection={connections.find((c) => c.service === 'plaatoos')}
           onOpenMcp={handleOpenMcp}
@@ -1563,6 +1577,8 @@ function EmilianoLogo({ connected = true, size = 28 }: { connected?: boolean; si
 function Header(props: {
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  isAlwaysOnTop?: boolean;
+  onToggleAlwaysOnTop?: () => void;
   connected: boolean;
   plaatoosConnection?: ServiceConnection;
   onOpenMcp: () => void;
@@ -1826,6 +1842,19 @@ function Header(props: {
 
         {isTauri() && (
           <div data-tauri-drag-region="false" className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5 shrink-0">
+            <button
+              title={props.isAlwaysOnTop ? "Always on top is ON (Click to unpin from top so other apps can overlap)" : "Always on top is OFF (Click to pin Emiliano on top of other windows)"}
+              onClick={props.onToggleAlwaysOnTop}
+              className={`rounded-md p-1.5 transition-colors shrink-0 ${
+                props.isAlwaysOnTop ? 'text-cyan-300 hover:text-white hover:bg-slate-800/80 bg-cyan-950/50 border border-cyan-800/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+              }`}
+            >
+              {props.isAlwaysOnTop ? (
+                <Pin className="w-3.5 h-3.5 text-cyan-300" />
+              ) : (
+                <PinOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </button>
             <button
               title="Minimize to taskbar"
               onClick={handleMinimize}
@@ -3747,7 +3776,7 @@ function HistoryPanel(props: {
   );
 }
 
-function ThinkingProcessCard({ reasoning, pending }: { reasoning: string; pending?: boolean }) {
+function ThinkingProcessCard({ reasoning, pending, duration_s }: { reasoning: string; pending?: boolean; duration_s?: number }) {
   const [isOpen, setIsOpen] = useState(Boolean(pending));
   const scrollRef = useRef<HTMLDivElement>(null);
   const [userScrolled, setUserScrolled] = useState(false);
@@ -3784,15 +3813,21 @@ function ThinkingProcessCard({ reasoning, pending }: { reasoning: string; pendin
       >
         <div className="flex items-center space-x-2">
           <Sparkles className={`w-3.5 h-3.5 ${pending ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
-          <span>{pending ? 'Thinking process in progress…' : 'Thought process (completed)'}</span>
+          <span>
+            {pending ? 'Thinking process in progress…' : `Thought process (completed${duration_s ? ` in ${duration_s}s` : ''})`}
+          </span>
         </div>
         <div className="flex items-center space-x-2">
-          {pending && (
+          {pending ? (
             <span className="flex items-center space-x-1.5 text-[10px] text-cyan-300 font-mono bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
               <span>Rolling</span>
             </span>
-          )}
+          ) : duration_s ? (
+            <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">
+              {duration_s}s
+            </span>
+          ) : null}
           <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`} />
         </div>
       </button>
@@ -3991,15 +4026,26 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
       <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2 select-text">
         {message.reasoning && (
-          <ThinkingProcessCard reasoning={message.reasoning} pending={Boolean(message.pending)} />
+          <ThinkingProcessCard
+            reasoning={message.reasoning}
+            pending={Boolean(message.pending)}
+            duration_s={message.metrics?.thinking_duration_s}
+          />
         )}
 
         {/* Render Executed Tool & MCP Calls */}
         {message.tool_calls && message.tool_calls.length > 0 && (
           <div className="my-2 space-y-1">
-            <div className="text-[10px] font-semibold text-slate-400 flex items-center gap-1">
-              <Blocks className="w-3 h-3 text-purple-400" />
-              <span>Executed Tools & MCPs ({message.tool_calls.length}):</span>
+            <div className="text-[10px] font-semibold text-slate-400 flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <Blocks className="w-3 h-3 text-purple-400" />
+                <span>Executed Tools & MCPs ({message.tool_calls.length}):</span>
+              </div>
+              {message.metrics?.tool_duration_s ? (
+                <span className="font-mono text-[10px] text-emerald-400/90 font-normal">
+                  Total tool time: {message.metrics.tool_duration_s}s
+                </span>
+              ) : null}
             </div>
             {message.tool_calls.map((t, idx) => (
               <ToolCallCard key={idx} tool={t} />
@@ -4019,23 +4065,51 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
         {/* State-of-the-Art Response Performance & Execution Telemetry */}
         {message.metrics && !message.pending && (
-          <div className="mt-2 pt-1.5 border-t border-slate-700/50 flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-400 select-none">
+          <div className="mt-2 pt-1.5 border-t border-slate-700/50 flex flex-wrap items-center gap-1.5 text-[10px] font-mono text-slate-400 select-none">
             <span
               className="inline-flex items-center gap-1 bg-cyan-950/60 border border-cyan-800/50 text-cyan-300 rounded px-1.5 py-0.5 font-medium"
-              title={`Total Execution Time: ${message.metrics.total_duration_s}s`}
+              title={`Total Response Turnaround: ${message.metrics.total_duration_s}s`}
             >
               <Zap className="w-2.5 h-2.5 text-amber-400" />
               {message.metrics.formatted_duration}
             </span>
 
+            {/* Per-process step latencies */}
+            {message.metrics.thinking_duration_s && message.metrics.thinking_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-cyan-400/90 bg-slate-900/80 border border-cyan-800/40 rounded px-1.5 py-0.5"
+                title={`Reasoning & Planning Phase: ${message.metrics.thinking_duration_s}s`}
+              >
+                🧠 Think {message.metrics.thinking_duration_s}s
+              </span>
+            )}
+
+            {message.metrics.tool_duration_s && message.metrics.tool_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-emerald-400 bg-slate-900/80 border border-emerald-800/40 rounded px-1.5 py-0.5 font-medium"
+                title={`Tool & MCP Execution Phase: ${message.metrics.tool_duration_s}s`}
+              >
+                ⚡ Tools {message.metrics.tool_duration_s}s
+              </span>
+            )}
+
+            {message.metrics.generation_duration_s && message.metrics.generation_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-slate-300 bg-slate-900/80 border border-slate-700/40 rounded px-1.5 py-0.5"
+                title={`Synthesis & Generation Phase: ${message.metrics.generation_duration_s}s`}
+              >
+                💬 Gen {message.metrics.generation_duration_s}s
+              </span>
+            )}
+
             {message.metrics.tokens_per_second && (
-              <span className="text-slate-300" title="Generation Throughput">
-                {message.metrics.tokens_per_second} t/s
+              <span className="text-slate-400 ml-0.5" title="Generation Throughput">
+                · {message.metrics.tokens_per_second} t/s
               </span>
             )}
 
             {message.metrics.completion_tokens && (
-              <span className="text-slate-400" title="Output Tokens">
+              <span className="text-slate-500" title="Output Tokens">
                 · {message.metrics.completion_tokens} tok
               </span>
             )}
@@ -4043,12 +4117,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             {message.metrics.ttft_ms && (
               <span className="text-slate-500 hidden sm:inline" title="Time to First Token (TTFT)">
                 · TTFT {message.metrics.ttft_ms}ms
-              </span>
-            )}
-
-            {message.metrics.tool_duration_s && message.metrics.tool_duration_s > 0 && (
-              <span className="text-emerald-400 font-medium inline-flex items-center gap-0.5" title="Tool Execution Duration">
-                · Tools {message.metrics.tool_duration_s}s
               </span>
             )}
           </div>
