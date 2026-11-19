@@ -3,7 +3,7 @@ name = "emiliano-desktop"
 version = "0.6.0"
 description = "Emiliano desktop cowork app (Tauri shell around the Python engine)"
 authors = ["Luis Enrique"]
-license = "MIT"
+license = "LicenseRef-PolyForm-Shield-1.0.0"
 edition = "2021"
 
 [build-dependencies]
