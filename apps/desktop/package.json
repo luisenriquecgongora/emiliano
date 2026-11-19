@@ -1,6 +1,6 @@
 {
   "name": "@emiliano/desktop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Desktop Cowork UI for Emiliano",
   "private": true,
   "scripts": {
