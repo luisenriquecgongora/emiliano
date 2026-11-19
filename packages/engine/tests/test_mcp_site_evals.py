@@ -3,11 +3,9 @@ Unit and Eval tests for Emiliano MCP site tools, intent routing, and site update
 """
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Ensure engine package root is in sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

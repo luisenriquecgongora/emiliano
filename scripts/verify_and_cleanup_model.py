@@ -51,7 +51,7 @@ def remove_old_model(name: str = "qwen3.5:2b") -> bool:
     try:
         res = subprocess.run(["ollama", "rm", name], capture_output=True, text=True, check=True)
         print(f"Result: {res.stdout.strip() or 'Removed successfully.'}")
-        print(f"🎉 Reclaimed 2.7 GB of disk space!")
+        print("🎉 Reclaimed 2.7 GB of disk space!")
         return True
     except Exception as e:
         print(f"Failed to remove model '{name}': {e}")

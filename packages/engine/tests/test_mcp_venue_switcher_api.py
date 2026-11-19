@@ -5,7 +5,7 @@ ensuring credential persistence, token claim isolation, and error handling.
 """
 
 import pytest
-from emiliano.mcp import connect, credentials
+from emiliano.mcp import connect
 
 
 class TestMcpVenueSwitcherApi:

@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from emiliano.server.app import app
-from emiliano.history.api import MODES, SPECIALIST_MODE_CONFIGS, resolve_mode
+from emiliano.history.api import SPECIALIST_MODE_CONFIGS, resolve_mode
 
 
 @pytest.fixture(scope="module")
