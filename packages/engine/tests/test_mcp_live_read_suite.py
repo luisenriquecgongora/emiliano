@@ -25,8 +25,8 @@ class TestMcpLiveReadSuite(unittest.TestCase):
         cls.mgr = McpManager(cfg.mcp_servers, cwd=os.getcwd())
         cls.mgr.start()
         # Verify server loaded
-        assert "plaatoos" in cls.mgr.statuses, "PlaatoOS MCP server not found in configuration"
-        assert cls.mgr.statuses["plaatoos"].ok, f"PlaatoOS MCP server failed: {cls.mgr.statuses['plaatoos'].error}"
+        if "plaatoos" not in cls.mgr.statuses or not cls.mgr.statuses["plaatoos"].ok:
+            raise unittest.SkipTest("PlaatoOS live MCP server not configured or offline")
 
     @classmethod
     def tearDownClass(cls):
