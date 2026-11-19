@@ -1472,10 +1472,7 @@ export default function Dock() {
                         onRefresh={refreshModels}
                         onToggleLoaded={toggleLoaded}
                         onUnloadAll={unloadAllLoaded}
-                        connections={connections}
-                        connecting={connecting}
-                        connectNote={connectNote}
-                        onToggleConnection={toggleConnection}
+                        onOpenCustomizeMcp={handleOpenMcp}
                         onClose={() => setShowModels(false)}
                       />
                     </div>
@@ -1543,10 +1540,7 @@ export default function Dock() {
                     onRefresh={refreshModels}
                     onToggleLoaded={toggleLoaded}
                     onUnloadAll={unloadAllLoaded}
-                    connections={connections}
-                    connecting={connecting}
-                    connectNote={connectNote}
-                    onToggleConnection={toggleConnection}
+                    onOpenCustomizeMcp={handleOpenMcp}
                     onClose={() => setShowModels(false)}
                   />
                 )}
@@ -4452,10 +4446,7 @@ function ModelsPanel(props: {
   onRefresh: () => void;
   onToggleLoaded: (m: LocalModel) => void;
   onUnloadAll?: () => void;
-  connections: ServiceConnection[];
-  connecting: string | null;
-  connectNote: string | null;
-  onToggleConnection: (c: ServiceConnection) => void;
+  onOpenCustomizeMcp?: () => void;
   onClose: () => void;
 }) {
   const hw = props.data?.hardware;
@@ -4681,35 +4672,6 @@ function ModelsPanel(props: {
           );
         })}
 
-        {props.connections.length > 0 && (
-          <div className="border-b border-slate-800">
-            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-slate-400">Services (tools for the models)</div>
-            {props.connections.map((c) => (
-              <div key={c.service} className="px-3 py-2 flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <div className="text-xs text-slate-200 font-medium">{c.title}</div>
-                  <div className="text-[10px] text-slate-500">
-                    {c.connected
-                      ? `Connected${c.auth === 'token' ? ' with an agent token' : ''}`
-                      : 'Sign in to let the models use its tools'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => props.onToggleConnection(c)}
-                  disabled={props.connecting !== null}
-                  title={c.connected ? 'Sign out and remove the service' : 'Opens the sign-in in your browser'}
-                  className={`shrink-0 px-2 py-0.5 rounded text-[10px] disabled:opacity-40 ${
-                    c.connected ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
-                  }`}
-                >
-                  {props.connecting === c.service ? 'Waiting…' : c.connected ? 'Disconnect' : 'Connect'}
-                </button>
-              </div>
-            ))}
-            {props.connectNote && <div className="px-3 pb-2 text-[10px] text-cyan-300">{props.connectNote}</div>}
-          </div>
-        )}
-
         {!props.data ? (
           <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
         ) : (
@@ -4871,13 +4833,31 @@ function ModelsPanel(props: {
                     </div>
                   ))}
 
-                  {/* ChangeSet Guardrails & Staged Approvals Section */}
-                  <StagedProposalsCard />
                 </div>
               </>
             )}
           </>
         )}
+
+        {/* Footer: Direct reference to Customize > MCP for external tools & services */}
+        <div className="px-3 py-2 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-[11px] text-slate-400">
+          <div className="flex items-center space-x-1.5 truncate">
+            <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span className="text-[10px] text-slate-400 truncate">MCP tools & service connections are managed under Customize</span>
+          </div>
+          {props.onOpenCustomizeMcp && (
+            <button
+              type="button"
+              onClick={() => {
+                props.onClose();
+                props.onOpenCustomizeMcp?.();
+              }}
+              className="text-cyan-400 hover:text-cyan-300 font-medium hover:underline text-[10px] shrink-0 ml-2 cursor-pointer"
+            >
+              Open Customize →
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
