@@ -231,9 +231,23 @@ class McpManager:
 
         domain_boosters = {
             "site": {"site", "website", "block", "hero", "header", "footer", "theme", "title", "page", "landing"},
-            "event": {"event", "ticket", "venue", "booking", "schedule"},
-            "menu": {"menu", "dish", "price", "order", "food"},
-            "business": {"business", "settings", "company", "info", "config"},
+            "event": {"event", "ticket", "venue", "booking", "schedule", "party", "calendar"},
+            "menu": {"menu", "dish", "price", "order", "food", "drink", "drinks", "beer", "beers", "cocktail", "cocktails", "wine", "beverage", "beverages", "bar", "kitchen"},
+            "cash": {"cash", "finance", "finances", "revenue", "money", "till", "safe", "shift", "box", "boxes", "ledger", "count"},
+            "inventory": {"inventory", "stock", "product", "products", "item", "items", "warehouse", "ingredient", "ingredients"},
+            "playlist": {"playlist", "playlists", "karaoke", "music", "song", "songs", "track", "tracks"},
+            "staff": {"staff", "user", "users", "employee", "employees", "role", "permissions", "team"},
+            "business": {"business", "settings", "company", "info", "config", "profile"},
+        }
+        domain_tool_mapping = {
+            "cash": ("query_cash_boxes", "query_shift_money", "query_finances"),
+            "menu": ("query_menu", "find_duplicate_menu_items", "propose_menu_item"),
+            "inventory": ("query_inventory_products", "query_products", "propose_inventory_product"),
+            "event": ("query_events", "query_tickets", "propose_event"),
+            "playlist": ("query_playlists", "query_karaoke_queue"),
+            "staff": ("query_users", "query_business_users"),
+            "site": ("query_business_site", "query_site_blocks", "propose_site_pages"),
+            "business": ("query_business", "query_business_settings"),
         }
         active_domains = {dom for dom, terms in domain_boosters.items() if any(term in keywords for term in terms)}
 
@@ -254,6 +268,9 @@ class McpManager:
                     score += 3.0
                 if dom in desc_lower:
                     score += 1.0
+                preferred_tools = domain_tool_mapping.get(dom, ())
+                if any(pt in tool_name_lower for pt in preferred_tools):
+                    score += 8.0
 
             if any(w in keywords for w in ("query", "get", "check", "read", "inspect", "show", "list")):
                 if any(w in tool_name_lower for w in ("query", "get", "read", "list", "inspect")):
