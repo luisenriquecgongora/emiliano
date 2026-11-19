@@ -288,6 +288,11 @@ export default function Dock() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        handleToggleMaximize();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         const activeTag = (document.activeElement?.tagName || '').toLowerCase();
         if (activeTag === 'textarea' || activeTag === 'input') {
@@ -1645,6 +1650,12 @@ function Header(props: {
     // data-tauri-drag-region: the window is frameless, so the header moves it
     <div
       data-tauri-drag-region
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('button, input, select, textarea, [role="button"]')) {
+          props.onToggleMaximize?.();
+        }
+      }}
       className="flex items-center justify-between pb-3 border-b border-slate-800/80 cursor-move"
     >
       {/* Left controls: SOTA single sidebar toggle & brand */}
@@ -1814,7 +1825,7 @@ function Header(props: {
         </button>
 
         {isTauri() && (
-          <div className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5 shrink-0">
+          <div data-tauri-drag-region="false" className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5 shrink-0">
             <button
               title="Minimize to taskbar"
               onClick={handleMinimize}
