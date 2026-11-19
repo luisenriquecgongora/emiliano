@@ -13,23 +13,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import sys
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List
 
 # Add engine to path
 ENGINE_ROOT = Path(__file__).resolve().parent.parent
 if str(ENGINE_ROOT) not in sys.path:
     sys.path.insert(0, str(ENGINE_ROOT))
 
-from emiliano.core.config import EmilianoConfig, McpServerConfig
-from emiliano.core.dispatcher import ExecutionDispatcher
-from emiliano.core.routing import needs_mcp_or_tools, needs_workspace
-from emiliano.cowork.browser_bridge import RemoteBrowserBridge
-from emiliano.history.store import HistoryStore, Message
+from emiliano.core.config import EmilianoConfig, McpServerConfig  # noqa: E402
+from emiliano.core.dispatcher import ExecutionDispatcher  # noqa: E402
+from emiliano.core.routing import needs_mcp_or_tools, needs_workspace  # noqa: E402
+from emiliano.cowork.browser_bridge import RemoteBrowserBridge  # noqa: E402
+from emiliano.history.store import HistoryStore  # noqa: E402
 
 
 class TestPillar1_IntentRoutingAndDiscipline(unittest.TestCase):

@@ -75,7 +75,6 @@ class TestMcpQueryExpansionSuite:
         assert "plaatoos__query_song_requests" in names
 
     def test_10_stale_refusals_and_meta_instructions_sanitized(self):
-        from emiliano.direct.agent import DirectAgentLoop
         raw_msgs = [
             {"role": "user", "content": "can you please tell me a summary of my business Taki Taki"},
             {"role": "assistant", "content": "I'm sorry, but I don't have access to your specific business information. To provide a summary of your business Taki Taki, I would need to query the relevant data from our systems using the provided MCP tools. Could you please let me know which aspects of your business you'd like summarized?"},

@@ -4,7 +4,6 @@ Validates the Non-Linear DAG flux reconstruction, per-process step latencies,
 OpenTelemetry trace serialization, Mermaid export, and Always-On-Top Z-order sync.
 """
 
-import json
 import os
 import sys
 import time
@@ -15,7 +14,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from emiliano.server.app import app
-from emiliano.core.traces import TaskTrace, TraceSpan, TraceStore
+from emiliano.core.traces import TaskTrace
 from emiliano.history.store import HistoryStore
 from emiliano.mcp.manager import McpManager
 from emiliano.core.config import load_config

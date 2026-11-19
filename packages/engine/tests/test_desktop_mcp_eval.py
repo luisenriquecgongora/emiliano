@@ -5,8 +5,6 @@ verifying streaming chunks, tool execution badges, proposal generation, and nega
 """
 
 import asyncio
-import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -16,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
 from emiliano.core.capabilities import Capability, CapabilityStatus, ExecutionType
-from emiliano.core.config import EmilianoConfig, McpServerConfig
 from emiliano.server.app import app, get_dispatcher
 
 
@@ -174,7 +171,7 @@ def run_desktop_mcp_evaluation():
                         "mode": "auto",
                     })
 
-                    received_route = None
+                    _received_route = None
                     chunks = []
                     done_message = None
 
@@ -183,7 +180,7 @@ def run_desktop_mcp_evaluation():
                         m_type = msg.get("type")
 
                         if m_type == "route":
-                            received_route = msg.get("name")
+                            _received_route = msg.get("name")
                         elif m_type == "chunk":
                             chunks.append(msg.get("content", ""))
                         elif m_type == "done":
@@ -203,7 +200,7 @@ def run_desktop_mcp_evaluation():
                         print(f"  ✅ MCP Tool Badge Streamed: [MCP Tool: {scenario['mock_tool']}]")
                     else:
                         assert not tool_detected, f"Did not expect MCP Tool badge in greeting, got: {full_content}"
-                        print(f"  ✅ Conversational Stream (Zero Tool Overhead)")
+                        print("  ✅ Conversational Stream (Zero Tool Overhead)")
 
                     assert done_message is not None, "Missing 'done' message"
                     print(f"  ✅ Done Event Received ({duration}s)")
