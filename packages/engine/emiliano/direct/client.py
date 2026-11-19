@@ -253,7 +253,11 @@ class UnifiedLLMClient:
                              tools: Optional[List[Dict[str, Any]]] = None) -> AsyncGenerator[Tuple[str, str], None]:
         """Streams (content, reasoning) pairs from Ollama's /api/chat directly. Going through litellm would add
         its ~13 s import to the first local reply, and this HTTP API is all a local model needs."""
-        options: Dict[str, object] = {"temperature": temperature}
+        options: Dict[str, object] = {
+            "temperature": temperature,
+            "repeat_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
         if self.ollama_num_ctx:
             options["num_ctx"] = self.ollama_num_ctx
         payload: Dict[str, object] = {"model": target_model.removeprefix("ollama/"), "messages": messages,
