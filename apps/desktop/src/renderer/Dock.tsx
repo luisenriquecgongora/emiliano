@@ -640,6 +640,7 @@ export default function Dock() {
     setError(null);
     setBusy(false);
     setDraft('');
+    setMode('auto');
   };
 
   const newChat = () => {
@@ -1188,6 +1189,8 @@ export default function Dock() {
             loadingBrowser={loadingBrowser}
             onRefreshBrowserStatus={refreshBrowserStatus}
             onDeleteAllChats={deleteAllChats}
+            onOpenModesGallery={() => setShowModesGallery(true)}
+            onOpenModels={() => setShowModels(true)}
           />
         )}
 
@@ -1406,6 +1409,8 @@ export default function Dock() {
               loadingBrowser={loadingBrowser}
               onRefreshBrowserStatus={refreshBrowserStatus}
               onDeleteAllChats={deleteAllChats}
+              onOpenModesGallery={() => setShowModesGallery(true)}
+              onOpenModels={() => setShowModels(true)}
             />
           )}
 
@@ -1414,10 +1419,21 @@ export default function Dock() {
               /* Claude-style centered Welcome & Hero Canvas */
               <div className="flex-1 flex flex-col items-center justify-center px-4 max-w-xl mx-auto w-full select-none">
                 <div className="mb-4 flex items-center space-x-2">
-                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowModels((open) => {
+                        if (!open) refreshModels();
+                        return !open;
+                      });
+                    }}
+                    title="Click to view and configure local models, memory, and engine status"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-[11px] text-slate-300 hover:text-white shadow-xs cursor-pointer transition-all"
+                  >
                     <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                     <span>Local Engine · Connected</span>
-                  </div>
+                    <Cpu className="w-3 h-3 text-slate-400 ml-0.5" />
+                  </button>
 
                   {browserStatus.connected ? (
                     <div
@@ -1448,6 +1464,23 @@ export default function Dock() {
 
                 {/* Central Floating Composer Card */}
                 <div className="w-full">
+                  {showModels && (
+                    <div className="mb-3 max-h-[350px] overflow-y-auto">
+                      <ModelsPanel
+                        data={localModels}
+                        busyModel={modelAction}
+                        onRefresh={refreshModels}
+                        onToggleLoaded={toggleLoaded}
+                        onUnloadAll={unloadAllLoaded}
+                        connections={connections}
+                        connecting={connecting}
+                        connectNote={connectNote}
+                        onToggleConnection={toggleConnection}
+                        onClose={() => setShowModels(false)}
+                      />
+                    </div>
+                  )}
+
                   <Composer
                     draft={draft}
                     onDraft={setDraft}
@@ -2114,6 +2147,8 @@ function FixedSidebar(props: {
   loadingBrowser: boolean;
   onRefreshBrowserStatus: () => void;
   onDeleteAllChats?: () => void;
+  onOpenModesGallery?: () => void;
+  onOpenModels?: () => void;
 }) {
   const [sidebarMode, setSidebarMode] = useState<'home' | 'cowork'>('home');
   const [coworkSubTab, setCoworkSubTab] = useState<'surface' | 'skills' | 'mcp' | 'data'>('surface');
@@ -2122,6 +2157,20 @@ function FixedSidebar(props: {
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [viewingSkill, setViewingSkill] = useState<{ id: string; title: string; content: string } | null>(null);
   const [approvingSkillId, setApprovingSkillId] = useState<string | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    }
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showProfileMenu]);
   const [showMcpGuide, setShowMcpGuide] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
 
@@ -3145,23 +3194,125 @@ function FixedSidebar(props: {
       )}
 
       {/* 5. Bottom Profile Footer: Avatar [A] Artur · Emiliano Pro ⌄ */}
-      <div className="pt-2 mt-auto border-t border-slate-800/80 px-1 py-1.5 flex items-center justify-between bg-slate-950/40 shrink-0">
-        <div className="flex items-center space-x-2 cursor-pointer hover:opacity-90">
-          <div className="w-6 h-6 rounded-full bg-amber-600 flex items-center justify-center text-xs font-bold text-white shadow-xs">
+      <div className="relative pt-2 mt-auto border-t border-slate-800/80 px-1 py-1.5 flex items-center justify-between bg-slate-950/40 shrink-0" ref={profileRef}>
+        <div
+          onClick={() => setShowProfileMenu((prev) => !prev)}
+          className={`flex items-center space-x-2 cursor-pointer p-1 rounded-lg transition-colors ${
+            showProfileMenu ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/60 text-slate-200'
+          }`}
+          title="Click to view Artur · Emiliano Pro subscription, organization, and settings"
+        >
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-xs font-bold text-white shadow-xs">
             A
           </div>
-          <div className="flex items-center space-x-1 text-xs font-medium text-slate-200">
-            <span>Artur · Emiliano Pro</span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
+          <div className="flex items-center space-x-1.5 text-xs font-medium">
+            <span>Artur</span>
+            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">PRO</span>
+            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
           </div>
         </div>
+
         <button
           onClick={props.onClose}
           title="Collapse sidebar"
-          className="p-1 text-slate-400 hover:text-white transition-colors"
+          className="p-1 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-800"
         >
           <PanelLeftClose className="w-3.5 h-3.5" />
         </button>
+
+        {/* Profile & Subscription Popover Menu */}
+        {showProfileMenu && (
+          <div className="absolute left-1 bottom-full mb-2 w-72 bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl p-3 z-50 flex flex-col space-y-2.5 backdrop-blur-md animate-in fade-in duration-100 select-none">
+            {/* Header: User & Plan */}
+            <div className="flex items-center space-x-3 pb-2.5 border-b border-slate-800">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-sm font-bold text-white shadow-md">
+                A
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-bold text-xs text-white truncate">Artur</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">EMILIANO PRO</span>
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">artlu@oracliom.com</div>
+              </div>
+            </div>
+
+            {/* Business Tenant Info */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 text-[11px]">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                <span>Active Business Tenant</span>
+                <span className="text-emerald-400 font-semibold">Connected</span>
+              </div>
+              <div className="font-semibold text-slate-200 flex items-center space-x-1.5">
+                <span>🍸</span>
+                <span className="truncate">Taki Taki Katowice</span>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                Role: Venue Administrator & Owner
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex flex-col space-y-1 pt-1">
+              {props.onOpenModesGallery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    props.onOpenModesGallery?.();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+                >
+                  <span className="flex items-center space-x-2">
+                    <Store className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Browse All 14 Specialist Modes</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-cyan-800/40">14</span>
+                </button>
+              )}
+
+              {props.onOpenModels && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    props.onOpenModels?.();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+                >
+                  <span className="flex items-center space-x-2">
+                    <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Local Models & Memory</span>
+                  </span>
+                  <span className="text-[9px] text-slate-400">VRAM Fit</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfileMenu(false);
+                  props.onTabChange('connects');
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+              >
+                <span className="flex items-center space-x-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Workspace Settings & MCPs</span>
+                </span>
+              </button>
+            </div>
+
+            {/* Footer Status */}
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Engine v0.6.0 Pro</span>
+              </span>
+              <span className="text-slate-500">Autonomous Desktop</span>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>
@@ -4814,7 +4965,7 @@ function ModePicker(props: {
     }
   };
 
-  const quickModes = SPECIALIST_MODES.filter((m) => m.featured || m.id === props.value);
+  const quickModes = SPECIALIST_MODES.filter((m) => m.featured || m.id === props.value).slice(0, 4);
 
   return (
     <div className="relative inline-flex items-center" ref={ref}>
@@ -4836,8 +4987,8 @@ function ModePicker(props: {
       </button>
 
       {open && (
-        <div className="absolute left-0 bottom-full mb-2 w-84 max-h-[460px] overflow-y-auto bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
-          <div className="px-2 py-1 border-b border-slate-800/80">
+        <div className="absolute left-0 bottom-full mb-1.5 w-80 max-h-[300px] overflow-hidden bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
+          <div className="px-2 py-1 border-b border-slate-800/80 shrink-0">
             <div className="text-[11px] font-semibold text-slate-200 flex items-center justify-between">
               <span>Domain Specialist Modes</span>
               <span className="text-[9px] uppercase tracking-wider text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">Specialist</span>
@@ -4847,7 +4998,7 @@ function ModePicker(props: {
             </p>
           </div>
 
-          <div className="flex flex-col space-y-1 pt-0.5 max-h-[300px] overflow-y-auto pr-0.5">
+          <div className="flex flex-col space-y-1 pt-0.5 max-h-[165px] overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-slate-700">
             {quickModes.map((m) => {
               const isSelected = props.value === m.id;
               return (
@@ -4858,33 +5009,30 @@ function ModePicker(props: {
                     props.onChange(m.id);
                     setOpen(false);
                   }}
-                  className={`w-full text-left p-2 rounded-lg transition-all flex items-start space-x-2.5 ${
+                  className={`w-full text-left p-1.5 rounded-lg transition-all flex items-start space-x-2 ${
                     isSelected
                       ? 'bg-slate-800 border border-slate-600/80 shadow-inner'
                       : 'hover:bg-slate-800/60 border border-transparent'
                   }`}
                 >
-                  <div className={`p-1.5 rounded-lg border mt-0.5 shrink-0 ${m.accentClass}`}>
+                  <div className={`p-1 rounded-lg border mt-0.5 shrink-0 ${m.accentClass}`}>
                     {renderIcon(m.icon, 'w-3.5 h-3.5')}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <span className={`text-[11px] font-semibold ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                      <span className={`text-[11px] font-semibold truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
                         {m.name}
                       </span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60 font-medium">
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60 font-medium shrink-0 ml-1">
                         {m.badge}
                       </span>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                    <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 leading-snug">
                       {m.description}
                     </p>
-                    <div className="text-[9px] text-slate-400 mt-1 font-mono tracking-tight">
-                      {m.skills}
-                    </div>
                   </div>
                   {isSelected && (
-                    <Check className="w-4 h-4 text-emerald-400 shrink-0 self-center ml-1" />
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 self-center ml-1" />
                   )}
                 </button>
               );
