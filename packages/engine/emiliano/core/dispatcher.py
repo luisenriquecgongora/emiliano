@@ -337,7 +337,7 @@ class ExecutionDispatcher:
                     summary_title = goal[:60] + ("..." if len(goal) > 60 else "")
                     summary_text = f"Goal: {goal}\nAgent: {cap.display_name}\nSummary: {reply[:400]}"
                     self.blackboard.record_session_summary(
-                        session_id=trace.task_id or f"task_{int(time.time())}",
+                        session_id=getattr(trace, "trace_id", None) or getattr(trace, "task_id", None) or f"task_{int(time.time())}",
                         title=summary_title,
                         summary=summary_text,
                     )
