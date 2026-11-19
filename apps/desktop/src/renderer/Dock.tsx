@@ -80,6 +80,7 @@ import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
 import ExecutionFluxModal from './ExecutionFluxModal';
 import ModesGalleryModal from './ModesGalleryModal';
+import ModelsGalleryModal from './ModelsGalleryModal';
 import {
   CHAT_WS_URL,
   ENGINE_HTTP_URL,
@@ -1464,20 +1465,6 @@ export default function Dock() {
 
                 {/* Central Floating Composer Card */}
                 <div className="w-full">
-                  {showModels && (
-                    <div className="mb-3 max-h-[350px] overflow-y-auto">
-                      <ModelsPanel
-                        data={localModels}
-                        busyModel={modelAction}
-                        onRefresh={refreshModels}
-                        onToggleLoaded={toggleLoaded}
-                        onUnloadAll={unloadAllLoaded}
-                        onOpenCustomizeMcp={handleOpenMcp}
-                        onClose={() => setShowModels(false)}
-                      />
-                    </div>
-                  )}
-
                   <Composer
                     draft={draft}
                     onDraft={setDraft}
@@ -1533,18 +1520,6 @@ export default function Dock() {
 
                 {permission && <PermissionCard request={permission} onAnswer={answerPermission} />}
 
-                {showModels && (
-                  <ModelsPanel
-                    data={localModels}
-                    busyModel={modelAction}
-                    onRefresh={refreshModels}
-                    onToggleLoaded={toggleLoaded}
-                    onUnloadAll={unloadAllLoaded}
-                    onOpenCustomizeMcp={handleOpenMcp}
-                    onClose={() => setShowModels(false)}
-                  />
-                )}
-
                 <Composer
                   draft={draft}
                   onDraft={setDraft}
@@ -1597,6 +1572,24 @@ export default function Dock() {
             activeMode={mode}
             onSelectMode={setMode}
             onClose={() => setShowModesGallery(false)}
+          />
+        )}
+
+        {showModels && (
+          <ModelsGalleryModal
+            isOpen={showModels}
+            data={localModels}
+            currentModel={model}
+            busyModel={modelAction}
+            onRefresh={refreshModels}
+            onSelectModel={(choice) => {
+              setModel(choice);
+              setShowModels(false);
+            }}
+            onToggleLoaded={toggleLoaded}
+            onUnloadAll={unloadAllLoaded}
+            onOpenCustomizeMcp={handleOpenMcp}
+            onClose={() => setShowModels(false)}
           />
         )}
       </div>
@@ -4368,500 +4361,6 @@ function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onA
   );
 }
 
-interface FamilyVariant {
-  tag: string;
-  sizeGb: number;
-  label: string;
-}
-
-interface ModelFamily {
-  id: string;
-  name: string;
-  variants: FamilyVariant[];
-}
-
-const POPULAR_FAMILIES: ModelFamily[] = [
-  {
-    id: 'qwen',
-    name: 'Qwen 2.5 Coder',
-    variants: [
-      { tag: 'qwen2.5-coder:1.5b', sizeGb: 1.0, label: '1.5B' },
-      { tag: 'qwen2.5-coder:3b', sizeGb: 2.0, label: '3B' },
-      { tag: 'qwen2.5-coder:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'qwen2.5-coder:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'llama',
-    name: 'Llama 3.2',
-    variants: [
-      { tag: 'llama3.2:1b', sizeGb: 1.3, label: '1B' },
-      { tag: 'llama3.2:3b', sizeGb: 2.0, label: '3B' },
-    ],
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek R1',
-    variants: [
-      { tag: 'deepseek-r1:1.5b', sizeGb: 1.1, label: '1.5B' },
-      { tag: 'deepseek-r1:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'deepseek-r1:8b', sizeGb: 5.2, label: '8B' },
-      { tag: 'deepseek-r1:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral',
-    variants: [
-      { tag: 'mistral:7b', sizeGb: 4.1, label: '7B' },
-    ],
-  },
-  {
-    id: 'phi',
-    name: 'Phi-4',
-    variants: [
-      { tag: 'phi4-mini', sizeGb: 2.5, label: 'Mini' },
-      { tag: 'phi4', sizeGb: 9.1, label: '14B' },
-    ],
-  },
-];
-
-function rateVariantFit(sizeGb: number, hw?: ModelRecommendations['hardware']): { icon: string; text: string } {
-  if (!hw) return { icon: '❓', text: 'Hardware unknown' };
-  const vramGb = (hw.vramBytes || 0) / (1024 * 1024 * 1024);
-  const ramGb = (hw.ramBytes || 0) / (1024 * 1024 * 1024);
-  if (vramGb > 0 && sizeGb * 1.15 <= vramGb) {
-    return { icon: '✅', text: `Fits in GPU memory (${vramGb.toFixed(1)} GB VRAM)` };
-  }
-  if (ramGb > 0 && sizeGb * 1.15 <= ramGb) {
-    return { icon: '⚠️', text: `Spills into system RAM (${ramGb.toFixed(1)} GB RAM)` };
-  }
-  return { icon: '❌', text: 'Too large for this machine' };
-}
-
-/** Local models rated for this machine, with Load/Unload, search, and 1-click downloads. */
-function ModelsPanel(props: {
-  data: ModelRecommendations | null;
-  busyModel: string | null;
-  onRefresh: () => void;
-  onToggleLoaded: (m: LocalModel) => void;
-  onUnloadAll?: () => void;
-  onOpenCustomizeMcp?: () => void;
-  onClose: () => void;
-}) {
-  const hw = props.data?.hardware;
-  const [search, setSearch] = useState('');
-  const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, DownloadStatus>>({});
-
-  const handleDelete = async (modelName: string) => {
-    setIsDeleting(modelName);
-    try {
-      await modelsApi.delete(modelName);
-      setConfirmDelete(null);
-      props.onRefresh();
-    } catch (e) {
-      console.error('Failed to delete model:', e);
-    } finally {
-      setIsDeleting(null);
-    }
-  };
-
-  const handlePull = async (modelName: string) => {
-    const trimmed = modelName.trim();
-    if (!trimmed) return;
-    try {
-      setDownloads((prev) => ({
-        ...prev,
-        [trimmed]: { status: 'starting', progress: 0, step: 'Starting pull...' },
-      }));
-      await modelsApi.pull(trimmed);
-      const res = await modelsApi.pullStatus();
-      setDownloads(res.downloads);
-    } catch (e) {
-      console.error('Failed to start pull:', e);
-      setDownloads((prev) => ({
-        ...prev,
-        [trimmed]: { status: 'error', progress: 0, error: String(e) },
-      }));
-    }
-  };
-
-  useEffect(() => {
-    const hasActive = Object.values(downloads).some(
-      (d) => d.status === 'starting' || d.status === 'downloading' || d.status === 'finalizing'
-    );
-    if (!hasActive) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await modelsApi.pullStatus();
-        setDownloads(res.downloads);
-        if (Object.values(res.downloads).some((d) => d.status === 'completed')) {
-          props.onRefresh();
-        }
-      } catch (e) {
-        console.error('Error polling pull status:', e);
-      }
-    }, 1200);
-
-    return () => clearInterval(interval);
-  }, [downloads, props.onRefresh]);
-
-  const filteredModels = useMemo(() => {
-    if (!props.data?.models) return [];
-    const q = search.trim().toLowerCase();
-    if (!q) return props.data.models;
-    return props.data.models.filter((m) => m.name.toLowerCase().includes(q));
-  }, [props.data?.models, search]);
-
-  const isExactInstalled = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (props.data?.models ?? []).some((m) => m.name.toLowerCase() === q);
-  }, [props.data?.models, search]);
-
-  return (
-    <div className="absolute inset-x-3 top-14 bottom-28 z-10 bg-slate-950 border border-slate-700 rounded-xl flex flex-col overflow-hidden shadow-2xl">
-      <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center space-x-1.5">
-          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Local models & library</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button onClick={props.onRefresh} title="Refresh" className="text-slate-400 hover:text-white">
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={props.onClose} className="text-slate-400 hover:text-white">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Model Search & Pull Bar */}
-      <div className="p-2 border-b border-slate-800 bg-slate-900/50">
-        <div className="relative flex items-center">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search models or type name to download (e.g. llama3.2, mistral)..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && search.trim() && !isExactInstalled) {
-                handlePull(search.trim());
-              }
-            }}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-lg pl-8 pr-16 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none"
-          />
-          {search.trim() && !isExactInstalled && (
-            <button
-              onClick={() => handlePull(search.trim())}
-              disabled={downloads[search.trim()]?.status === 'downloading' || downloads[search.trim()]?.status === 'starting'}
-              title={`Download ${search.trim()} from Ollama`}
-              className="absolute right-1 px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-[10px] text-white flex items-center space-x-1 disabled:opacity-50"
-            >
-              <Download className="w-3 h-3" />
-              <span>Pull</span>
-            </button>
-          )}
-        </div>
-
-        {/* Model Family & Parameter Variant Pills */}
-        <div className="mt-2 pt-1.5 border-t border-slate-800/60">
-          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-            <span className="font-semibold text-slate-400">Popular Families:</span>
-            {(search || selectedFamilyId) && (
-              <button
-                onClick={() => {
-                  setSearch('');
-                  setSelectedFamilyId(null);
-                }}
-                className="text-slate-500 hover:text-slate-300 text-[9px]"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {POPULAR_FAMILIES.map((fam) => {
-              const isFamilyActive = selectedFamilyId === fam.id;
-              return (
-                <button
-                  key={fam.id}
-                  onClick={() => setSelectedFamilyId(isFamilyActive ? null : fam.id)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    isFamilyActive
-                      ? 'bg-cyan-900 border border-cyan-500 text-cyan-200'
-                      : 'bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {fam.name}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Active Family Variants */}
-          {selectedFamilyId && (() => {
-            const fam = POPULAR_FAMILIES.find((f) => f.id === selectedFamilyId);
-            if (!fam) return null;
-            return (
-              <div className="mt-1.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center gap-1.5">
-                <span className="text-[9px] text-slate-500 uppercase tracking-wide font-semibold mr-0.5">Parameters:</span>
-                {fam.variants.map((v) => {
-                  const isInstalled = (props.data?.models ?? []).some(
-                    (m) => m.name.toLowerCase() === v.tag.toLowerCase() || m.name.toLowerCase().startsWith(v.tag.toLowerCase() + ':')
-                  );
-                  const isDownloading = downloads[v.tag]?.status === 'downloading' || downloads[v.tag]?.status === 'starting';
-                  const fit = rateVariantFit(v.sizeGb, hw);
-                  const isSelected = search.toLowerCase() === v.tag.toLowerCase();
-
-                  return (
-                    <button
-                      key={v.tag}
-                      onClick={() => {
-                        setSearch(v.tag);
-                      }}
-                      title={`${v.tag} (~${v.sizeGb} GB) • ${fit.text}${isInstalled ? ' (Installed)' : ''}`}
-                      className={`px-1.5 py-0.5 rounded text-[10px] border transition-all flex items-center space-x-1 ${
-                        isSelected
-                          ? 'bg-cyan-950 border-cyan-400 text-cyan-200'
-                          : isInstalled
-                          ? 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      <span>{fit.icon}</span>
-                      <span className="font-medium">{v.label}</span>
-                      {isInstalled ? (
-                        <span className="text-[9px] text-emerald-400 font-bold ml-0.5">✓</span>
-                      ) : isDownloading ? (
-                        <span className="text-[9px] text-cyan-400 font-mono ml-0.5">{downloads[v.tag]?.progress}%</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* Active Downloads Progress Bar */}
-        {Object.entries(downloads).map(([name, d]) => {
-          if (d.status === 'idle') return null;
-          return (
-            <div key={name} className="px-3 py-2 bg-cyan-950/40 border-b border-cyan-800/40 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-cyan-200 truncate">{name}</span>
-                <span className="text-[10px] text-cyan-400 font-mono">
-                  {d.status === 'completed' ? '✓ Ready' : d.status === 'error' ? '❌ Error' : `${d.progress}%`}
-                </span>
-              </div>
-              {d.step && <div className="text-[10px] text-slate-400 truncate mt-0.5">{d.step}</div>}
-              {(d.status === 'downloading' || d.status === 'starting') && (
-                <div className="w-full bg-slate-800 rounded-full h-1 mt-1.5 overflow-hidden">
-                  <div className="bg-cyan-500 h-1 transition-all duration-300" style={{ width: `${Math.max(5, d.progress)}%` }} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {!props.data ? (
-          <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
-        ) : (
-          <>
-            {(() => {
-              const totalVram = hw?.vramBytes ?? 0;
-              const usedVram = hw?.vramUsedBytes ?? 0;
-              const pct = totalVram > 0 ? Math.min(100, Math.round((usedVram / totalVram) * 100)) : 0;
-              const barColor = pct > 85 ? 'bg-rose-500' : pct > 65 ? 'bg-amber-500' : 'bg-emerald-500';
-              const textColor = pct > 85 ? 'text-rose-400' : pct > 65 ? 'text-amber-400' : 'text-emerald-400';
-              return (
-                <div className="px-3 py-2 text-[10px] text-slate-400 border-b border-slate-800/60 flex flex-col space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      {hw?.gpuName ? `${hw.gpuName}` : 'No NVIDIA GPU found'} · {formatGb(hw?.ramBytes ?? 0)} RAM
-                    </div>
-                    {props.data.models.some((m) => m.loaded) && (
-                      <button
-                        onClick={() => props.onUnloadAll?.()}
-                        disabled={props.busyModel !== null}
-                        title="Unload all loaded models to free VRAM immediately"
-                        className="px-1.5 py-0.5 rounded text-[9px] bg-rose-950/80 hover:bg-rose-900 text-rose-300 disabled:opacity-40"
-                      >
-                        Unload all
-                      </button>
-                    )}
-                  </div>
-                  {totalVram > 0 && (
-                    <div className="flex items-center space-x-2 pt-0.5">
-                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">VRAM:</span>
-                      <div className="flex-1 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                        <div className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`} style={{ width: `${Math.max(2, pct)}%` }} />
-                      </div>
-                      <span className={`text-[10px] font-mono font-medium ${textColor}`}>
-                        {formatGb(usedVram)} / {formatGb(totalVram)} ({pct}%)
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Prompt to download search query if not installed */}
-            {search.trim() && !isExactInstalled && (
-              <div className="m-2 p-2.5 bg-cyan-950/40 border border-cyan-800/50 rounded-lg flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <div className="text-xs text-cyan-200 font-medium truncate">Download "{search.trim()}"</div>
-                  <div className="text-[10px] text-slate-400">Pull from Ollama library</div>
-                </div>
-                <button
-                  onClick={() => handlePull(search.trim())}
-                  disabled={downloads[search.trim()]?.status === 'downloading' || downloads[search.trim()]?.status === 'starting'}
-                  className="shrink-0 px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium flex items-center space-x-1 disabled:opacity-40"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>{downloads[search.trim()]?.status === 'downloading' ? `${downloads[search.trim()].progress}%` : 'Download'}</span>
-                </button>
-              </div>
-            )}
-
-            {filteredModels.length === 0 && (
-              <div className="p-3 text-xs text-slate-500 text-center">
-                {search ? `No installed models match "${search}".` : 'No local models installed.'}
-              </div>
-            )}
-
-            <div className="divide-y divide-slate-800/60">
-              {filteredModels.map((m) => (
-                <div key={m.name} className="p-2.5 flex items-center justify-between">
-                  <div className="min-w-0 pr-2">
-                    <div className="text-xs text-slate-200 truncate font-medium">
-                      {FIT_LABELS[m.fit].icon} {m.name}
-                      {m.recommended && (
-                        <span className="ml-1.5 text-[9px] text-cyan-300 bg-cyan-950 rounded px-1">recommended</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      {formatGb(m.sizeBytes)} · {FIT_LABELS[m.fit].text} ·{' '}
-                      {m.tools === null ? 'tool support unknown' : m.tools ? 'uses file tools' : 'no tool support'}
-                      {m.loaded && <span className="text-emerald-400 font-semibold"> · in memory ({formatGb(m.vramBytes)} on GPU)</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      onClick={() => props.onToggleLoaded(m)}
-                      disabled={props.busyModel !== null || (!m.loaded && m.fit === 'too_big')}
-                      title={m.loaded ? 'Unload model from memory to free VRAM' : 'Load into memory now so replies start at once'}
-                      className={`px-2.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                        m.loaded
-                          ? 'bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-200'
-                          : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
-                      }`}
-                    >
-                      {props.busyModel === m.name ? '…' : m.loaded ? 'Unload' : 'Load'}
-                    </button>
-                    {confirmDelete === m.name ? (
-                      <div className="flex items-center space-x-1 bg-rose-950/90 border border-rose-800/80 rounded px-1.5 py-0.5 text-[10px]">
-                        <span className="text-rose-200 font-medium">Delete?</span>
-                        <button
-                          onClick={() => handleDelete(m.name)}
-                          disabled={isDeleting === m.name}
-                          className="text-rose-400 hover:text-white font-bold px-1"
-                        >
-                          {isDeleting === m.name ? '…' : 'Yes'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(null)}
-                          disabled={isDeleting === m.name}
-                          className="text-slate-400 hover:text-white px-1"
-                        >
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDelete(m.name)}
-                        disabled={m.loaded || props.busyModel !== null || isDeleting !== null}
-                        title={m.loaded ? 'Unload model before deleting' : `Delete ${m.name} to free disk space`}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 disabled:opacity-30 disabled:hover:text-slate-500 disabled:hover:bg-transparent transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {props.data.suggestions.length > 0 && (
-              <>
-                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">Suggested downloads for this PC</div>
-                <div className="divide-y divide-slate-800/60">
-                  {props.data.suggestions.map((s) => (
-                    <div key={s.name} className="px-3 py-2 flex items-center justify-between">
-                      <div className="min-w-0 pr-2">
-                        <div className="text-xs text-slate-200 truncate">
-                          {FIT_LABELS[s.fit].icon} {s.name} <span className="text-[10px] text-slate-500">~{s.sizeGb} GB</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 truncate">{s.note}</div>
-                      </div>
-                      <div className="flex items-center space-x-1 shrink-0">
-                        <button
-                          onClick={() => handlePull(s.name)}
-                          disabled={downloads[s.name]?.status === 'downloading' || downloads[s.name]?.status === 'starting'}
-                          title={`Download ${s.name} into Ollama now`}
-                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-cyan-900/70 hover:bg-cyan-800 text-[10px] text-cyan-200 font-medium disabled:opacity-40"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>{downloads[s.name]?.status === 'downloading' ? `${downloads[s.name].progress}%` : 'Download'}</span>
-                        </button>
-                        <button
-                          onClick={() => navigator.clipboard?.writeText(s.pull).catch(() => undefined)}
-                          title={`Copy "${s.pull}" to clipboard`}
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-
-                </div>
-              </>
-            )}
-          </>
-        )}
-
-        {/* Footer: Direct reference to Customize > MCP for external tools & services */}
-        <div className="px-3 py-2 border-t border-slate-800 bg-slate-900/60 flex items-center justify-between text-[11px] text-slate-400">
-          <div className="flex items-center space-x-1.5 truncate">
-            <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="text-[10px] text-slate-400 truncate">MCP tools & service connections are managed under Customize</span>
-          </div>
-          {props.onOpenCustomizeMcp && (
-            <button
-              type="button"
-              onClick={() => {
-                props.onClose();
-                props.onOpenCustomizeMcp?.();
-              }}
-              className="text-cyan-400 hover:text-cyan-300 font-medium hover:underline text-[10px] shrink-0 ml-2 cursor-pointer"
-            >
-              Open Customize →
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Pins replies to one model; "Default model" lets the mode dropdown decide. Value is "provider|model". */
 function ModelPicker(props: {
@@ -4869,6 +4368,7 @@ function ModelPicker(props: {
   groups: ModelProvider[];
   localModels: LocalModel[];
   onChange: (model: ModelChoice) => void;
+  onOpenModelsManager?: () => void;
 }) {
   // Local models get their hardware rating, e.g. "✅ qwen3.5:2b (recommended)"
   const label = (provider: string, name: string) => {
@@ -4882,6 +4382,10 @@ function ModelPicker(props: {
       <select
         value={current}
         onChange={(e) => {
+          if (e.target.value === '__manage__') {
+            props.onOpenModelsManager?.();
+            return;
+          }
           const [provider, ...rest] = e.target.value.split('|');
           props.onChange({ provider, model: rest.join('|') });
         }}
@@ -4889,6 +4393,7 @@ function ModelPicker(props: {
         className="appearance-none bg-slate-800 hover:bg-slate-700 rounded-lg pl-2 pr-6 py-1 focus:outline-none cursor-pointer max-w-[160px] truncate"
       >
         <option value="">Default model</option>
+        <option value="__manage__">⚡ Manage Local Models...</option>
         {props.groups.map((g) => (
           <optgroup key={g.name} label={g.displayName}>
             {g.availableModels.map((m) => (
@@ -5199,6 +4704,7 @@ function Composer(props: {
               groups={props.modelGroups}
               localModels={props.localModels}
               onChange={props.onModel}
+              onOpenModelsManager={props.onToggleModels}
             />
 
             <button
