@@ -825,20 +825,29 @@ export default function Dock() {
     return saved !== null ? saved === 'true' : true;
   });
 
-  const handleToggleAlwaysOnTop = useCallback(async () => {
-    const next = !isAlwaysOnTop;
-    setIsAlwaysOnTop(next);
-    localStorage.setItem('emiliano_always_on_top', String(next));
+  const applyAlwaysOnTop = useCallback(async (enabled: boolean) => {
+    localStorage.setItem('emiliano_always_on_top', String(enabled));
     if (isTauri()) {
       try {
         const win = getCurrentWebviewWindow();
-        await win.setAlwaysOnTop(next);
+        await win.setAlwaysOnTop(enabled);
       } catch (err) {
         console.warn('[Dock] tauri setAlwaysOnTop error:', err);
       }
     }
-    await coworkApi.setAlwaysOnTop(next).catch(() => {});
-  }, [isAlwaysOnTop]);
+    await coworkApi.setAlwaysOnTop(enabled).catch(() => {});
+  }, []);
+
+  const handleToggleAlwaysOnTop = useCallback(async () => {
+    const next = !isAlwaysOnTop;
+    setIsAlwaysOnTop(next);
+    await applyAlwaysOnTop(next);
+  }, [isAlwaysOnTop, applyAlwaysOnTop]);
+
+  // Synchronize initial Always-On-Top preference immediately upon mounting
+  useEffect(() => {
+    applyAlwaysOnTop(isAlwaysOnTop);
+  }, []);
 
   const handleOpenMcp = useCallback(() => {
     setSidebarOpen(true);

@@ -591,43 +591,62 @@ async def set_always_on_top(payload: AlwaysOnTopPayload):
         from ctypes import wintypes
         user32 = ctypes.windll.user32
 
-        target_hwnd = None
+        matched_hwnds = []
         def enum_windows_callback(hwnd, _lparam):
-            nonlocal target_hwnd
             if not user32.IsWindowVisible(hwnd):
                 return True
             length = user32.GetWindowTextLengthW(hwnd)
             if length > 0:
                 buf = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value.strip()
-                if "emiliano" in title.lower():
-                    target_hwnd = hwnd
-                    return False
+                title = buf.value.strip().lower()
+                if "emiliano" in title:
+                    matched_hwnds.append(hwnd)
             return True
+
+        # Ensure calling thread is attached to interactive desktop (WinSta0\Default)
+        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
+        if hwinsta:
+            user32.SetProcessWindowStation(hwinsta)
+        hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
         cb = WNDENUMPROC(enum_windows_callback)
-        hdesk = user32.OpenInputDesktop(0, False, 0x0100)
         if hdesk:
             user32.EnumDesktopWindows(hdesk, cb, 0)
-            user32.CloseDesktop(hdesk)
-        if not target_hwnd:
+        if not matched_hwnds:
             user32.EnumWindows(cb, 0)
 
-        if not target_hwnd:
+        if not matched_hwnds:
             return {"status": "not_found", "message": "Emiliano HUD window not found"}
 
         # HWND_TOPMOST = -1, HWND_NOTOPMOST = -2
-        # SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_SHOWWINDOW = 0x0040
+        # SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020
         hwnd_insert_after = -1 if payload.enabled else -2
-        user32.SetWindowPos(
-            target_hwnd,
-            ctypes.c_void_p(hwnd_insert_after),
-            0, 0, 0, 0,
-            0x0001 | 0x0002 | 0x0040
-        )
-        return {"status": "ok", "always_on_top": payload.enabled}
+        WS_EX_TOPMOST = 0x00000008
+        GWL_EXSTYLE = -20
+
+        for hwnd in matched_hwnds:
+            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            if payload.enabled:
+                new_ex_style = ex_style | WS_EX_TOPMOST
+            else:
+                new_ex_style = ex_style & ~WS_EX_TOPMOST
+
+            if new_ex_style != ex_style:
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex_style)
+
+            user32.SetWindowPos(
+                hwnd,
+                ctypes.c_void_p(hwnd_insert_after),
+                0, 0, 0, 0,
+                0x0001 | 0x0002 | 0x0010 | 0x0020
+            )
+
+        logger.info(f"[Server] Updated always_on_top={payload.enabled} across {len(matched_hwnds)} window(s)")
+        return {"status": "ok", "always_on_top": payload.enabled, "windows_updated": len(matched_hwnds)}
     except Exception as e:
         logger.error(f"[Server] Failed to toggle always_on_top: {e}")
         return {"status": "error", "message": str(e)}
