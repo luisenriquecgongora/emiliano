@@ -591,7 +591,7 @@ async def chat_socket(websocket: WebSocket):
             # SOTA Specialist Mode Prompt Injection:
             # Dynamically activates domain persona, specialized guidance, and preferred MCP tools
             mode_key = (mode or "").lower()
-            if mode_key in SPECIALIST_MODE_CONFIGS:
+            if mode_key in SPECIALIST_MODE_CONFIGS and mode_key != "auto":
                 spec_cfg = SPECIALIST_MODE_CONFIGS[mode_key]
                 spec_prompt = spec_cfg["system_prompt"]
                 has_spec_prompt = any(m.get("role") == "system" and spec_prompt in m.get("content", "") for m in conv_msgs)
