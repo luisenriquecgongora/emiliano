@@ -227,6 +227,8 @@ export interface ServiceConnection {
   title: string;
   connected: boolean;
   auth: 'oauth' | 'token' | null;
+  tenant?: string;
+  business_id?: string;
 }
 
 export interface ConnectResult {

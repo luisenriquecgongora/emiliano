@@ -717,6 +717,8 @@ export default function Dock() {
             : `${c.title} connected, but its tools did not load: ${r.error}`,
         );
       }
+      const { connections } = await connectionsApi.list();
+      setConnections(connections);
     } catch (e) {
       setConnectNote(null);
       setError(String(e));
@@ -725,6 +727,35 @@ export default function Dock() {
       refreshModels();
     }
   };
+
+  const connectService = async (c: ServiceConnection) => {
+    setConnecting(c.service);
+    setConnectNote(`Approve connection in browser: select your venue (Taki Taki Katowice, Vibra, or Virgen Latina).`);
+    try {
+      const r = await connectionsApi.connect(c.service);
+      setConnectNote(
+        r.ok
+          ? `${c.title} connected: ${r.tools} tools available to the models.`
+          : `${c.title} connected, but its tools did not load: ${r.error}`,
+      );
+      const { connections } = await connectionsApi.list();
+      setConnections(connections);
+    } catch (e) {
+      setConnectNote(null);
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  };
+
+  const handleOpenMcp = useCallback(() => {
+    setSidebarOpen(true);
+    setSidebarTab('connects');
+    if (window.innerWidth < 480) {
+      coworkApi.resizeHud(940).catch(() => {});
+    }
+  }, []);
 
   // The models to pick from: refreshed whenever the engine (re)connects, e.g. after `ollama pull`
   useEffect(() => {
@@ -884,6 +915,8 @@ export default function Dock() {
       >
         <Header
           connected={!!ws}
+          plaatoosConnection={connections.find((c) => c.service === 'plaatoos')}
+          onOpenMcp={handleOpenMcp}
           browserStatus={browserStatus}
           historyOpen={sidebarOpen && sidebarTab === 'chats'}
           windowsOpen={showWindows}
@@ -1018,6 +1051,7 @@ export default function Dock() {
             onRefreshSkills={refreshSkills}
             onRefreshChats={refreshChats}
             onToggleConnection={toggleConnection}
+            onConnectService={connectService}
             onActionClick={handleQuickAction}
             onClose={() => setSidebarOpen(false)}
             isOverlay={true}
@@ -1234,6 +1268,7 @@ export default function Dock() {
               onRefreshSkills={refreshSkills}
               onRefreshChats={refreshChats}
               onToggleConnection={toggleConnection}
+              onConnectService={connectService}
               onActionClick={handleQuickAction}
               onClose={() => setSidebarOpen(false)}
               isOverlay={false}
@@ -1447,6 +1482,8 @@ function EmilianoLogo({ connected = true, size = 28 }: { connected?: boolean; si
 
 function Header(props: {
   connected: boolean;
+  plaatoosConnection?: ServiceConnection;
+  onOpenMcp: () => void;
   browserStatus: { connected: boolean; extension_info: any };
   historyOpen: boolean;
   windowsOpen: boolean;
@@ -1542,6 +1579,28 @@ function Header(props: {
 
       {/* Right controls */}
       <div className="flex items-center space-x-1.5 shrink-0">
+        {/* PlaatoOS MCP Connection & Venue Pill */}
+        {props.plaatoosConnection?.connected ? (
+          <button
+            onClick={props.onOpenMcp}
+            title={`PlaatoOS MCP Connected: ${props.plaatoosConnection.tenant || 'Active Venue'}. Click to manage or switch venue.`}
+            className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-600/60 text-[10px] text-cyan-200 font-mono hover:bg-cyan-900/80 transition-colors cursor-pointer shrink-0 max-w-[170px]"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_5px_#22d3ee] shrink-0" />
+            <Blocks className="w-3 h-3 text-cyan-400 shrink-0" />
+            <span className="font-semibold truncate">{props.plaatoosConnection.tenant || 'PlaatoOS'}</span>
+          </button>
+        ) : (
+          <button
+            onClick={props.onOpenMcp}
+            title="PlaatoOS MCP Disconnected. Click to connect PlaatoOS via OAuth."
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-400 font-mono hover:bg-slate-700 hover:text-slate-200 transition-colors cursor-pointer shrink-0"
+          >
+            <Blocks className="w-3 h-3 text-slate-400 shrink-0" />
+            {props.currentWidth >= 520 && <span>Connect PlaatoOS</span>}
+          </button>
+        )}
+
         {/* Chrome Extension Live Connection Indicator */}
         {props.browserStatus?.connected ? (
           <button
@@ -1658,6 +1717,7 @@ function FixedSidebar(props: {
   onRefreshSkills: () => void;
   onRefreshChats: () => void;
   onToggleConnection: (c: ServiceConnection) => void;
+  onConnectService?: (c: ServiceConnection) => void;
   onActionClick: (prompt: string) => void;
   onClose: () => void;
   isOverlay?: boolean;
@@ -1720,9 +1780,12 @@ function FixedSidebar(props: {
   };
 
   useEffect(() => {
-    if (props.activeTab === 'skills' || props.activeTab === 'connects') {
+    if (props.activeTab === 'skills') {
       setSidebarMode('cowork');
-      setCoworkSubTab('surface');
+      setCoworkSubTab('skills');
+    } else if (props.activeTab === 'connects') {
+      setSidebarMode('cowork');
+      setCoworkSubTab('mcp');
     } else if (props.activeTab === 'chats' || props.activeTab === 'projects' || props.activeTab === 'artifacts') {
       setSidebarMode('home');
     }
@@ -2392,35 +2455,90 @@ function FixedSidebar(props: {
                   </p>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold px-1">
                     Connected Servers ({props.connections.length})
                   </div>
                   {props.connections.map((c) => (
                     <div
                       key={c.service}
-                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between shadow-xs"
+                      className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2.5 shadow-sm"
                     >
-                      <div className="min-w-0 pr-1">
-                        <div className="text-xs text-slate-200 font-medium truncate">{c.title}</div>
-                        <div className="text-[10px] font-mono flex items-center space-x-1 mt-0.5">
-                          <span className={`w-1.5 h-1.5 rounded-full ${c.connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-                          <span className={c.connected ? 'text-emerald-400' : 'text-slate-500'}>
-                            {c.connected ? 'Connected' : 'Offline'}
-                          </span>
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center space-x-1.5">
+                            <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                            <span className="text-xs text-slate-100 font-semibold truncate">{c.title}</span>
+                          </div>
+                          <div className="text-[10px] font-mono flex items-center space-x-1.5 mt-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${c.connected ? 'bg-emerald-400 shadow-[0_0_5px_#34d399]' : 'bg-slate-500'}`} />
+                            <span className={c.connected ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
+                              {c.connected ? 'Connected (Active)' : 'Offline'}
+                            </span>
+                            {c.auth && (
+                              <span className="text-slate-500">· {c.auth.toUpperCase()}</span>
+                            )}
+                          </div>
                         </div>
+
+                        {!c.connected && (
+                          <button
+                            onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                            disabled={props.connecting === c.service}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer shadow-xs shrink-0"
+                          >
+                            {props.connecting === c.service ? '…' : 'Connect'}
+                          </button>
+                        )}
                       </div>
-                      <button
-                        onClick={() => props.onToggleConnection(c)}
-                        disabled={props.connecting === c.service}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                          c.connected
-                            ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-700/60'
-                            : 'bg-cyan-600 hover:bg-cyan-500 text-white'
-                        }`}
-                      >
-                        {props.connecting === c.service ? '…' : c.connected ? 'Disconnect' : 'Connect'}
-                      </button>
+
+                      {c.connected ? (
+                        <>
+                          <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-[11px]">
+                            <div className="flex items-center space-x-1.5 min-w-0 pr-1">
+                              <span className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider">Tenant:</span>
+                              <span className="font-semibold text-emerald-300 truncate">
+                                {c.tenant || 'Connected Business'}
+                              </span>
+                            </div>
+                            {c.business_id && (
+                              <span className="text-[9px] font-mono text-slate-500 shrink-0" title={`Business ID: ${c.business_id}`}>
+                                {c.business_id.slice(0, 8)}…
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center space-x-2 pt-0.5">
+                            <button
+                              onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                              disabled={props.connecting === c.service}
+                              title="Switch active tenant venue (Vibra, Virgen Latina, Taki Taki Katowice) via browser OAuth flow"
+                              className="flex-1 py-1 px-2.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-300 text-[11px] font-semibold transition-colors flex items-center justify-center space-x-1 cursor-pointer shadow-xs"
+                            >
+                              <RefreshCw className={`w-3 h-3 text-cyan-400 ${props.connecting === c.service ? 'animate-spin' : ''}`} />
+                              <span>Switch Venue</span>
+                            </button>
+                            <button
+                              onClick={() => props.onToggleConnection(c)}
+                              disabled={props.connecting === c.service}
+                              title="Disconnect and revoke current token"
+                              className="py-1 px-2.5 rounded-lg bg-slate-800/80 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-slate-700/60 hover:border-rose-800/60 text-[11px] font-medium transition-colors cursor-pointer"
+                            >
+                              Disconnect
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                          disabled={props.connecting === c.service}
+                          title="Open browser OAuth to authenticate and select your PlaatoOS venue"
+                          className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer shadow-md flex items-center justify-center space-x-1.5"
+                        >
+                          <Blocks className="w-3.5 h-3.5" />
+                          <span>{props.connecting === c.service ? 'Connecting…' : `Connect with ${c.title} (OAuth)`}</span>
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

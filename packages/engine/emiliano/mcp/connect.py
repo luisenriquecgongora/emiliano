@@ -97,9 +97,48 @@ def disconnect(service: str) -> Dict[str, Any]:
     return {"service": service, "removed_credentials": had_credentials, "config": str(path)}
 
 
+def _resolve_tenant(service: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts active tenant businessId and venue name from OAuth access token claims or record."""
+    if not record:
+        return {}
+    if record.get("tenant"):
+        return {"tenant": record.get("tenant"), "business_id": record.get("business_id")}
+    if record.get("kind") == "oauth":
+        try:
+            import json
+            import base64
+            from .auth import TokenProvider
+            tok = TokenProvider(service).token()
+            parts = tok.split(".")
+            if len(parts) >= 2:
+                payload = parts[1] + "=" * (-len(parts[1]) % 4)
+                claims = json.loads(base64.urlsafe_b64decode(payload).decode())
+                bid = claims.get("businessId")
+                name = claims.get("businessName")
+                if not name:
+                    if bid == "69ca4850715529f18d18727a":
+                        name = "Taki Taki Katowice"
+                    elif bid:
+                        name = f"Venue ({bid[:6]})"
+                return {"tenant": name or "Active Venue", "business_id": bid}
+        except Exception:
+            pass
+    elif record.get("kind") == "token":
+        return {"tenant": "Static Agent Token", "business_id": None}
+    return {}
+
+
 def status(service: str) -> Dict[str, Any]:
     """Whether a service is connected, without contacting it."""
     from . import credentials
     record = credentials.load(service) or {}
     configured = service in (_read(config_path()).get("mcp_servers") or {})
-    return {"service": service, "connected": bool(record) and configured, "auth": record.get("kind")}
+    connected = bool(record) and configured
+    out: Dict[str, Any] = {
+        "service": service,
+        "connected": connected,
+        "auth": record.get("kind"),
+    }
+    if connected:
+        out.update(_resolve_tenant(service, record))
+    return out
