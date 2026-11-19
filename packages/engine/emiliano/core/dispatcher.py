@@ -13,7 +13,7 @@ import os
 import threading
 import time
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger
