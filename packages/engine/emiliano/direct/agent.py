@@ -751,7 +751,16 @@ class DirectAgentLoop:
             goal = sanitized_goal
 
         history: List[Dict[str, str]] = []
-        system_prompt = AGENT_SYSTEM_PROMPT + (self.mcp.prompt_section(goal=goal) if self.mcp is not None else "")
+        mcp_prompt = ""
+        if self.mcp is not None:
+            mcp_prompt = (
+                "\n\n## Connected Business & External MCP Services\n"
+                "You have live access to connected business systems (such as PlaatoOS) via MCP tools.\n"
+                "When asked about business status, cash, tills, shift money, finances, revenue, bookings, orders, or inventory, "
+                "you MUST use the appropriate MCP tool to fetch live data. Never state that you do not have real-time or database access.\n"
+                + self.mcp.prompt_section(goal=goal)
+            )
+        system_prompt = AGENT_SYSTEM_PROMPT + mcp_prompt
         history.append({"role": "system", "content": system_prompt})
         if messages:
             # Include prior conversation history excluding existing system prompt

@@ -127,8 +127,10 @@ _MCP_ACTIONS = (
     r"query|check|show|list|get|find|view|inspect|fetch|update|change|modify|patch|propose|"
     r"create|add|remove|delete|audit|apply|load|run|publish|design|set|draft|suggest|analyze|"
     r"predict|forecast|estimate|breakdown|"
+    r"what(?:\s+is|\s+are|'s)?|how\s+much|how\s+many|tell(?:\s+me)?|give(?:\s+me)?|report|detail|"
+    r"current|status|balance|total|overview|summary|"
     r"consulta|muestra|lista|obten|encuentra|actualiza|cambia|modifica|prop[oó]n|crea|agrega|elimina|publica|"
-    r"pronostica|predice"
+    r"pronostica|predice|cu[aá]nto|qu[eé](?:\s+es|\s+hay)?|dime|dame|estado|balance"
 )
 
 _MCP_ENTITIES = (
@@ -136,11 +138,12 @@ _MCP_ENTITIES = (
     r"theme|themes|branding|design tokens?|palette|colors?|navigation|nav|"
     r"business|venue|venues|events?|tickets?|menu|menu items?|dishes|products?|orders?|"
     r"reservations?|bookings?|shifts?|finances?|revenue|forecast|inventory|schedule|loyalty|"
-    r"income|sales|till|cash in till|shift money|payouts?|profit|"
+    r"income|sales|cash|cash boxes|money|cash in till|till|tills|drawer|safe|shift money|payouts?|profit|"
     r"songs?|song requests?|playlists?|karaoke|dj requests?|music queue|"
     r"opening hours?|business settings?|venue profile|venue contact|"
+    r"taki\s*taki(?: katowice)?|vibra|virgen\s*latina|"
     r"sitio|sitio web|p[aá]gina|bloque|bloques|tema|negocio|local|locales|evento|eventos|men[uú]|reservas|"
-    r"ingresos|ventas|caja|canciones|cancion|horarios"
+    r"ingresos|ventas|caja|cajas|dinero|efectivo|canciones|cancion|horarios"
 )
 
 _MCP_ACTION_PATTERN = re.compile(
@@ -149,7 +152,7 @@ _MCP_ACTION_PATTERN = re.compile(
 )
 
 _MCP_DIRECT_MENTION = re.compile(
-    r"\b(?:plaatoos|mcp|mcp_tools?|api-takient|la estaci[oó]n(?: del verano)?|luis enrique builds?)\b",
+    r"\b(?:plaatoos|mcp|mcp_tools?|api-takient|taki\s*taki|vibra|virgen\s*latina|la estaci[oó]n(?: del verano)?|luis enrique builds?)\b",
     re.IGNORECASE
 )
 

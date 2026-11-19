@@ -410,7 +410,11 @@ class ExecutionDispatcher:
                     # Conversation (e.g. "hi") gets a fast, direct reply; tasks keep the model's
                     # reasoning, MCP tool access, and the project's context files (EMILIANO.md, CLAUDE.md)
                     has_mcp = bool(getattr(self.config, "mcp_servers", None))
-                    is_task = self.requires_agent_harness(goal) or (has_mcp and needs_mcp_or_tools(goal))
+                    is_casual_greeting = goal.strip().lower() in (
+                        "hi", "hello", "hey", "how are you", "how are you?",
+                        "good morning", "good evening", "good afternoon", "sup", "yo", "thanks", "thank you"
+                    )
+                    is_task = self.requires_agent_harness(goal) or needs_mcp_or_tools(goal) or (has_mcp and not is_casual_greeting)
                     task_messages = list(messages) if messages else [{"role": "user", "content": goal}]
                     if not any(m.get("role") == "system" for m in task_messages):
                         task_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})

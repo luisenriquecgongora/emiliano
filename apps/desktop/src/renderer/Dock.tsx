@@ -3471,12 +3471,28 @@ function LiveResponseTimer({ startTime }: { startTime: number }) {
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const [renderStartTime] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (message.content) {
+      navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] bg-cyan-600/90 text-white text-xs rounded-2xl rounded-br-sm px-3 py-2 whitespace-pre-wrap">
+      <div className="flex justify-end group">
+        <div className="relative max-w-[85%] bg-cyan-600/90 text-white text-xs rounded-2xl rounded-br-sm px-3 py-2 whitespace-pre-wrap select-text">
           {message.content}
+          <button
+            onClick={handleCopy}
+            title={copied ? "Copied!" : "Copy prompt"}
+            className="absolute top-1 -left-7 opacity-0 group-hover:opacity-100 p-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white transition-opacity cursor-pointer border border-slate-700/60 shadow-xs"
+          >
+            {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+          </button>
         </div>
       </div>
     );
@@ -3484,16 +3500,37 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const waiting = message.pending && !message.content;
   return (
     <div className="flex flex-col items-start w-full group">
-      <div className="flex items-center space-x-2 text-[10px] text-slate-500 mb-0.5 ml-1">
-        {message.route && <span>via {message.route}</span>}
-        {message.metrics?.formatted_duration && (
-          <span className="flex items-center gap-1 text-cyan-400 font-mono font-medium">
-            <Zap className="w-2.5 h-2.5 text-amber-400" />
-            {message.metrics.formatted_duration}
-          </span>
+      <div className="flex items-center justify-between w-full text-[10px] text-slate-500 mb-0.5 ml-1 pr-2">
+        <div className="flex items-center space-x-2">
+          {message.route && <span>via {message.route}</span>}
+          {message.metrics?.formatted_duration && (
+            <span className="flex items-center gap-1 text-cyan-400 font-mono font-medium">
+              <Zap className="w-2.5 h-2.5 text-amber-400" />
+              {message.metrics.formatted_duration}
+            </span>
+          )}
+        </div>
+        {message.content && !waiting && (
+          <button
+            onClick={handleCopy}
+            title={copied ? "Copied to clipboard!" : "Copy message"}
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer select-none"
+          >
+            {copied ? (
+              <>
+                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                <span className="text-emerald-400">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-2.5 h-2.5" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
         )}
       </div>
-      <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
+      <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2 select-text">
         {message.reasoning && (
           <ThinkingProcessCard reasoning={message.reasoning} pending={Boolean(message.pending)} />
         )}
