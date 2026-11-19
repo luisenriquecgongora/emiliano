@@ -221,6 +221,14 @@ export const modelsApi = {
     }),
 };
 
+export interface ServiceVenue {
+  business_id: string;
+  name: string;
+  slug: string;
+  icon?: string;
+  active: boolean;
+}
+
 /** An MCP service Emiliano can sign in to (GET /api/mcp/connections). */
 export interface ServiceConnection {
   service: string;
@@ -229,6 +237,7 @@ export interface ServiceConnection {
   auth: 'oauth' | 'token' | null;
   tenant?: string;
   business_id?: string;
+  venues?: ServiceVenue[];
 }
 
 export interface ConnectResult {
@@ -245,6 +254,11 @@ export const connectionsApi = {
     request<ConnectResult>('/api/mcp/connect', { method: 'POST', body: JSON.stringify({ service }) }),
   disconnect: (service: string) =>
     request<{ service: string }>('/api/mcp/disconnect', { method: 'POST', body: JSON.stringify({ service }) }),
+  switchVenue: (service: string, business_id: string) =>
+    request<{ ok: boolean; active_venue: string; business_id: string; venues: ServiceVenue[] }>(
+      '/api/mcp/switch-venue',
+      { method: 'POST', body: JSON.stringify({ service, business_id }) }
+    ),
 };
 
 export interface SkillItem {

@@ -262,6 +262,24 @@ async def mcp_disconnect(payload: ConnectPayload):
     return result
 
 
+class SwitchVenuePayload(BaseModel):
+    service: str = "plaatoos"
+    business_id: str
+
+
+@app.post("/api/mcp/switch-venue")
+async def mcp_switch_venue(payload: SwitchVenuePayload):
+    from ..mcp.connect import SERVICES, switch_venue
+    if payload.service not in SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {payload.service}")
+    try:
+        result = await asyncio.to_thread(switch_venue, payload.service, payload.business_id)
+        get_dispatcher().reload_mcp()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class ModelPayload(BaseModel):
     model: str
     keep_alive: Optional[Union[int, str]] = None

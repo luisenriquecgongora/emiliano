@@ -85,6 +85,7 @@ import {
   projectsApi,
   artifactsApi,
   ServiceConnection,
+  ServiceVenue,
   SkillItem,
   chatsApi,
   connectionsApi,
@@ -753,6 +754,23 @@ export default function Dock() {
     }
   };
 
+  const handleSwitchVenue = useCallback(async (service: string, businessId: string) => {
+    setConnecting(service);
+    try {
+      const res = await connectionsApi.switchVenue(service, businessId);
+      if (res.ok) {
+        setConnectNote(`Switched venue to ${res.active_venue}.`);
+        const { connections } = await connectionsApi.list();
+        setConnections(connections);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  }, [refreshModels]);
+
   const handleOpenMcp = useCallback(() => {
     setSidebarOpen(true);
     setSidebarTab('connects');
@@ -921,6 +939,7 @@ export default function Dock() {
           connected={!!ws}
           plaatoosConnection={connections.find((c) => c.service === 'plaatoos')}
           onOpenMcp={handleOpenMcp}
+          onSwitchVenue={handleSwitchVenue}
           browserStatus={browserStatus}
           historyOpen={sidebarOpen && sidebarTab === 'chats'}
           windowsOpen={showWindows}
@@ -1056,6 +1075,7 @@ export default function Dock() {
             onRefreshChats={refreshChats}
             onToggleConnection={toggleConnection}
             onConnectService={connectService}
+            onSwitchVenue={handleSwitchVenue}
             onActionClick={handleQuickAction}
             onClose={() => setSidebarOpen(false)}
             isOverlay={true}
@@ -1273,6 +1293,7 @@ export default function Dock() {
               onRefreshChats={refreshChats}
               onToggleConnection={toggleConnection}
               onConnectService={connectService}
+              onSwitchVenue={handleSwitchVenue}
               onActionClick={handleQuickAction}
               onClose={() => setSidebarOpen(false)}
               isOverlay={false}
@@ -1488,6 +1509,7 @@ function Header(props: {
   connected: boolean;
   plaatoosConnection?: ServiceConnection;
   onOpenMcp: () => void;
+  onSwitchVenue?: (service: string, business_id: string) => void;
   browserStatus: { connected: boolean; extension_info: any };
   historyOpen: boolean;
   windowsOpen: boolean;
@@ -1502,8 +1524,27 @@ function Header(props: {
   onNewChat: () => void;
   onOpenBrowserSetup: () => void;
 }) {
+  const [showVenueMenu, setShowVenueMenu] = useState(false);
   const iconButton =
     'text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg p-1.5 transition-colors disabled:opacity-40';
+
+  const defaultVenues: ServiceVenue[] = [
+    {
+      business_id: '69ca4850715529f18d18727a',
+      name: 'Taki Taki Katowice',
+      slug: 'taki-taki-katowice',
+      icon: '🍸',
+      active: props.plaatoosConnection?.business_id === '69ca4850715529f18d18727a' || !props.plaatoosConnection?.business_id,
+    },
+    {
+      business_id: '69ca4852715529f18d1872a6',
+      name: 'La Estación del Verano',
+      slug: 'la-estacion-del-verano',
+      icon: '☀️',
+      active: props.plaatoosConnection?.business_id === '69ca4852715529f18d1872a6',
+    },
+  ];
+  const activeVenues = props.plaatoosConnection?.venues?.length ? props.plaatoosConnection.venues : defaultVenues;
 
   const handleMinimize = async () => {
     if (!isTauri()) return;
@@ -1583,17 +1624,78 @@ function Header(props: {
 
       {/* Right controls */}
       <div className="flex items-center space-x-1.5 shrink-0">
-        {/* PlaatoOS MCP Connection & Venue Pill */}
+        {/* PlaatoOS MCP Connection & Venue Pill / Switcher */}
         {props.plaatoosConnection?.connected ? (
-          <button
-            onClick={props.onOpenMcp}
-            title={`PlaatoOS MCP Connected: ${props.plaatoosConnection.tenant || 'Active Venue'}. Click to manage or switch venue.`}
-            className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-600/60 text-[10px] text-cyan-200 font-mono hover:bg-cyan-900/80 transition-colors cursor-pointer shrink-0 max-w-[170px]"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_5px_#22d3ee] shrink-0" />
-            <Blocks className="w-3 h-3 text-cyan-400 shrink-0" />
-            <span className="font-semibold truncate">{props.plaatoosConnection.tenant || 'PlaatoOS'}</span>
-          </button>
+          <div className="relative shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowVenueMenu((prev) => !prev);
+              }}
+              title={`PlaatoOS MCP Connected: ${props.plaatoosConnection.tenant || 'Active Venue'}. Click to switch venue or view tools.`}
+              className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-600/60 text-[10px] text-cyan-200 font-mono hover:bg-cyan-900/80 transition-colors cursor-pointer shrink-0 max-w-[185px]"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_5px_#22d3ee] shrink-0" />
+              <Blocks className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span className="font-semibold truncate">{props.plaatoosConnection.tenant || 'PlaatoOS'}</span>
+              <ChevronDown className={`w-2.5 h-2.5 text-cyan-400 shrink-0 transition-transform ${showVenueMenu ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Venue Switcher Popover Dropdown */}
+            {showVenueMenu && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-60 bg-slate-900/95 backdrop-blur-md border border-cyan-500/40 rounded-xl shadow-2xl p-1.5 z-50 text-slate-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-slate-400 border-b border-slate-800 mb-1">
+                  <span>Switch Venue Tenant</span>
+                  <span className="text-[9px] text-cyan-400 font-mono">PlaatoOS</span>
+                </div>
+                <div className="space-y-0.5">
+                  {activeVenues.map((venue) => {
+                    const isActive = venue.active || venue.business_id === props.plaatoosConnection?.business_id;
+                    return (
+                      <button
+                        key={venue.business_id}
+                        onClick={() => {
+                          props.onSwitchVenue?.('plaatoos', venue.business_id);
+                          setShowVenueMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-cyan-950/80 text-cyan-200 font-semibold border border-cyan-700/60'
+                            : 'hover:bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 truncate">
+                          <span className="text-sm shrink-0">{venue.icon || (venue.name.includes('Verano') ? '☀️' : '🍸')}</span>
+                          <div className="truncate">
+                            <div className="truncate">{venue.name}</div>
+                            <div className="text-[9px] text-slate-400 font-mono">
+                              {venue.name.includes('Verano') ? 'Sandbox / Demo' : 'Production'}
+                            </div>
+                          </div>
+                        </div>
+                        {isActive && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-1.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-slate-800 mt-1 pt-1">
+                  <button
+                    onClick={() => {
+                      setShowVenueMenu(false);
+                      props.onOpenMcp();
+                    }}
+                    className="w-full flex items-center justify-center space-x-1 px-2 py-1 text-[10px] text-slate-400 hover:text-cyan-300 transition-colors"
+                  >
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>Manage MCP Protocols & Tools</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <button
             onClick={props.onOpenMcp}
@@ -1722,6 +1824,7 @@ function FixedSidebar(props: {
   onRefreshChats: () => void;
   onToggleConnection: (c: ServiceConnection) => void;
   onConnectService?: (c: ServiceConnection) => void;
+  onSwitchVenue?: (service: string, business_id: string) => void;
   onActionClick: (prompt: string) => void;
   onClose: () => void;
   isOverlay?: boolean;
@@ -2616,6 +2719,55 @@ function FixedSidebar(props: {
                               </span>
                             )}
                           </div>
+
+                          {/* Multi-Tenant Available Venues Switcher */}
+                          {c.venues && c.venues.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                              <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 px-0.5">
+                                <span className="uppercase tracking-wider">Available Venues ({c.venues.length})</span>
+                                <span className="text-[9px] text-cyan-400 font-mono">1-Click Fast Switch</span>
+                              </div>
+                              <div className="space-y-1">
+                                {c.venues.map((venue) => {
+                                  const isActive = venue.active || venue.business_id === c.business_id;
+                                  return (
+                                    <button
+                                      key={venue.business_id}
+                                      onClick={() => props.onSwitchVenue?.(c.service, venue.business_id)}
+                                      disabled={isActive || props.connecting === c.service}
+                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer border ${
+                                        isActive
+                                          ? 'bg-cyan-950/80 border-cyan-600/70 text-cyan-200 font-semibold shadow-xs'
+                                          : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/80 text-slate-300 hover:border-slate-700'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2 min-w-0">
+                                        <span className="text-sm shrink-0">{venue.icon || (venue.name.includes('Verano') ? '☀️' : '🍸')}</span>
+                                        <div className="min-w-0">
+                                          <div className="text-xs font-medium truncate">{venue.name}</div>
+                                          <div className="text-[9px] text-slate-400 font-mono">
+                                            {venue.name.includes('Verano') ? 'Sandbox / Demo Environment' : 'Production Operating System'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center space-x-1 shrink-0 ml-2">
+                                        {isActive ? (
+                                          <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-600/50 text-[9px] font-mono text-emerald-300">
+                                            <Check className="w-2.5 h-2.5" />
+                                            <span>Active</span>
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-[9px] text-cyan-300 hover:bg-cyan-900/80 font-mono">
+                                            Switch
+                                          </span>
+                                        )}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
                           <div className="flex items-center space-x-2 pt-0.5">
                             <button
