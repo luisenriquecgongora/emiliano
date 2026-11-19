@@ -763,10 +763,33 @@ class DirectAgentLoop:
         system_prompt = AGENT_SYSTEM_PROMPT + mcp_prompt
         history.append({"role": "system", "content": system_prompt})
         if messages:
-            # Include prior conversation history excluding existing system prompt
+            # Include prior conversation history excluding existing system prompt.
+            # When MCP tools are connected, sanitize out stale hallucinated refusals from previous
+            # untooled turns to prevent smaller models (3B) from anchoring to repetitive refusal loops.
+            clean_history: List[Dict[str, str]] = []
             for m in messages:
-                if m.get("role") != "system":
-                    history.append(dict(m))
+                if m.get("role") == "system":
+                    continue
+                if self.mcp is not None and m.get("role") == "assistant":
+                    txt = (m.get("content") or "").lower()
+                    if any(phrase in txt for phrase in (
+                        "don't have access to real-time",
+                        "do not have access to real-time",
+                        "as an ai language model",
+                        "cannot access external databases",
+                        "don't have access to financial data",
+                        "do not have access to financial data",
+                        "don't have real-time access",
+                        "no access to real-time",
+                        "unable to query external databases",
+                    )):
+                        continue
+                # Collapse consecutive identical user messages resulting from repeated retries
+                if m.get("role") == "user" and clean_history and clean_history[-1].get("role") == "user":
+                    if clean_history[-1].get("content") == m.get("content"):
+                        continue
+                clean_history.append(dict(m))
+            history.extend(clean_history)
         else:
             history.append({"role": "user", "content": goal})
 
