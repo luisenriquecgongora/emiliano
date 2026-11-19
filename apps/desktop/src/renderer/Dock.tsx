@@ -4,6 +4,7 @@ import {
   AudioWaveform,
   Blocks,
   BookOpen,
+  Bot,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -36,6 +37,7 @@ import {
   Minimize2,
   Minus,
   Monitor,
+  Palette,
   PanelLeft,
   PanelLeftClose,
   Pin,
@@ -52,7 +54,9 @@ import {
   Sparkles,
   Square,
   Tablet,
+  Target,
   Trash2,
+  TrendingUp,
   User,
   Workflow,
   Wrench,
@@ -83,6 +87,8 @@ import {
   ModelRecommendations,
   PermissionRequest,
   ProjectItem,
+  SPECIALIST_MODES,
+  SpecialistModeDef,
   ArtifactItem,
   projectsApi,
   artifactsApi,
@@ -4743,6 +4749,120 @@ function ModelPicker(props: {
   );
 }
 
+/** Domain Specialist Mode selector dropdown & popover. */
+function ModePicker(props: {
+  value: Mode;
+  onChange: (mode: Mode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const activeMode = SPECIALIST_MODES.find((m) => m.id === props.value) || SPECIALIST_MODES[0];
+
+  const renderIcon = (icon: SpecialistModeDef['icon'], className: string) => {
+    switch (icon) {
+      case 'zap': return <Zap className={className} />;
+      case 'code': return <Code2 className={className} />;
+      case 'trending-up': return <TrendingUp className={className} />;
+      case 'palette': return <Palette className={className} />;
+      case 'target': return <Target className={className} />;
+      case 'bot': return <Bot className={className} />;
+      default: return <Sparkles className={className} />;
+    }
+  };
+
+  return (
+    <div className="relative inline-flex items-center" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        title={`Current Specialist Mode: ${activeMode.name} (${activeMode.badge}). Click to switch mode.`}
+        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all shadow-xs select-none ${
+          open
+            ? 'bg-slate-700 border-slate-500 text-white ring-1 ring-slate-400/30'
+            : 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700/70 text-slate-200'
+        }`}
+      >
+        <span className="flex items-center space-x-1.5">
+          {renderIcon(activeMode.icon, `w-3.5 h-3.5 ${activeMode.accentClass.split(' ')[0]}`)}
+          <span className="font-medium tracking-tight">{activeMode.shortLabel}</span>
+        </span>
+        <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 bottom-full mb-2 w-84 max-h-[440px] overflow-y-auto bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
+          <div className="px-2 py-1 border-b border-slate-800/80">
+            <div className="text-[11px] font-semibold text-slate-200 flex items-center justify-between">
+              <span>Domain Specialist Modes</span>
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">Specialist</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+              Auto-configures domain tools, skills, and system persona prompts.
+            </p>
+          </div>
+
+          <div className="flex flex-col space-y-1 pt-0.5">
+            {SPECIALIST_MODES.map((m) => {
+              const isSelected = props.value === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    props.onChange(m.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full text-left p-2 rounded-lg transition-all flex items-start space-x-2.5 ${
+                    isSelected
+                      ? 'bg-slate-800 border border-slate-600/80 shadow-inner'
+                      : 'hover:bg-slate-800/60 border border-transparent'
+                  }`}
+                >
+                  <div className={`p-1.5 rounded-lg border mt-0.5 shrink-0 ${m.accentClass}`}>
+                    {renderIcon(m.icon, 'w-3.5 h-3.5')}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[11px] font-semibold ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                        {m.name}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60 font-medium">
+                        {m.badge}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                      {m.description}
+                    </p>
+                    <div className="text-[9px] text-slate-400 mt-1 font-mono tracking-tight">
+                      {m.skills}
+                    </div>
+                  </div>
+                  {isSelected && (
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0 self-center ml-1" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Composer(props: {
   draft: string;
   onDraft: (value: string) => void;
@@ -4823,9 +4943,32 @@ function Composer(props: {
     };
   }, []);
 
+  const activeModeDef = SPECIALIST_MODES.find((m) => m.id === props.mode);
+
   return (
     <div className={props.centered ? "w-full" : "mt-3"}>
       <div className="bg-slate-900/95 border border-slate-700/80 rounded-2xl p-2.5 focus-within:border-cyan-500/80 shadow-xl transition-all">
+        {props.mode !== 'auto' && activeModeDef && (
+          <div className="flex items-center justify-between pb-1.5 px-2 mb-1 border-b border-slate-800/80">
+            <div className="flex items-center space-x-1.5 text-[10px]">
+              <span className="text-slate-400">Mode:</span>
+              <span className={`px-2 py-0.5 rounded font-medium border ${activeModeDef.accentClass}`}>
+                {activeModeDef.name}
+              </span>
+              <span className="text-slate-500 font-mono text-[9px] hidden sm:inline">
+                ({activeModeDef.badge})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => props.onMode('auto')}
+              className="text-[10px] text-slate-500 hover:text-slate-300 hover:underline transition-colors"
+            >
+              Reset to General
+            </button>
+          </div>
+        )}
+
         <textarea
           ref={inputRef}
           value={props.draft}
@@ -4847,9 +4990,9 @@ function Composer(props: {
           className="w-full bg-transparent px-2.5 pt-1.5 text-xs text-slate-100 placeholder-slate-400 focus:outline-none resize-none select-text"
         />
 
-        {/* Bottom Toolbar: [ + | Chat | Cowork ] ... [ Model | Mic | Send ] */}
+        {/* Bottom Toolbar: [ + | ModePicker ] ... [ Model | Mic | Send ] */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 mt-1 px-1">
-          {/* Left tools: + and segmented [ Chat | Cowork ] pill */}
+          {/* Left tools: + and ModePicker */}
           <div className="flex items-center space-x-1.5">
             {props.onToggleWindows && (
               <button
@@ -4862,31 +5005,10 @@ function Composer(props: {
               </button>
             )}
 
-            {/* Segmented Pill: [ Chat | Cowork ] exactly like Claude Desktop screenshot */}
-            <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/60 text-[11px]">
-              <button
-                type="button"
-                onClick={() => props.onMode('auto')}
-                className={`px-2.5 py-0.5 rounded-md font-medium transition-all ${
-                  props.mode === 'auto' || props.mode === 'direct'
-                    ? 'bg-slate-700 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => props.onMode('antigravity')}
-                className={`px-2.5 py-0.5 rounded-md font-medium transition-all ${
-                  props.mode !== 'auto' && props.mode !== 'direct'
-                    ? 'bg-cyan-950 text-cyan-300 border border-cyan-700/60 font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Cowork
-              </button>
-            </div>
+            <ModePicker
+              value={props.mode}
+              onChange={props.onMode}
+            />
           </div>
 
           {/* Right tools: ModelPicker, Mic, Send */}

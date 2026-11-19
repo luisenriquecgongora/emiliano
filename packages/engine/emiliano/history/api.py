@@ -47,16 +47,87 @@ router = APIRouter(prefix="/api")
 # Desktop mode selector values -> (routing policy, harness override)
 MODES = {
     "auto": (None, None),
+    "coding": (None, None),
+    "financial": (None, None),
+    "design": (None, None),
+    "outreach": (None, None),
+    "antigravity": (None, "agy"),
     "direct": ("local", None),
     "claude_code": (None, "claude"),
     "codex": (None, "codex"),
-    "antigravity": (None, "agy"),
     "opencode": (None, "opencode"),
+}
+
+SPECIALIST_MODE_CONFIGS = {
+    "coding": {
+        "title": "Coding & Engineering",
+        "badge": "Files & Terminal",
+        "system_prompt": (
+            "You are in 'Coding & Engineering' Mode. You act as a Staff Principal Engineer & Systems Architect. "
+            "Focus on clean code, idiomatic implementations, robust test coverage, git version control safety, "
+            "and precise code diffs. Always inspect relevant files before modifying, adhere to project conventions, "
+            "and verify syntax and logic."
+        ),
+        "preferred_skills": ["filesystem", "git", "diagnostics", "python", "typescript"],
+    },
+    "financial": {
+        "title": "Financial & Business Operations",
+        "badge": "PlaatoOS Finances",
+        "system_prompt": (
+            "You are in 'Financial & Business Analysis' Mode. You act as a Chief Financial Officer (CFO) and Hospitality Business Controller for PlaatoOS and venue operations (e.g. Taki Taki Katowice). "
+            "Prioritize querying business analytics and financial data via PlaatoOS MCP tools (plaatoos__query_finances, plaatoos__query_business, plaatoos__query_cash_boxes). "
+            "Provide quantitative, structured financial summaries with clear metrics: gross revenue, net revenue, margins, safe balances, POS shifts, and room/karaoke performance."
+        ),
+        "preferred_skills": ["plaatoos_finances", "plaatoos_business", "safe_reconciliation", "pos_shifts"],
+    },
+    "design": {
+        "title": "Design & UI/UX Studio",
+        "badge": "Tailwind & Canvas",
+        "system_prompt": (
+            "You are in 'Design & UI/UX Studio' Mode. You act as a Principal Product Designer and Design Technologist. "
+            "Focus on modern user interfaces, Tailwind CSS, clean layouts, micro-interactions, responsive typography, visual balance, and component architecture. "
+            "Prioritize aesthetic polish, accessible color contrast, visual hierarchy, and production-ready React/Tailwind code."
+        ),
+        "preferred_skills": ["tailwind", "ui_ux", "artifact_canvas", "svg_preview"],
+    },
+    "outreach": {
+        "title": "B2B Outreach & CRM",
+        "badge": "PlaatoOS Growth",
+        "system_prompt": (
+            "You are in 'B2B Outreach & CRM' Mode. You act as an autonomous B2B Growth Lead and Account Executive for PlaatoOS. "
+            "Focus on venue prospecting, Instagram DM outreach, CRM lead enrichment, Excel tracking, and crafting personalized Polish/European B2B pitch emails. "
+            "Leverage the PlaatoOS outreach engine and CRM audit workflows."
+        ),
+        "preferred_skills": ["plaatoos-outreach", "instagram-cowork", "excel-crm", "cold-email"],
+    },
+    "antigravity": {
+        "title": "Desktop Cowork",
+        "badge": "Desktop UIA",
+        "system_prompt": (
+            "You are in 'Desktop Cowork' Mode. You act as an autonomous desktop companion capable of interacting with open applications, inspecting windows, clicking UI elements, and coordinating multi-window desktop tasks."
+        ),
+        "preferred_skills": ["desktop_windows", "uia_clicks", "multi_window"],
+    },
 }
 
 
 def resolve_mode(mode: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     return MODES.get(mode or "auto", MODES["auto"])
+
+
+@router.get("/modes")
+async def list_specialist_modes():
+    """List available domain specialist modes with their badges, descriptions, and capabilities."""
+    modes_list = []
+    for mode_id, cfg in SPECIALIST_MODE_CONFIGS.items():
+        modes_list.append({
+            "id": mode_id,
+            "title": cfg["title"],
+            "badge": cfg["badge"],
+            "description": cfg["system_prompt"],
+            "preferred_skills": cfg.get("preferred_skills", []),
+        })
+    return {"modes": modes_list}
 
 
 def _store(app) -> HistoryStore:
@@ -413,6 +484,18 @@ async def chat_socket(websocket: WebSocket):
             project_prompt = project.get("system_prompt") if project else None
 
             conv_msgs = store.conversation(chat_id)
+
+            # SOTA Specialist Mode Prompt Injection:
+            # Dynamically activates domain persona, specialized guidance, and preferred MCP tools
+            mode_key = (mode or "").lower()
+            if mode_key in SPECIALIST_MODE_CONFIGS:
+                spec_cfg = SPECIALIST_MODE_CONFIGS[mode_key]
+                spec_prompt = spec_cfg["system_prompt"]
+                has_spec_prompt = any(m.get("role") == "system" and spec_prompt in m.get("content", "") for m in conv_msgs)
+                if not has_spec_prompt:
+                    spec_guideline = f"Active Domain Mode: [{spec_cfg['title']}]\n{spec_prompt}"
+                    conv_msgs = [{"role": "system", "content": spec_guideline}] + conv_msgs
+
             if project_prompt:
                 # SOTA Conversational Gating:
                 # Prevent rigid operational formatting (e.g. audit logs, session IDs)

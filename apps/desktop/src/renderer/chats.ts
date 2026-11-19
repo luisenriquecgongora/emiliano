@@ -119,16 +119,101 @@ export interface CompactResult {
 }
 
 /** The dock's mode dropdown; values match the engine's resolve_mode(). */
+export interface SpecialistModeDef {
+  id: string;
+  name: string;
+  shortLabel: string;
+  description: string;
+  badge: string;
+  skills: string;
+  icon: 'zap' | 'code' | 'trending-up' | 'palette' | 'target' | 'bot';
+  color: string;
+  accentClass: string;
+}
+
+export const SPECIALIST_MODES: SpecialistModeDef[] = [
+  {
+    id: 'auto',
+    name: 'General Coworker',
+    shortLabel: 'General',
+    description: 'Universal coworker with autonomous routing across all MCP tools, local models, and online agents.',
+    badge: 'Universal',
+    skills: 'Auto Routing • All MCPs • Multi-Agent',
+    icon: 'zap',
+    color: 'from-amber-500/20 to-orange-500/20 text-amber-400 border-amber-500/40',
+    accentClass: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  },
+  {
+    id: 'coding',
+    name: 'Coding & Engineering',
+    shortLabel: 'Coding',
+    description: 'Staff Engineer mode: filesystem tools, git operations, diagnostics, debugging, and precise code diffs.',
+    badge: 'Files & Terminal',
+    skills: 'Filesystem • Git • Diagnostics • Refactoring',
+    icon: 'code',
+    color: 'from-blue-500/20 to-indigo-500/20 text-blue-400 border-blue-500/40',
+    accentClass: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+  },
+  {
+    id: 'financial',
+    name: 'Financial & Business Ops',
+    shortLabel: 'Financial',
+    description: 'Hospitality CFO mode: PlaatoOS financial analytics, POS cash boxes, safe reconciliation, P&L, and KPI metrics.',
+    badge: 'PlaatoOS Finances',
+    skills: 'PlaatoOS MCP • Safe Reconciliation • Cash Boxes • P&L',
+    icon: 'trending-up',
+    color: 'from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40',
+    accentClass: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  },
+  {
+    id: 'design',
+    name: 'Design & UI/UX Studio',
+    shortLabel: 'Design',
+    description: 'Principal Designer mode: modern Tailwind styling, UI/UX components, responsive aesthetics, and canvas previews.',
+    badge: 'Tailwind & Canvas',
+    skills: 'Tailwind CSS • UI/UX Components • Artifact Canvas • Aesthetics',
+    icon: 'palette',
+    color: 'from-purple-500/20 to-pink-500/20 text-purple-400 border-purple-500/40',
+    accentClass: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
+  },
+  {
+    id: 'outreach',
+    name: 'B2B Outreach & CRM',
+    shortLabel: 'Outreach',
+    description: 'B2B Growth Lead mode: PlaatoOS outreach engine, Instagram mini-chat coworking, Excel CRM, and cold emails.',
+    badge: 'PlaatoOS Growth',
+    skills: 'plaatoos-outreach • Instagram Cowork • Excel CRM • Email Cold',
+    icon: 'target',
+    color: 'from-rose-500/20 to-orange-500/20 text-rose-400 border-rose-500/40',
+    accentClass: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+  },
+  {
+    id: 'antigravity',
+    name: 'Desktop Cowork',
+    shortLabel: 'Cowork',
+    description: 'Autonomous desktop companion for open window inspection, UIA clicks, and multi-window desktop coordination.',
+    badge: 'Desktop UIA',
+    skills: 'Desktop Windows • UIA Clicks • Window Management',
+    icon: 'bot',
+    color: 'from-cyan-500/20 to-sky-500/20 text-cyan-400 border-cyan-500/40',
+    accentClass: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
+  },
+];
+
 export const MODES = [
-  { value: 'auto', label: 'Auto' },
+  { value: 'auto', label: 'Auto (General)' },
+  { value: 'coding', label: 'Coding & Engineering' },
+  { value: 'financial', label: 'Financial & Business Ops' },
+  { value: 'design', label: 'Design & UI/UX Studio' },
+  { value: 'outreach', label: 'B2B Outreach & CRM' },
+  { value: 'antigravity', label: 'Desktop Cowork' },
   { value: 'direct', label: 'Local model' },
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
-  { value: 'antigravity', label: 'Antigravity' },
   { value: 'opencode', label: 'OpenCode' },
 ] as const;
 
-export type Mode = (typeof MODES)[number]['value'];
+export type Mode = (typeof MODES)[number]['value'] | string;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${ENGINE_HTTP_URL}${path}`, {
