@@ -261,6 +261,27 @@ export const connectionsApi = {
     ),
 };
 
+export interface StagedProposal {
+  action_id: string;
+  routine_id?: string;
+  routine_name?: string;
+  step_index?: number;
+  tool?: string;
+  arguments?: Record<string, any>;
+  preview?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
+  created_at?: string;
+}
+
+export const stagedApi = {
+  list: (status: string = 'pending') =>
+    request<{ staged_actions: StagedProposal[] }>(`/api/routines/staged?status=${status}`),
+  approve: (action_id: string) =>
+    request<{ status: string }>(`/api/routines/staged/${action_id}/approve`, { method: 'POST' }),
+  reject: (action_id: string) =>
+    request<{ status: string }>(`/api/routines/staged/${action_id}/reject`, { method: 'POST' }),
+};
+
 export interface SkillItem {
   id: string;
   title: string;

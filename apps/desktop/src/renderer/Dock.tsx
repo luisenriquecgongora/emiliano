@@ -87,6 +87,8 @@ import {
   ServiceConnection,
   ServiceVenue,
   SkillItem,
+  StagedProposal,
+  stagedApi,
   chatsApi,
   connectionsApi,
   directModelGroups,
@@ -771,6 +773,48 @@ export default function Dock() {
     }
   }, [refreshModels]);
 
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      win.isMaximized().then(setIsMaximized).catch(() => {});
+      const unlistenPromise = win.onResized(async () => {
+        const max = await win.isMaximized().catch(() => false);
+        setIsMaximized(max);
+      });
+      return () => {
+        unlistenPromise.then((fn) => fn());
+      };
+    } catch {}
+  }, []);
+
+  const handleToggleMaximize = useCallback(async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      const isMax = await win.isMaximized().catch(() => false);
+      if (isMax) {
+        await win.unmaximize();
+        setIsMaximized(false);
+      } else {
+        await win.maximize();
+        setIsMaximized(true);
+      }
+    } catch (err) {
+      console.warn('[Dock] native maximize failed:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.toggleMaximize();
+        const max = await win.isMaximized().catch(() => false);
+        setIsMaximized(max);
+      } catch (e) {
+        console.error('[Dock] fallback toggle failed:', e);
+      }
+    }
+  }, []);
+
   const handleOpenMcp = useCallback(() => {
     setSidebarOpen(true);
     setSidebarTab('connects');
@@ -862,80 +906,86 @@ export default function Dock() {
   };
 
   return (
-    <div className="w-full h-full p-2.5 flex flex-col relative select-none">
+    <div className={`w-full h-full flex flex-col relative select-none ${isMaximized ? 'p-0' : 'p-2.5'}`}>
       {/* ========================================================================= */}
       {/* 8-Direction Frameless Window Border Drag Handles (Claude Cowork Style)    */}
       {/* ========================================================================= */}
-      {/* 1. Left Border (West) */}
-      <div
-        className="absolute left-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag left border to resize horizontally"
-        onMouseDown={(e) => handleStartResize(e, 'West')}
-      >
-        <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-      </div>
+      {!isMaximized && (
+        <>
+          {/* 1. Left Border (West) */}
+          <div
+            className="absolute left-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            title="Drag left border to resize horizontally"
+            onMouseDown={(e) => handleStartResize(e, 'West')}
+          >
+            <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
+          </div>
 
-      {/* 2. Right Border (East) */}
-      <div
-        className="absolute right-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag right border to resize horizontally"
-        onMouseDown={(e) => handleStartResize(e, 'East')}
-      >
-        <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-      </div>
+          {/* 2. Right Border (East) */}
+          <div
+            className="absolute right-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            title="Drag right border to resize horizontally"
+            onMouseDown={(e) => handleStartResize(e, 'East')}
+          >
+            <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
+          </div>
 
-      {/* 3. Top Border (North) */}
-      <div
-        className="absolute top-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag top border to resize vertically"
-        onMouseDown={(e) => handleStartResize(e, 'North')}
-      >
-        <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-      </div>
+          {/* 3. Top Border (North) */}
+          <div
+            className="absolute top-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            title="Drag top border to resize vertically"
+            onMouseDown={(e) => handleStartResize(e, 'North')}
+          >
+            <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
+          </div>
 
-      {/* 4. Bottom Border (South) */}
-      <div
-        className="absolute bottom-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag bottom border to resize vertically"
-        onMouseDown={(e) => handleStartResize(e, 'South')}
-      >
-        <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-      </div>
+          {/* 4. Bottom Border (South) */}
+          <div
+            className="absolute bottom-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
+            title="Drag bottom border to resize vertically"
+            onMouseDown={(e) => handleStartResize(e, 'South')}
+          >
+            <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
+          </div>
 
-      {/* 5. Top-Left Corner (NorthWest) */}
-      <div
-        className="absolute top-0 left-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'NorthWest')}
-      />
+          {/* 5. Top-Left Corner (NorthWest) */}
+          <div
+            className="absolute top-0 left-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'NorthWest')}
+          />
 
-      {/* 6. Top-Right Corner (NorthEast) */}
-      <div
-        className="absolute top-0 right-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'NorthEast')}
-      />
+          {/* 6. Top-Right Corner (NorthEast) */}
+          <div
+            className="absolute top-0 right-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'NorthEast')}
+          />
 
-      {/* 7. Bottom-Left Corner (SouthWest) */}
-      <div
-        className="absolute bottom-0 left-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'SouthWest')}
-      />
+          {/* 7. Bottom-Left Corner (SouthWest) */}
+          <div
+            className="absolute bottom-0 left-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'SouthWest')}
+          />
 
-      {/* 8. Bottom-Right Corner (SouthEast) */}
-      <div
-        className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'SouthEast')}
-      />
+          {/* 8. Bottom-Right Corner (SouthEast) */}
+          <div
+            className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'SouthEast')}
+          />
+        </>
+      )}
 
       <div
-        className={`glass-panel rounded-2xl p-4 flex-1 flex flex-col overflow-hidden relative ${
-          isResizing ? 'pointer-events-none select-none' : ''
-        }`}
+        className={`glass-panel p-4 flex-1 flex flex-col overflow-hidden relative ${
+          isMaximized ? 'rounded-none border-0' : 'rounded-2xl'
+        } ${isResizing ? 'pointer-events-none select-none' : ''}`}
       >
         <Header
+          isMaximized={isMaximized}
+          onToggleMaximize={handleToggleMaximize}
           connected={!!ws}
           plaatoosConnection={connections.find((c) => c.service === 'plaatoos')}
           onOpenMcp={handleOpenMcp}
@@ -1506,6 +1556,8 @@ function EmilianoLogo({ connected = true, size = 28 }: { connected?: boolean; si
 }
 
 function Header(props: {
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
   connected: boolean;
   plaatoosConnection?: ServiceConnection;
   onOpenMcp: () => void;
@@ -1771,11 +1823,15 @@ function Header(props: {
               <Minus className="w-3.5 h-3.5" />
             </button>
             <button
-              title="Maximize / Restore window"
-              onClick={handleMaximize}
+              title={props.isMaximized ? "Restore down" : "Maximize window"}
+              onClick={props.onToggleMaximize}
               className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors shrink-0"
             >
-              <Square className="w-3 h-3" />
+              {props.isMaximized ? (
+                <Minimize2 className="w-3.5 h-3.5 text-cyan-300" />
+              ) : (
+                <Square className="w-3 h-3" />
+              )}
             </button>
             <button
               title="Close Emiliano"
@@ -1793,6 +1849,134 @@ function Header(props: {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StagedProposalsCard() {
+  const [staged, setStaged] = useState<StagedProposal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const fetchStaged = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await stagedApi.list('pending');
+      setStaged(res.staged_actions || []);
+    } catch {
+      setStaged([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStaged();
+    const interval = setInterval(fetchStaged, 8000);
+    return () => clearInterval(interval);
+  }, [fetchStaged]);
+
+  const handleApprove = async (id: string) => {
+    try {
+      await stagedApi.approve(id);
+      setActionMsg('Proposal approved & scheduled for execution.');
+      fetchStaged();
+      setTimeout(() => setActionMsg(null), 3500);
+    } catch (e) {
+      setActionMsg(`Approval error: ${e}`);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await stagedApi.reject(id);
+      setActionMsg('Proposal discarded.');
+      fetchStaged();
+      setTimeout(() => setActionMsg(null), 3500);
+    } catch (e) {
+      setActionMsg(`Rejection error: ${e}`);
+    }
+  };
+
+  return (
+    <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>ChangeSets & Proposals</span>
+        </div>
+        <div className="flex items-center space-x-1">
+          <span
+            className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+              staged.length > 0
+                ? 'bg-amber-950/80 text-amber-300 border-amber-600/50'
+                : 'bg-emerald-950/80 text-emerald-300 border-emerald-600/40'
+            }`}
+          >
+            {staged.length > 0 ? `${staged.length} Pending Sign-off` : 'Zero Pending Drafts'}
+          </span>
+          <button
+            onClick={fetchStaged}
+            title="Refresh staged actions"
+            className="text-slate-400 hover:text-cyan-400 transition-colors p-0.5"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {actionMsg && (
+        <div className="px-2 py-1 rounded bg-cyan-950/80 border border-cyan-700/60 text-[10px] text-cyan-200 font-mono">
+          {actionMsg}
+        </div>
+      )}
+
+      {staged.length === 0 ? (
+        <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
+          <div className="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium">
+            <CheckCircle2 className="w-3 h-3 shrink-0" />
+            <span>ChangeSet Guardrail Active</span>
+          </div>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            All sensitive mutations (cash adjustments, mass pricing changes, event publishes) are staged here in draft mode and require manager approval before touching production.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {staged.map((action) => (
+            <div
+              key={action.action_id}
+              className="p-2 rounded-lg bg-slate-950 border border-slate-700/80 space-y-1.5"
+            >
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="font-semibold text-white font-mono">{action.tool || action.routine_name || 'Mutation Proposal'}</span>
+                <span className="px-1.5 py-0.2 rounded bg-amber-950/60 border border-amber-700/50 text-[9px] text-amber-300 font-mono">
+                  Draft
+                </span>
+              </div>
+              {action.preview && (
+                <div className="text-[10px] text-slate-300 font-mono bg-slate-900/80 p-1.5 rounded border border-slate-800 truncate">
+                  {action.preview}
+                </div>
+              )}
+              <div className="flex items-center justify-end space-x-1.5 pt-1 border-t border-slate-800">
+                <button
+                  onClick={() => handleReject(action.action_id)}
+                  className="px-2 py-0.5 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 text-rose-300 text-[10px] font-medium transition-colors cursor-pointer"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => handleApprove(action.action_id)}
+                  className="px-2 py-0.5 rounded bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-600/60 text-emerald-200 text-[10px] font-semibold transition-colors cursor-pointer shadow-xs"
+                >
+                  Approve & Apply
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2802,6 +2986,9 @@ function FixedSidebar(props: {
                       )}
                     </div>
                   ))}
+
+                  {/* ChangeSet Guardrails & Staged Approvals Section */}
+                  <StagedProposalsCard />
                 </div>
               </>
             )}
@@ -4391,6 +4578,9 @@ function ModelsPanel(props: {
                       </div>
                     </div>
                   ))}
+
+                  {/* ChangeSet Guardrails & Staged Approvals Section */}
+                  <StagedProposalsCard />
                 </div>
               </>
             )}
