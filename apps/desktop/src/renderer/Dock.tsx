@@ -3,11 +3,13 @@ import {
   AlertTriangle,
   AudioWaveform,
   Blocks,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   CircleDot,
   Code,
@@ -23,6 +25,7 @@ import {
   FileText,
   FolderGit2,
   Globe,
+  HelpCircle,
   History,
   Layers,
   Maximize2,
@@ -43,6 +46,7 @@ import {
   Search,
   Send,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
@@ -1740,6 +1744,8 @@ function FixedSidebar(props: {
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [viewingSkill, setViewingSkill] = useState<{ id: string; title: string; content: string } | null>(null);
   const [approvingSkillId, setApprovingSkillId] = useState<string | null>(null);
+  const [showMcpGuide, setShowMcpGuide] = useState(false);
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
 
   const handleApproveSkill = async (id: string) => {
     setApprovingSkillId(id);
@@ -2445,14 +2451,117 @@ function FixedSidebar(props: {
             {/* SUBTAB 3: MCP PROTOCOLS */}
             {coworkSubTab === 'mcp' && (
               <>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
-                  <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
-                    <Blocks className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Model Context Protocol</span>
+                <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
+                      <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>Model Context Protocol</span>
+                      <span
+                        className="cursor-help p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-cyan-300 transition-colors"
+                        title="Connect any PlaatoOS venue to give Emiliano secure, real-time read/write access to your business telemetry, bookings, finances, and inventory."
+                      >
+                        <HelpCircle className="w-3 h-3 text-slate-400" />
+                      </span>
+                    </div>
+                    {/* Safety Assurance Badge with Tooltip */}
+                    <span
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/40 text-[9px] font-mono text-emerald-300 cursor-help"
+                      title="All sensitive mutations (cash adjustments, mass pricing changes, event publishes) are created in draft mode and require manager approval."
+                    >
+                      <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                      <span>ChangeSet Guarded</span>
+                    </span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
                     Anthropic open standard client connections providing standardized tools and resources.
                   </p>
+
+                  {/* Expandable Onboarding Guide Toggle */}
+                  <button
+                    onClick={() => setShowMcpGuide((prev) => !prev)}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-950/80 hover:bg-slate-800/80 border border-slate-800 text-[10px] text-cyan-300 hover:text-cyan-200 font-medium transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-1.5">
+                      <BookOpen className="w-3 h-3 text-cyan-400" />
+                      <span>How to connect other businesses</span>
+                    </div>
+                    {showMcpGuide ? <ChevronUp className="w-3 h-3 text-slate-400" /> : <ChevronDown className="w-3 h-3 text-slate-400" />}
+                  </button>
+
+                  {/* Expandable 3-Step Guide Body */}
+                  {showMcpGuide && (
+                    <div className="p-2.5 rounded-lg bg-slate-950 border border-cyan-900/60 space-y-2.5 text-[11px] select-text">
+                      <div className="space-y-2">
+                        {/* Step 1 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            1
+                          </span>
+                          <div>
+                            <div className="font-semibold text-slate-200 text-[11px]">Sign in with PlaatoOS Account</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Any venue manager or staff account with business permissions can log in via browser OAuth 2.1.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 2 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            2
+                          </span>
+                          <div>
+                            <div className="font-semibold text-slate-200 text-[11px]">Select Your Venue / Tenant</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Choose which business to bind (e.g. Taki Taki Katowice, Vibra, Virgen Latina). The active token securely encrypts in your local OS vault.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 3 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            3
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-slate-200 text-[11px]">Connect External Clients (Claude / Cursor)</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Use streamable HTTP or add to <code className="text-cyan-300">claude_desktop_config.json</code>:
+                            </div>
+                            <div className="mt-1.5 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[9px] text-slate-300 relative group">
+                              <pre className="overflow-x-auto whitespace-pre">{`"mcpServers": {
+  "plaatoos": {
+    "url": "https://api-takient.onrender.com/mcp",
+    "headers": {
+      "Authorization": "Bearer pak_your_token"
+    }
+  }
+}`}</pre>
+                              <button
+                                onClick={() => {
+                                  const snippet = `{\n  "mcpServers": {\n    "plaatoos": {\n      "url": "https://api-takient.onrender.com/mcp",\n      "headers": {\n        "Authorization": "Bearer pak_your_token"\n      }\n    }\n  }\n}`;
+                                  navigator.clipboard.writeText(snippet);
+                                  setCopiedSnippet(true);
+                                  setTimeout(() => setCopiedSnippet(false), 2000);
+                                }}
+                                className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] text-slate-300 hover:text-white transition-colors flex items-center space-x-1 cursor-pointer"
+                              >
+                                {copiedSnippet ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                <span>{copiedSnippet ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ChangeSet Safety Note Footer */}
+                      <div className="pt-1.5 border-t border-slate-800/80 flex items-center space-x-1 text-[9px] text-emerald-400/90 font-mono">
+                        <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span>ChangeSet Guard: Sensitive actions (cash, pricing, events) auto-draft for human signoff.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
