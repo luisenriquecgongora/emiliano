@@ -159,6 +159,21 @@ class McpManager:
         schema = json.dumps(tool.input_schema, ensure_ascii=False, indent=1)
         return f"{tool.qualified_name}: {tool.description}\nParameters (JSON schema):\n{schema}"
 
+    def _sanitize_tool_args(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitizes argument types and strips overly restrictive or mistyped defaults from small models."""
+        cleaned = dict(args)
+        if "query_menu" in tool_name:
+            # groupTag should be a string, but models sometimes pass a list of strings
+            if isinstance(cleaned.get("groupTag"), list):
+                if len(cleaned["groupTag"]) == 1:
+                    cleaned["groupTag"] = str(cleaned["groupTag"][0])
+                else:
+                    cleaned.pop("groupTag", None)
+            # hasRecipe: false is often mistakenly added by models thinking it means 'no recipe needed'
+            if cleaned.get("hasRecipe") is False:
+                cleaned.pop("hasRecipe", None)
+        return cleaned
+
     def call(self, qualified_name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         if qualified_name == DESCRIBE_TOOL:
             args = arguments or {}
@@ -174,7 +189,22 @@ class McpManager:
             if client is None:
                 return f"Error: MCP server '{tool.server}' is not running: {self.statuses[tool.server].error}"
         try:
-            return client.call_tool(tool.name, arguments or {}, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+            clean_args = self._sanitize_tool_args(tool.name, arguments or {})
+            res = client.call_tool(tool.name, clean_args, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+            # Auto-fallback: if filtered query returned empty results, retry with broad query so model has real data
+            if isinstance(res, str) and any(k in tool.name for k in ("query_menu", "query_events", "query_playlists")):
+                try:
+                    parsed = json.loads(res)
+                    items_key = "items" if "items" in parsed else ("events" if "events" in parsed else ("playlists" if "playlists" in parsed else None))
+                    if items_key and isinstance(parsed.get(items_key), list) and len(parsed[items_key]) == 0 and len(clean_args) > 1:
+                        logger.info(f"[MCP] {tool.name} returned 0 results with filters {clean_args}. Falling back to broad query.")
+                        fallback_res = client.call_tool(tool.name, {"limit": 50}, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+                        fallback_parsed = json.loads(fallback_res)
+                        if items_key in fallback_parsed and len(fallback_parsed[items_key]) > 0:
+                            return fallback_res
+                except Exception:
+                    pass
+            return res
         except Exception as e:
             return f"Error: {e}"
 

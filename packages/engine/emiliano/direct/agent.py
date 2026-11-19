@@ -756,8 +756,12 @@ class DirectAgentLoop:
             mcp_prompt = (
                 "\n\n## Connected Business & External MCP Services\n"
                 "You have live access to connected business systems (such as PlaatoOS) via MCP tools.\n"
-                "When asked about business status, cash, tills, shift money, finances, revenue, bookings, orders, or inventory, "
+                "When asked about business status, cash, tills, shift money, finances, revenue, bookings, orders, menu items, drinks, events, or inventory, "
                 "you MUST use the appropriate MCP tool to fetch live data. Never state that you do not have real-time or database access.\n"
+                "IMPORTANT TOOL CALLING DIRECTIVES:\n"
+                "1. Direct Invocation: Do NOT output conversational preamble or tutorial text explaining how to call tools (e.g. 'To find X, you can use the tool...'). Output the tool call directly.\n"
+                "2. Broad Initial Queries: When querying menu items, drinks, events, playlists, or bookings, prefer broad queries first with arguments: {\"limit\": 50} or {}. Do NOT invent restrictive array filters for single-string fields like groupTag, and do NOT add hasRecipe: false unless explicitly requested.\n"
+                "3. Ground Truth Presentation: Once tools return data, summarize the real items, prices, and details clearly for the user.\n"
                 + self.mcp.prompt_section(goal=goal)
             )
         system_prompt = AGENT_SYSTEM_PROMPT + mcp_prompt
@@ -941,5 +945,13 @@ class DirectAgentLoop:
             if turn_span:
                 turn_span.finish(status="ok")
 
-        clean_final = clean_user_facing_text("\n".join(full_output_parts))
+        # If multiple turns occurred and later turns produced a substantive final answer after tool calls,
+        # prioritize the final verified answer over intermediate tool-calling preamble from Turn 1.
+        if len(full_output_parts) > 1 and any(t.get("status") == "ok" for t in self.executed_tools):
+            last_part = full_output_parts[-1]
+            if len(last_part.strip()) > 80:
+                clean_final = clean_user_facing_text(last_part)
+                return clean_final or "Task completed."
+
+        clean_final = clean_user_facing_text("\n\n".join(full_output_parts))
         return clean_final or "Task completed."
