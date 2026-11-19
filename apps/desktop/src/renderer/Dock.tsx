@@ -5,6 +5,8 @@ import {
   Blocks,
   BookOpen,
   Bot,
+  Boxes,
+  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -26,10 +28,12 @@ import {
   FileText,
   FolderGit2,
   Globe,
+  Heart,
   HelpCircle,
   History,
   Layers,
   Maximize2,
+  Megaphone,
   Menu,
   MessageSquare,
   Mic,
@@ -47,17 +51,22 @@ import {
   RefreshCw,
   Search,
   Send,
+  Shield,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
   Square,
+  Star,
+  Store,
   Tablet,
   Target,
   Trash2,
   TrendingUp,
   User,
+  Users,
+  Wine,
   Workflow,
   Wrench,
   X,
@@ -70,6 +79,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
 import ExecutionFluxModal from './ExecutionFluxModal';
+import ModesGalleryModal from './ModesGalleryModal';
 import {
   CHAT_WS_URL,
   ENGINE_HTTP_URL,
@@ -127,6 +137,7 @@ export default function Dock() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<Mode>('auto');
+  const [showModesGallery, setShowModesGallery] = useState(false);
   const [model, setModel] = useState<ModelChoice>({ provider: '', model: '' });
   const [modelGroups, setModelGroups] = useState<ModelProvider[]>([]);
   const [localModels, setLocalModels] = useState<ModelRecommendations | null>(null);
@@ -1442,6 +1453,7 @@ export default function Dock() {
                     onDraft={setDraft}
                     mode={mode}
                     onMode={setMode}
+                    onOpenModesGallery={() => setShowModesGallery(true)}
                     model={model}
                     modelGroups={modelGroups}
                     localModels={localModels?.models ?? []}
@@ -1511,6 +1523,7 @@ export default function Dock() {
                   onDraft={setDraft}
                   mode={mode}
                   onMode={setMode}
+                  onOpenModesGallery={() => setShowModesGallery(true)}
                   model={model}
                   modelGroups={modelGroups}
                   localModels={localModels?.models ?? []}
@@ -1548,6 +1561,15 @@ export default function Dock() {
           <ExecutionFluxModal
             message={selectedFluxMessage}
             onClose={() => setSelectedFluxMessage(null)}
+          />
+        )}
+
+        {showModesGallery && (
+          <ModesGalleryModal
+            isOpen={showModesGallery}
+            activeMode={mode}
+            onSelectMode={setMode}
+            onClose={() => setShowModesGallery(false)}
           />
         )}
       </div>
@@ -4753,6 +4775,7 @@ function ModelPicker(props: {
 function ModePicker(props: {
   value: Mode;
   onChange: (mode: Mode) => void;
+  onOpenGallery?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -4771,17 +4794,27 @@ function ModePicker(props: {
 
   const activeMode = SPECIALIST_MODES.find((m) => m.id === props.value) || SPECIALIST_MODES[0];
 
-  const renderIcon = (icon: SpecialistModeDef['icon'], className: string) => {
+  const renderIcon = (icon: string, className: string) => {
     switch (icon) {
       case 'zap': return <Zap className={className} />;
-      case 'code': return <Code2 className={className} />;
       case 'trending-up': return <TrendingUp className={className} />;
-      case 'palette': return <Palette className={className} />;
+      case 'wine': return <Wine className={className} />;
+      case 'calendar': return <Calendar className={className} />;
+      case 'boxes': return <Boxes className={className} />;
+      case 'users': return <Users className={className} />;
+      case 'megaphone': return <Megaphone className={className} />;
       case 'target': return <Target className={className} />;
+      case 'star': return <Star className={className} />;
+      case 'heart': return <Heart className={className} />;
+      case 'shield': return <Shield className={className} />;
+      case 'code': return <Code2 className={className} />;
+      case 'palette': return <Palette className={className} />;
       case 'bot': return <Bot className={className} />;
       default: return <Sparkles className={className} />;
     }
   };
+
+  const quickModes = SPECIALIST_MODES.filter((m) => m.featured || m.id === props.value);
 
   return (
     <div className="relative inline-flex items-center" ref={ref}>
@@ -4803,7 +4836,7 @@ function ModePicker(props: {
       </button>
 
       {open && (
-        <div className="absolute left-0 bottom-full mb-2 w-84 max-h-[440px] overflow-y-auto bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
+        <div className="absolute left-0 bottom-full mb-2 w-84 max-h-[460px] overflow-y-auto bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
           <div className="px-2 py-1 border-b border-slate-800/80">
             <div className="text-[11px] font-semibold text-slate-200 flex items-center justify-between">
               <span>Domain Specialist Modes</span>
@@ -4814,8 +4847,8 @@ function ModePicker(props: {
             </p>
           </div>
 
-          <div className="flex flex-col space-y-1 pt-0.5">
-            {SPECIALIST_MODES.map((m) => {
+          <div className="flex flex-col space-y-1 pt-0.5 max-h-[300px] overflow-y-auto pr-0.5">
+            {quickModes.map((m) => {
               const isSelected = props.value === m.id;
               return (
                 <button
@@ -4857,6 +4890,24 @@ function ModePicker(props: {
               );
             })}
           </div>
+
+          {/* See More Modes & Search All Action Button */}
+          <div className="pt-1.5 border-t border-slate-800/90">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                props.onOpenGallery?.();
+              }}
+              className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-cyan-950/80 to-slate-800 hover:from-cyan-900 hover:to-slate-700 border border-cyan-800/60 hover:border-cyan-600/80 text-cyan-300 hover:text-white text-[11px] font-semibold flex items-center justify-between transition-all shadow-xs cursor-pointer group"
+            >
+              <span className="flex items-center space-x-1.5">
+                <Search className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span>See more modes & search all ({SPECIALIST_MODES.length})...</span>
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -4868,6 +4919,7 @@ function Composer(props: {
   onDraft: (value: string) => void;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  onOpenModesGallery?: () => void;
   model: ModelChoice;
   modelGroups: ModelProvider[];
   localModels: LocalModel[];
@@ -5008,6 +5060,7 @@ function Composer(props: {
             <ModePicker
               value={props.mode}
               onChange={props.onMode}
+              onOpenGallery={props.onOpenModesGallery}
             />
           </div>
 

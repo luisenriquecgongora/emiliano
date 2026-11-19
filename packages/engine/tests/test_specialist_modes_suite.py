@@ -102,3 +102,79 @@ class TestSpecialistModesSuite:
         assert "Financial & Business Operations" in enriched_msgs[0]["content"]
         assert "plaatoos__query_finances" in enriched_msgs[0]["content"]
         assert enriched_msgs[1]["role"] == "user"
+
+    def test_08_fnb_menu_mode_metadata_and_recipe_costing(self):
+        """Verifies F&B Menu Engineer mode focuses on cocktail margins, recipe costing, and QR menus."""
+        cfg = SPECIALIST_MODE_CONFIGS["fnb_menu"]
+        assert cfg["category"] == "hospitality"
+        assert "Food & Beverage Menu" in cfg["title"]
+        assert "recipe costing" in cfg["system_prompt"].lower()
+        assert "pour cost" in cfg["system_prompt"].lower()
+        assert "cocktail_engineering" in cfg["preferred_skills"]
+
+    def test_09_concierge_and_reservations_mode(self):
+        """Verifies Concierge mode focuses on karaoke room bookings and VIP guest arrival flows."""
+        cfg = SPECIALIST_MODE_CONFIGS["concierge"]
+        assert cfg["category"] == "hospitality"
+        assert "Reservations" in cfg["title"]
+        assert "karaoke rooms" in cfg["system_prompt"].lower()
+        assert "room_bookings" in cfg["preferred_skills"]
+
+    def test_10_inventory_and_purchasing_mode(self):
+        """Verifies Inventory mode focuses on par levels, beverage audits, and supplier price comparison."""
+        cfg = SPECIALIST_MODE_CONFIGS["inventory"]
+        assert cfg["category"] == "finance"
+        assert "Inventory" in cfg["title"]
+        assert "par level" in cfg["system_prompt"].lower()
+        assert "par_levels" in cfg["preferred_skills"]
+
+    def test_11_shifts_roster_and_labor_cost_mode(self):
+        """Verifies Shifts mode focuses on employee scheduling, tip distribution, and labor cost %."""
+        cfg = SPECIALIST_MODE_CONFIGS["shifts"]
+        assert cfg["category"] == "operations"
+        assert "Staff Roster" in cfg["title"]
+        assert "tip distribution" in cfg["system_prompt"].lower()
+        assert "labor_cost_percent" in cfg["preferred_skills"]
+
+    def test_12_reviews_and_reputation_mode(self):
+        """Verifies Reviews mode focuses on Google Maps, sentiment analysis, and response drafting."""
+        cfg = SPECIALIST_MODE_CONFIGS["reviews"]
+        assert cfg["category"] == "growth"
+        assert "Reviews" in cfg["title"]
+        assert "google maps" in cfg["system_prompt"].lower()
+        assert "response_drafting" in cfg["preferred_skills"]
+
+    def test_13_retention_and_vip_loyalty_mode(self):
+        """Verifies VIP Retention mode focuses on regulars, birthday perks, and WhatsApp/SMS re-engagement."""
+        cfg = SPECIALIST_MODE_CONFIGS["retention"]
+        assert cfg["category"] == "growth"
+        assert "VIP Loyalty" in cfg["title"]
+        assert "birthday" in cfg["system_prompt"].lower()
+        assert "vip_clubs" in cfg["preferred_skills"]
+
+    def test_14_compliance_and_licensing_mode(self):
+        """Verifies Compliance mode focuses on alcohol permits, HACCP hygiene, and safety audits."""
+        cfg = SPECIALIST_MODE_CONFIGS["compliance"]
+        assert cfg["category"] == "operations"
+        assert "Compliance" in cfg["title"]
+        assert "alcohol licensing" in cfg["system_prompt"].lower()
+        assert "haccp_checklists" in cfg["preferred_skills"]
+
+    def test_15_all_14_small_business_modes_in_api_modes_endpoint(self, test_client):
+        """Verifies that GET /api/modes returns all 14 modes with correct categories."""
+        resp = test_client.get("/api/modes")
+        assert resp.status_code == 200
+        data = resp.json()
+        modes = {m["id"]: m for m in data["modes"]}
+
+        all_14_ids = [
+            "auto", "financial", "fnb_menu", "concierge", "inventory",
+            "shifts", "marketing", "outreach", "reviews", "retention",
+            "compliance", "coding", "design", "antigravity"
+        ]
+        assert len(modes) == 14
+        for mid in all_14_ids:
+            assert mid in modes
+            assert "category" in modes[mid]
+            assert "badge" in modes[mid]
+            assert "title" in modes[mid]
