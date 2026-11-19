@@ -23,6 +23,31 @@ export interface ToolCallRecord {
   status?: 'ok' | 'error' | string;
 }
 
+export interface TraceSpanRecord {
+  name: string;
+  trace_id?: string;
+  span_id?: string;
+  parent_span_id?: string;
+  duration_ms?: number;
+  status?: string;
+  error?: string;
+  attributes?: Record<string, any>;
+}
+
+export interface TaskTraceRecord {
+  id: string;
+  goal: string;
+  route?: string;
+  model?: string;
+  duration_s?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  spans?: TraceSpanRecord[];
+  executed_tools?: ToolCallRecord[];
+  guardrails?: any[];
+  attempts?: any[];
+}
+
 export interface ResponseMetrics {
   total_duration_s: number;
   formatted_duration: string;
@@ -37,6 +62,7 @@ export interface ResponseMetrics {
   route?: string;
   status?: string;
   tool_calls?: ToolCallRecord[];
+  trace?: TaskTraceRecord;
 }
 
 export interface ChatMessage {

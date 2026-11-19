@@ -54,6 +54,7 @@ import {
   Tablet,
   Trash2,
   User,
+  Workflow,
   Wrench,
   X,
   Zap,
@@ -64,6 +65,7 @@ import { getCurrentWindow, PhysicalSize } from '@tauri-apps/api/window';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
+import ExecutionFluxModal from './ExecutionFluxModal';
 import {
   CHAT_WS_URL,
   ENGINE_HTTP_URL,
@@ -150,6 +152,7 @@ export default function Dock() {
   const [loadingArtifacts, setLoadingArtifacts] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [previewArtifact, setPreviewArtifact] = useState<ArtifactItem | null>(null);
+  const [selectedFluxMessage, setSelectedFluxMessage] = useState<ChatMessage | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showContextDetails, setShowContextDetails] = useState(false);
   const [browserStatus, setBrowserStatus] = useState<{ connected: boolean; extension_info: any }>({
@@ -1462,7 +1465,11 @@ export default function Dock() {
               <>
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                   {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} />
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      onOpenFlux={(msg) => setSelectedFluxMessage(msg)}
+                    />
                   ))}
                   <div ref={endRef} />
                 </div>
@@ -1528,6 +1535,13 @@ export default function Dock() {
           <ArtifactPreviewModal
             artifact={previewArtifact}
             onClose={() => setPreviewArtifact(null)}
+          />
+        )}
+
+        {selectedFluxMessage && (
+          <ExecutionFluxModal
+            message={selectedFluxMessage}
+            onClose={() => setSelectedFluxMessage(null)}
           />
         )}
       </div>
@@ -3972,7 +3986,7 @@ function LiveResponseTimer({ startTime }: { startTime: number }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, onOpenFlux }: { message: ChatMessage; onOpenFlux?: (msg: ChatMessage) => void }) {
   const [renderStartTime] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
 
@@ -4128,6 +4142,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                 · TTFT {message.metrics.ttft_ms}ms
               </span>
             )}
+
+            {/* Non-Linear Execution Flux Diagram Button */}
+            <button
+              type="button"
+              onClick={() => onOpenFlux?.(message)}
+              className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/70 hover:bg-cyan-900 hover:border-cyan-400 hover:text-cyan-100 transition-all cursor-pointer shadow-xs active:scale-95"
+              title="View non-linear execution flow diagram, MCP tool branching, and generation trace"
+            >
+              <Workflow className="w-3 h-3 text-cyan-400" />
+              <span>Flux Diagram</span>
+            </button>
           </div>
         )}
       </div>

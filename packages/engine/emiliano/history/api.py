@@ -520,6 +520,12 @@ async def chat_socket(websocket: WebSocket):
                 if not metrics.get("tool_duration_s"):
                     metrics["tool_duration_s"] = round(sum(t.get("duration_s", 0) for t in executed_tools), 2)
 
+            if trace:
+                try:
+                    metrics["trace"] = trace.to_dict()
+                except Exception as tr_err:
+                    logger.debug(f"[History] Failed to serialize trace to metrics: {tr_err}")
+
             from ..core.artifacts import extract_artifacts
             for art in extract_artifacts(full):
                 emit({"type": "artifact", **art})
