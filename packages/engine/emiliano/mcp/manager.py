@@ -235,19 +235,19 @@ class McpManager:
             "menu": {"menu", "dish", "price", "order", "food", "drink", "drinks", "beer", "beers", "cocktail", "cocktails", "wine", "beverage", "beverages", "bar", "kitchen"},
             "cash": {"cash", "finance", "finances", "revenue", "money", "till", "safe", "shift", "box", "boxes", "ledger", "count"},
             "inventory": {"inventory", "stock", "product", "products", "item", "items", "warehouse", "ingredient", "ingredients"},
-            "playlist": {"playlist", "playlists", "karaoke", "music", "song", "songs", "track", "tracks"},
+            "playlist": {"playlist", "playlists", "karaoke", "music", "song", "songs", "track", "tracks", "played", "popular", "dj", "request", "requests", "top"},
             "staff": {"staff", "user", "users", "employee", "employees", "role", "permissions", "team"},
-            "business": {"business", "settings", "company", "info", "config", "profile"},
+            "business": {"business", "settings", "company", "info", "config", "profile", "summary", "overview", "operation", "operations", "status", "taki", "report", "kpi", "performance", "about"},
         }
         domain_tool_mapping = {
             "cash": ("query_cash_boxes", "query_shift_money", "query_finances"),
             "menu": ("query_menu", "find_duplicate_menu_items", "propose_menu_item"),
             "inventory": ("query_inventory_products", "query_products", "propose_inventory_product"),
             "event": ("query_events", "query_tickets", "propose_event"),
-            "playlist": ("query_playlists", "query_karaoke_queue"),
+            "playlist": ("query_song_requests", "query_playlists", "query_playlist_songs", "query_karaoke_queue"),
             "staff": ("query_users", "query_business_users"),
             "site": ("query_business_site", "query_site_blocks", "propose_site_pages"),
-            "business": ("query_business", "query_business_settings"),
+            "business": ("query_business", "query_finances", "query_business_settings", "query_menu"),
         }
         active_domains = {dom for dom, terms in domain_boosters.items() if any(term in keywords for term in terms)}
 
@@ -269,8 +269,14 @@ class McpManager:
                 if dom in desc_lower:
                     score += 1.0
                 preferred_tools = domain_tool_mapping.get(dom, ())
-                if any(pt in tool_name_lower for pt in preferred_tools):
-                    score += 8.0
+                tool_action = tool_name_lower.split("__")[-1]
+                for rank_idx, pt in enumerate(preferred_tools):
+                    if pt == tool_action:
+                        score += max(4.0, 18.0 - (rank_idx * 3.0))
+                        break
+                    elif pt in tool_name_lower:
+                        score += max(2.0, 10.0 - (rank_idx * 2.0))
+                        break
 
             if any(w in keywords for w in ("query", "get", "check", "read", "inspect", "show", "list")):
                 if any(w in tool_name_lower for w in ("query", "get", "read", "list", "inspect")):

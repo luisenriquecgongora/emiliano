@@ -376,18 +376,28 @@ async def chat_socket(websocket: WebSocket):
         reasoning_parts = []
         t0 = time.perf_counter()
         first_token_time: Optional[float] = None
+        first_content_time: Optional[float] = None
+        reasoning_start_time: Optional[float] = None
+        reasoning_end_time: Optional[float] = None
 
         def on_chunk(text: str) -> None:
-            nonlocal first_token_time
+            nonlocal first_token_time, first_content_time
+            now = time.perf_counter()
             if first_token_time is None:
-                first_token_time = time.perf_counter()
+                first_token_time = now
+            if first_content_time is None:
+                first_content_time = now
             answer.append(text)
             emit({"type": "chunk", "content": text})
 
         def on_reason(text: str) -> None:
-            nonlocal first_token_time
+            nonlocal first_token_time, reasoning_start_time, reasoning_end_time
+            now = time.perf_counter()
             if first_token_time is None:
-                first_token_time = time.perf_counter()
+                first_token_time = now
+            if reasoning_start_time is None:
+                reasoning_start_time = now
+            reasoning_end_time = now
             reasoning_parts.append(text)
             emit({"type": "reasoning", "content": text})
 
@@ -473,6 +483,23 @@ async def chat_socket(websocket: WebSocket):
             else:
                 formatted_duration = f"{int(total_duration_s * 1000)}ms"
 
+            # Per-process step latencies: Thinking / Reasoning, Tool execution, and Response Generation
+            thinking_duration_s: Optional[float] = None
+            if reasoning_parts and reasoning_start_time is not None:
+                r_end = reasoning_end_time or t_done
+                thinking_duration_s = round(max(0.01, r_end - reasoning_start_time), 2)
+
+            executed_tools = getattr(trace, "executed_tools", []) if trace else []
+            if executed_tools and not tool_duration_s:
+                tool_duration_s = sum(t.get("duration_s", 0) for t in executed_tools)
+
+            generation_duration_s: Optional[float] = None
+            if first_content_time is not None:
+                generation_duration_s = round(max(0.01, t_done - first_content_time), 2)
+            else:
+                raw_gen = total_duration_s - (tool_duration_s or 0) - (thinking_duration_s or 0)
+                generation_duration_s = round(max(0.01, raw_gen), 2)
+
             metrics = {
                 "total_duration_s": round(total_duration_s, 2),
                 "formatted_duration": formatted_duration,
@@ -480,12 +507,13 @@ async def chat_socket(websocket: WebSocket):
                 "tokens_per_second": tps,
                 "completion_tokens": completion_tokens,
                 "prompt_tokens": prompt_tokens,
+                "thinking_duration_s": thinking_duration_s,
+                "generation_duration_s": generation_duration_s,
                 "tool_duration_s": round(tool_duration_s, 2) if tool_duration_s > 0 else None,
                 "tools_count": tool_spans_count,
                 "route": cap.display_name if cap else None,
             }
 
-            executed_tools = getattr(trace, "executed_tools", []) if trace else []
             if executed_tools:
                 metrics["tool_calls"] = executed_tools
                 metrics["tools_count"] = len(executed_tools)

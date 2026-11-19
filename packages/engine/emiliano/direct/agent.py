@@ -762,6 +762,8 @@ class DirectAgentLoop:
                 "1. Direct Invocation: Do NOT output conversational preamble or tutorial text explaining how to call tools (e.g. 'To find X, you can use the tool...'). Output the tool call directly.\n"
                 "2. Broad Initial Queries: When querying menu items, drinks, events, playlists, or bookings, prefer broad queries first with arguments: {\"limit\": 50} or {}. Do NOT invent restrictive array filters for single-string fields like groupTag, and do NOT add hasRecipe: false unless explicitly requested.\n"
                 "3. Ground Truth Presentation: Once tools return data, summarize the real items, prices, and details clearly for the user.\n"
+                "4. Business Summary & Telemetry: When asked for a summary of the business, an overview of Taki Taki, or company KPIs, proactively call plaatoos__query_business and plaatoos__query_finances to inspect the venue and revenue before responding. Never claim lack of access.\n"
+                "5. Karaoke & Songs Resolution: When asked for the most played or popular songs in karaoke or DJ queues, call plaatoos__query_song_requests with {\"aggregate\": \"top_songs\"} or {\"limit\": 20}. When inspecting playlist tracks with plaatoos__query_playlist_songs, you MUST call plaatoos__query_playlists first to discover the real playlist ID. Never invent placeholder IDs like '<specific-playlist-id>' and never instruct the user to call tools.\n"
                 + self.mcp.prompt_section(goal=goal)
             )
         system_prompt = AGENT_SYSTEM_PROMPT + mcp_prompt
@@ -786,6 +788,14 @@ class DirectAgentLoop:
                         "don't have real-time access",
                         "no access to real-time",
                         "unable to query external databases",
+                        "don't have access to your specific business information",
+                        "do not have access to your specific business information",
+                        "don't have access to business information",
+                        "which aspects of your business you'd like summarized",
+                        "replace <specific-playlist-id>",
+                        "replace <",
+                        "to find out which songs are most played in the karaoke",
+                        "let's try a different approach to find out which songs",
                     )):
                         continue
                 # Collapse consecutive identical user messages resulting from repeated retries

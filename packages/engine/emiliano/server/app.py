@@ -576,6 +576,63 @@ async def resize_hud(payload: ResizeHudPayload):
         return {"status": "error", "message": str(e)}
 
 
+class AlwaysOnTopPayload(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/cowork/always_on_top")
+async def set_always_on_top(payload: AlwaysOnTopPayload):
+    """Dynamically toggles whether the Emiliano HUD window stays locked Always On Top."""
+    import sys
+    if sys.platform != "win32":
+        return {"status": "unsupported", "platform": sys.platform}
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        target_hwnd = None
+        def enum_windows_callback(hwnd, _lparam):
+            nonlocal target_hwnd
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                if "emiliano" in title.lower():
+                    target_hwnd = hwnd
+                    return False
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        cb = WNDENUMPROC(enum_windows_callback)
+        hdesk = user32.OpenInputDesktop(0, False, 0x0100)
+        if hdesk:
+            user32.EnumDesktopWindows(hdesk, cb, 0)
+            user32.CloseDesktop(hdesk)
+        if not target_hwnd:
+            user32.EnumWindows(cb, 0)
+
+        if not target_hwnd:
+            return {"status": "not_found", "message": "Emiliano HUD window not found"}
+
+        # HWND_TOPMOST = -1, HWND_NOTOPMOST = -2
+        # SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_SHOWWINDOW = 0x0040
+        hwnd_insert_after = -1 if payload.enabled else -2
+        user32.SetWindowPos(
+            target_hwnd,
+            ctypes.c_void_p(hwnd_insert_after),
+            0, 0, 0, 0,
+            0x0001 | 0x0002 | 0x0040
+        )
+        return {"status": "ok", "always_on_top": payload.enabled}
+    except Exception as e:
+        logger.error(f"[Server] Failed to toggle always_on_top: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/skills")
 async def list_skills():
     """Discovered companion skills and workflow extensions available to the desktop agent."""
