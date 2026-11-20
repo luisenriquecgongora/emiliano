@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Blocks,
+  BookOpen,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -16,12 +17,15 @@ import {
   Flame,
   Gauge,
   HardDrive,
+  Info,
   Layers,
   RefreshCw,
   Search,
+  ShieldCheck,
   Sparkles,
   Terminal,
   Trash2,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react';
@@ -36,219 +40,14 @@ import {
   modelsApi,
 } from './chats';
 
-export interface ArchitectureModelPreset {
-  id: string;
-  name: string;
-  tag: string;
-  family: string;
-  category: 'code' | 'fast' | 'reasoning' | 'general' | 'pro';
-  categoryLabel: string;
-  sizeGb: number;
-  minVramGb: number;
-  minRamGb: number;
-  description: string;
-  toolsSupported: boolean;
-  highlight?: string;
-}
-
-export const ARCHITECTURE_RECOMMENDED_MODELS: ArchitectureModelPreset[] = [
-  {
-    id: 'qwen2.5-coder-7b',
-    name: 'Qwen 2.5 Coder 7B',
-    tag: 'qwen2.5-coder:7b',
-    family: 'Qwen',
-    category: 'code',
-    categoryLabel: 'Code & Tool Automation',
-    sizeGb: 4.7,
-    minVramGb: 6,
-    minRamGb: 8,
-    description: 'Premier agentic model with state-of-the-art function calling, terminal command execution, and coding precision.',
-    toolsSupported: true,
-    highlight: 'Best for Tools & Workflows',
-  },
-  {
-    id: 'llama-3.2-3b',
-    name: 'Llama 3.2 3B',
-    tag: 'llama3.2:3b',
-    family: 'Llama',
-    category: 'fast',
-    categoryLabel: 'Fast & Everyday Chat',
-    sizeGb: 2.0,
-    minVramGb: 3,
-    minRamGb: 6,
-    description: 'Ultra-lightweight conversational model from Meta. Fits practically any modern GPU or laptop with blazing latency.',
-    toolsSupported: true,
-    highlight: 'Lowest Latency & Memory',
-  },
-  {
-    id: 'qwen-3-8b',
-    name: 'Qwen 3 8B',
-    tag: 'qwen3:8b',
-    family: 'Qwen',
-    category: 'reasoning',
-    categoryLabel: 'Deep Reasoning & Instruction',
-    sizeGb: 5.2,
-    minVramGb: 8,
-    minRamGb: 12,
-    description: 'Top-tier generalist with superior reasoning, multi-step problem solving, and reliable tool calling.',
-    toolsSupported: true,
-    highlight: 'Versatile Coworker',
-  },
-  {
-    id: 'deepseek-r1-7b',
-    name: 'DeepSeek R1 7B',
-    tag: 'deepseek-r1:7b',
-    family: 'DeepSeek',
-    category: 'reasoning',
-    categoryLabel: 'Chain-of-Thought Reasoning',
-    sizeGb: 4.7,
-    minVramGb: 6,
-    minRamGb: 10,
-    description: 'Open reasoning model that outputs internal thinking traces before delivering verified math and logic answers.',
-    toolsSupported: false,
-    highlight: 'Deep Mathematical & Logic',
-  },
-  {
-    id: 'phi-4-mini',
-    name: 'Phi-4 Mini 3.8B',
-    tag: 'phi4-mini',
-    family: 'Phi',
-    category: 'fast',
-    categoryLabel: 'Compact Logic & Math',
-    sizeGb: 2.5,
-    minVramGb: 4,
-    minRamGb: 8,
-    description: 'Microsoft’s high-efficiency reasoning model specializing in mathematical rigor and compact instruction execution.',
-    toolsSupported: true,
-    highlight: 'High Efficiency',
-  },
-  {
-    id: 'qwen2.5-coder-14b',
-    name: 'Qwen 2.5 Coder 14B',
-    tag: 'qwen2.5-coder:14b',
-    family: 'Qwen',
-    category: 'pro',
-    categoryLabel: 'Heavyweight Workstation Pro',
-    sizeGb: 9.0,
-    minVramGb: 12,
-    minRamGb: 16,
-    description: 'Pro workstation model for deep architectural design, complex refactoring, and multi-file codebases.',
-    toolsSupported: true,
-    highlight: 'Pro Grade (12GB+ VRAM)',
-  },
-  {
-    id: 'mistral-7b',
-    name: 'Mistral 7B',
-    tag: 'mistral:7b',
-    family: 'Mistral',
-    category: 'general',
-    categoryLabel: 'Balanced Generalist',
-    sizeGb: 4.1,
-    minVramGb: 6,
-    minRamGb: 8,
-    description: 'Dependable open model with natural writing fluency, summarization, and customer communication skills.',
-    toolsSupported: true,
-    highlight: 'Creative & Business Writing',
-  },
-];
-
-interface FamilyVariant {
-  tag: string;
-  sizeGb: number;
-  label: string;
-}
-
-interface ModelFamily {
-  id: string;
-  name: string;
-  variants: FamilyVariant[];
-}
-
-const POPULAR_FAMILIES: ModelFamily[] = [
-  {
-    id: 'qwen',
-    name: 'Qwen 2.5 Coder',
-    variants: [
-      { tag: 'qwen2.5-coder:1.5b', sizeGb: 1.0, label: '1.5B' },
-      { tag: 'qwen2.5-coder:3b', sizeGb: 2.0, label: '3B' },
-      { tag: 'qwen2.5-coder:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'qwen2.5-coder:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'llama',
-    name: 'Llama 3.2',
-    variants: [
-      { tag: 'llama3.2:1b', sizeGb: 1.3, label: '1B' },
-      { tag: 'llama3.2:3b', sizeGb: 2.0, label: '3B' },
-    ],
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek R1',
-    variants: [
-      { tag: 'deepseek-r1:1.5b', sizeGb: 1.1, label: '1.5B' },
-      { tag: 'deepseek-r1:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'deepseek-r1:8b', sizeGb: 5.2, label: '8B' },
-      { tag: 'deepseek-r1:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral',
-    variants: [
-      { tag: 'mistral:7b', sizeGb: 4.1, label: '7B' },
-    ],
-  },
-  {
-    id: 'phi',
-    name: 'Phi-4',
-    variants: [
-      { tag: 'phi4-mini', sizeGb: 2.5, label: 'Mini' },
-      { tag: 'phi4', sizeGb: 9.1, label: '14B' },
-    ],
-  },
-];
-
-export function getArchitectureFit(
-  sizeGb: number,
-  hw?: ModelRecommendations['hardware']
-): { fit: 'fits_gpu' | 'slow' | 'too_big'; label: string; badgeClass: string; icon: string } {
-  if (!hw) {
-    return {
-      fit: 'slow',
-      label: 'Hardware detection pending',
-      badgeClass: 'bg-slate-800 text-slate-300 border-slate-700',
-      icon: '❓',
-    };
-  }
-  const vramGb = (hw.vramBytes || 0) / (1024 * 1024 * 1024);
-  const ramGb = (hw.ramBytes || 0) / (1024 * 1024 * 1024);
-  const requiredGb = sizeGb * 1.15;
-
-  if (vramGb > 0 && requiredGb <= vramGb) {
-    return {
-      fit: 'fits_gpu',
-      label: `Fits GPU VRAM (${vramGb.toFixed(1)} GB Available) — Fast`,
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60',
-      icon: '⚡',
-    };
-  }
-  if (requiredGb <= vramGb + ramGb * 0.5) {
-    return {
-      fit: 'slow',
-      label: `Spills into System RAM (${ramGb.toFixed(1)} GB RAM) — Slower`,
-      badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-700/60',
-      icon: '⚠️',
-    };
-  }
-  return {
-    fit: 'too_big',
-    label: `Exceeds Memory Capacity (~${requiredGb.toFixed(1)} GB needed)`,
-    badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-700/60',
-    icon: '❌',
-  };
-}
+import {
+  ARCHITECTURE_RECOMMENDED_MODELS,
+  ArchitectureModelPreset,
+  getArchitectureFit,
+  getModelKnowledge,
+  ModelKnowledge,
+  POPULAR_FAMILIES,
+} from './modelsKnowledge';
 
 export interface ModelsGalleryModalProps {
   isOpen: boolean;
@@ -278,23 +77,28 @@ export default function ModelsGalleryModal({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'all' | 'loaded' | 'recommended' | 'installed'>('all');
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
+  const [selectedKnowledgeTag, setSelectedKnowledgeTag] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadStatus>>({});
 
   const hw = data?.hardware;
 
-  // Close on Escape key
+  // Close on Escape key (closes model card first if open, else closes modal)
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (selectedKnowledgeTag) {
+          setSelectedKnowledgeTag(null);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, selectedKnowledgeTag, onClose]);
 
   // Auto-refresh models and hardware on mount and periodically while open
   useEffect(() => {
@@ -724,9 +528,18 @@ export default function ModelsGalleryModal({
                         </div>
 
                         <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
-                          <span className="text-[10px] text-slate-500">
-                            {isSelectedChatModel ? '⭐ Currently pinned for chat replies' : 'Ready for instant responses'}
-                          </span>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => setSelectedKnowledgeTag(m.name)}
+                              className="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300 hover:underline flex items-center space-x-1 cursor-pointer"
+                            >
+                              <Info className="w-3 h-3" />
+                              <span>Model Card</span>
+                            </button>
+                            <span className="text-[10px] text-slate-500">
+                              {isSelectedChatModel ? '· ⭐ Active Chat Model' : '· Ready for instant responses'}
+                            </span>
+                          </div>
                           {!isSelectedChatModel && (
                             <button
                               onClick={() => onSelectModel({ provider: 'ollama', model: m.name })}
@@ -763,6 +576,7 @@ export default function ModelsGalleryModal({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredRecommended.map((p) => {
                   const fit = getArchitectureFit(p.sizeGb, hw);
+                  const knowledge = getModelKnowledge(p.tag);
                   const isInstalled = installedModels.some(
                     (m) => m.name.toLowerCase() === p.tag.toLowerCase() || m.name.toLowerCase().startsWith(p.tag.toLowerCase() + ':')
                   );
@@ -805,13 +619,33 @@ export default function ModelsGalleryModal({
                         <p className="text-[11px] text-slate-400 mt-2 leading-relaxed line-clamp-2">
                           {p.description}
                         </p>
+
+                        {/* Good For quick tags */}
+                        <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                          <div className="text-[10px] font-semibold text-cyan-300 mb-1 flex items-center space-x-1">
+                            <span>🎯 Good for:</span>
+                          </div>
+                          <ul className="space-y-0.5">
+                            {knowledge.bestFor.slice(0, 2).map((bf, idx) => (
+                              <li key={idx} className="text-[10.5px] text-slate-300 flex items-start space-x-1 leading-snug">
+                                <span className="text-cyan-400 font-bold shrink-0">·</span>
+                                <span className="line-clamp-1">{bf}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
 
                       {/* Card Action Controls */}
                       <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between">
-                        <div className="text-[10px] text-slate-500 font-medium">
-                          {p.toolsSupported ? '🔧 Tools & MCP' : '💬 Fast Text'}
-                        </div>
+                        <button
+                          onClick={() => setSelectedKnowledgeTag(p.tag)}
+                          title="View full Model Card with benchmarks, architecture fit, and best-use cases"
+                          className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-800/90 hover:bg-slate-800 hover:text-cyan-300 text-slate-300 border border-slate-700/80 flex items-center space-x-1 cursor-pointer transition-colors"
+                        >
+                          <Info className="w-3 h-3 text-cyan-400" />
+                          <span>Model Card</span>
+                        </button>
 
                         <div className="flex items-center space-x-1.5">
                           {isInstalled ? (
@@ -882,6 +716,7 @@ export default function ModelsGalleryModal({
                 <div className="divide-y divide-slate-800/70 border border-slate-800 rounded-xl bg-slate-950/50 overflow-hidden">
                   {filteredInstalled.map((m) => {
                     const isSelectedChatModel = currentModel.provider === 'ollama' && currentModel.model === m.name;
+                    const installedKnowledge = getModelKnowledge(m.name);
                     return (
                       <div key={m.name} className="p-3 flex items-center justify-between hover:bg-slate-900/40 transition-colors">
                         <div className="min-w-0 pr-3">
@@ -903,16 +738,27 @@ export default function ModelsGalleryModal({
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-400 mt-0.5 flex items-center space-x-2">
+                          <div className="text-[10px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-1.5">
                             <span>{formatGb(m.sizeBytes)} on disk</span>
                             <span>·</span>
                             <span>{FIT_LABELS[m.fit]?.text || m.fit}</span>
                             <span>·</span>
                             <span>{m.tools === null ? 'Tool support unknown' : m.tools ? '🔧 Supports tools' : '💬 Text only'}</span>
+                            <span>·</span>
+                            <span className="text-cyan-300 font-medium">🎯 {installedKnowledge.bestFor[0]?.split(',')[0]}</span>
                           </div>
                         </div>
 
                         <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            onClick={() => setSelectedKnowledgeTag(m.name)}
+                            title="View full Model Card with benchmarks, architecture fit, and best-use cases"
+                            className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 hover:text-cyan-300 text-slate-300 border border-slate-700 flex items-center space-x-1 cursor-pointer transition-colors"
+                          >
+                            <Info className="w-3 h-3 text-cyan-400" />
+                            <span>Model Card</span>
+                          </button>
+
                           {!isSelectedChatModel && (
                             <button
                               onClick={() => onSelectModel({ provider: 'ollama', model: m.name })}
@@ -1080,6 +926,370 @@ export default function ModelsGalleryModal({
             </button>
           </div>
         </div>
+
+        {/* Model Card Sheet / Detailed Information Overlay */}
+        {selectedKnowledgeTag && (() => {
+          const knowledge = getModelKnowledge(selectedKnowledgeTag);
+          const installedMatch = installedModels.find(
+            (m) =>
+              m.name.toLowerCase() === selectedKnowledgeTag.toLowerCase() ||
+              m.name.toLowerCase().startsWith(selectedKnowledgeTag.toLowerCase() + ':') ||
+              selectedKnowledgeTag.toLowerCase().startsWith(m.name.toLowerCase() + ':')
+          );
+          const loadedMatch = loadedModels.find(
+            (m) =>
+              m.name.toLowerCase() === selectedKnowledgeTag.toLowerCase() ||
+              m.name.toLowerCase().startsWith(selectedKnowledgeTag.toLowerCase() + ':') ||
+              selectedKnowledgeTag.toLowerCase().startsWith(m.name.toLowerCase() + ':')
+          );
+          const presetMatch = recommendedPresets.find(
+            (p) =>
+              p.tag.toLowerCase() === selectedKnowledgeTag.toLowerCase() ||
+              selectedKnowledgeTag.toLowerCase().startsWith(p.tag.toLowerCase()) ||
+              p.name.toLowerCase() === selectedKnowledgeTag.toLowerCase()
+          );
+          const sizeGb = presetMatch?.sizeGb || (installedMatch ? installedMatch.sizeBytes / (1024 * 1024 * 1024) : 4.0);
+          const isInstalled = !!installedMatch;
+          const isLoaded = !!loadedMatch;
+          const isSelectedChatModel =
+            currentModel.provider === 'ollama' &&
+            (currentModel.model.toLowerCase() === selectedKnowledgeTag.toLowerCase() ||
+              (installedMatch && currentModel.model === installedMatch.name));
+          const isDownloading =
+            downloads[selectedKnowledgeTag]?.status === 'downloading' ||
+            downloads[selectedKnowledgeTag]?.status === 'starting';
+          const downloadProgress = downloads[selectedKnowledgeTag]?.progress;
+
+          // Hardware calculations
+          const totalVramGb = (hw?.vramBytes || 0) / (1024 * 1024 * 1024);
+          const totalRamGb = (hw?.ramBytes || 0) / (1024 * 1024 * 1024);
+          const requiredGb = sizeGb * 1.15;
+          const fitsGpu = totalVramGb > 0 && requiredGb <= totalVramGb;
+          const spillsRam = totalVramGb > 0 && !fitsGpu && requiredGb <= totalVramGb + totalRamGb * 0.5;
+
+          let perfHeadline = '';
+          let speedEstimate = '';
+          let perfDetails = '';
+          let fitBadgeColor = '';
+          let fitIcon = '';
+
+          if (fitsGpu) {
+            perfHeadline = 'Full High-Speed GPU Acceleration';
+            speedEstimate = '~50 – 85 tokens/sec';
+            perfDetails = `Entire model weights (~${sizeGb.toFixed(1)} GB) fit completely inside your ${
+              hw?.gpuName || 'GPU'
+            } VRAM (${totalVramGb.toFixed(1)} GB). Near-zero latency, instant tool execution, and zero CPU offload penalty.`;
+            fitBadgeColor = 'bg-emerald-950 text-emerald-300 border-emerald-700/70';
+            fitIcon = '⚡';
+          } else if (spillsRam) {
+            perfHeadline = 'Partial VRAM + System RAM Offloading';
+            speedEstimate = '~12 – 25 tokens/sec';
+            perfDetails = `Model requires ~${requiredGb.toFixed(1)} GB. Layers will split between ${totalVramGb.toFixed(
+              1
+            )} GB GPU VRAM and ${totalRamGb.toFixed(
+              1
+            )} GB System RAM. Fully functional with moderate generation latency.`;
+            fitBadgeColor = 'bg-amber-950 text-amber-300 border-amber-700/70';
+            fitIcon = '⚠️';
+          } else if (totalVramGb > 0) {
+            perfHeadline = 'Exceeds High-Speed Memory Capacity';
+            speedEstimate = '~3 – 8 tokens/sec';
+            perfDetails = `Model requires ~${requiredGb.toFixed(
+              1
+            )} GB, which exceeds available high-speed memory and will cause disk paging. Consider running a more compact parameter variant (e.g. 3B or Mini).`;
+            fitBadgeColor = 'bg-rose-950 text-rose-300 border-rose-700/70';
+            fitIcon = '❌';
+          } else {
+            perfHeadline = 'CPU Inference (Unified System Memory)';
+            speedEstimate = '~10 – 20 tokens/sec';
+            perfDetails = `Runs locally using multicore CPU execution and ${totalRamGb.toFixed(
+              1
+            )} GB System RAM. Fully functional for everyday chat and workflows.`;
+            fitBadgeColor = 'bg-slate-800 text-slate-300 border-slate-700';
+            fitIcon = '💻';
+          }
+
+          return (
+            <div
+              className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150 select-none"
+              onClick={() => setSelectedKnowledgeTag(null)}
+            >
+              <div
+                className="relative w-full max-w-3xl max-h-[92vh] bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-slate-100 font-sans"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Card Modal Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-950/70 shrink-0">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-950 to-blue-950 border border-cyan-500/40 text-cyan-400 shadow-xs">
+                      <BookOpen className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-base text-slate-100 tracking-tight">
+                          {knowledge.displayName}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-cyan-950/80 text-cyan-300 border border-cyan-700/60">
+                          {knowledge.tag}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-slate-400">
+                        <span>By {knowledge.author}</span>
+                        <span>·</span>
+                        <span className="px-1.5 py-0.2 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10px]">
+                          {knowledge.license}
+                        </span>
+                        <span>·</span>
+                        <span className="px-1.5 py-0.2 rounded bg-slate-800 border border-slate-700 text-cyan-300 font-mono text-[10px]">
+                          {knowledge.contextWindow}
+                        </span>
+                        <span>·</span>
+                        <span className="text-slate-300 font-medium">~{sizeGb.toFixed(1)} GB</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedKnowledgeTag(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Specialty Headline Banner */}
+                <div className="px-5 py-2.5 bg-gradient-to-r from-cyan-950/80 via-slate-900 to-blue-950/80 border-b border-cyan-800/40 flex items-center space-x-2 text-xs text-cyan-200 shrink-0">
+                  <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span className="font-medium">{knowledge.specialtyHeadline}</span>
+                </div>
+
+                {/* Card Scrollable Body */}
+                <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
+                  {/* SECTION 1: WHAT IS IT GOOD FOR? */}
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2.5">
+                      <span className="text-sm">🎯</span>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                        What Is It Good For? (Best Use Cases)
+                      </h4>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {knowledge.bestFor.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 flex items-start space-x-2.5"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span className="text-xs text-slate-200 leading-relaxed font-normal">{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: HARDWARE & ESTIMATED PERFORMANCE */}
+                  <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <Gauge className="w-4 h-4 text-cyan-400" />
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                          Estimated Performance on Your Machine
+                        </h4>
+                      </div>
+                      <div className={`px-2 py-0.5 rounded text-[10px] font-semibold border flex items-center space-x-1 ${fitBadgeColor}`}>
+                        <span>{fitIcon}</span>
+                        <span>{perfHeadline}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-300 leading-relaxed mt-1">
+                      {perfDetails}
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+                      <div className="flex items-center space-x-2">
+                        <Cpu className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Detected: <strong className="text-slate-200">{hw?.gpuName || 'System CPU'}</strong> ({totalVramGb > 0 ? `${formatGb(hw?.vramBytes || 0)} VRAM` : `${formatGb(hw?.ramBytes || 0)} RAM`})</span>
+                      </div>
+                      <div className="flex items-center space-x-2 font-mono">
+                        <span className="text-slate-400">Expected Speed:</span>
+                        <span className="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-bold border border-cyan-700/50">
+                          {speedEstimate}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: BENCHMARKS & CAPABILITY PROFILE */}
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2.5">
+                      <Activity className="w-4 h-4 text-cyan-400" />
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                        Capability & Benchmark Profile
+                      </h4>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
+                        <div className="text-[10px] text-slate-400 font-medium">Coding & Automation</div>
+                        <div className="text-base font-bold text-cyan-400 mt-1 font-mono">
+                          {knowledge.scores.coding}%
+                        </div>
+                        <div className="w-full bg-slate-900 rounded-full h-1 mt-1 overflow-hidden">
+                          <div
+                            className="bg-cyan-500 h-1 rounded-full"
+                            style={{ width: `${knowledge.scores.coding}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
+                        <div className="text-[10px] text-slate-400 font-medium">Tool Calling & MCP</div>
+                        <div className="text-base font-bold text-emerald-400 mt-1 font-mono">
+                          {knowledge.scores.toolCalling}%
+                        </div>
+                        <div className="w-full bg-slate-900 rounded-full h-1 mt-1 overflow-hidden">
+                          <div
+                            className="bg-emerald-500 h-1 rounded-full"
+                            style={{ width: `${knowledge.scores.toolCalling}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
+                        <div className="text-[10px] text-slate-400 font-medium">Deep Reasoning</div>
+                        <div className="text-base font-bold text-violet-400 mt-1 font-mono">
+                          {knowledge.scores.reasoning}%
+                        </div>
+                        <div className="w-full bg-slate-900 rounded-full h-1 mt-1 overflow-hidden">
+                          <div
+                            className="bg-violet-500 h-1 rounded-full"
+                            style={{ width: `${knowledge.scores.reasoning}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 flex flex-col justify-between">
+                        <div className="text-[10px] text-slate-400 font-medium">Latency & Speed</div>
+                        <div className="text-base font-bold text-amber-400 mt-1 font-mono">
+                          {knowledge.scores.speed}%
+                        </div>
+                        <div className="w-full bg-slate-900 rounded-full h-1 mt-1 overflow-hidden">
+                          <div
+                            className="bg-amber-500 h-1 rounded-full"
+                            style={{ width: `${knowledge.scores.speed}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Strengths Highlights */}
+                    <div className="space-y-1.5">
+                      {knowledge.strengths.map((str, idx) => (
+                        <div
+                          key={idx}
+                          className="px-3 py-2 rounded-lg bg-slate-950/40 border border-slate-800/80 flex items-start space-x-2 text-xs text-slate-300"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0 mt-0.5" />
+                          <span>{str}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SECTION 4: HARDWARE & OPERATIONAL TRADEOFFS */}
+                  {knowledge.considerations.length > 0 && (
+                    <div className="p-3.5 rounded-xl bg-amber-950/30 border border-amber-800/50">
+                      <div className="flex items-center space-x-2 text-xs font-bold text-amber-300 mb-1.5">
+                        <AlertTriangle className="w-4 h-4 text-amber-400" />
+                        <span>Tradeoffs & What to Watch Out For</span>
+                      </div>
+                      <ul className="space-y-1 text-xs text-amber-200/90 leading-relaxed">
+                        {knowledge.considerations.map((c, idx) => (
+                          <li key={idx} className="flex items-start space-x-1.5">
+                            <span className="text-amber-400 font-bold">·</span>
+                            <span>{c}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Footer Actions */}
+                <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/90 flex items-center justify-between shrink-0">
+                  <div className="flex items-center space-x-2 text-xs">
+                    {isSelectedChatModel ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-700/60">
+                        ⭐ Active Chat Model
+                      </span>
+                    ) : isLoaded ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-700/60">
+                        🟢 In VRAM (Ready)
+                      </span>
+                    ) : isInstalled ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                        💾 Stored Locally
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-950 text-cyan-300 border border-cyan-800">
+                        ☁️ Available in Ollama
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    {!isInstalled ? (
+                      <button
+                        onClick={() => {
+                          handlePull(knowledge.tag);
+                        }}
+                        disabled={isDownloading}
+                        className="px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>{isDownloading ? `Downloading ${downloadProgress}%` : `Download (~${sizeGb.toFixed(1)} GB)`}</span>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            if (installedMatch) onToggleLoaded(installedMatch);
+                          }}
+                          disabled={busyModel !== null}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                            isLoaded
+                              ? 'bg-amber-950/90 hover:bg-amber-900 border border-amber-700/70 text-amber-200'
+                              : 'bg-cyan-900/70 hover:bg-cyan-800 text-cyan-200'
+                          }`}
+                        >
+                          {busyModel === (installedMatch?.name || knowledge.tag) ? '…' : isLoaded ? 'Unload VRAM' : 'Load into VRAM'}
+                        </button>
+
+                        {!isSelectedChatModel && (
+                          <button
+                            onClick={() => {
+                              onSelectModel({ provider: 'ollama', model: installedMatch ? installedMatch.name : knowledge.tag });
+                            }}
+                            className="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold cursor-pointer shadow-sm flex items-center space-x-1"
+                          >
+                            <span>Use for Chat</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    <button
+                      onClick={() => setSelectedKnowledgeTag(null)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
