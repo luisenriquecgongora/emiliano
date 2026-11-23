@@ -55,6 +55,32 @@ if [ -x "$LOCAL_HOOK" ]; then
 fi
 EOF
 
+install_hook prepare-commit-msg <<'EOF'
+#!/usr/bin/env bash
+# commit-standards-hook
+COMMIT_FILE="$1"
+COMMIT_SOURCE="$2"
+
+# Only auto-inject for regular commits (not merge, squash, or amend)
+if [ -z "$COMMIT_SOURCE" ] || [ "$COMMIT_SOURCE" = "message" ]; then
+  EXCLUDED='(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$|\.md$'
+  STAGED_COUNT=$(git diff --cached --name-only | { grep -Ev "$EXCLUDED" || true; } | grep -c . || true)
+  if [ "$STAGED_COUNT" -ge 2 ]; then
+    if [ -f "scripts/visual-diff.py" ]; then
+      DIAGRAM=$(python3 scripts/visual-diff.py --ascii 2>/dev/null || python scripts/visual-diff.py --ascii 2>/dev/null || true)
+      if [ -n "$DIAGRAM" ] && ! grep -q "Visual Delta" "$COMMIT_FILE"; then
+        printf "\n\n%s\n" "$DIAGRAM" >> "$COMMIT_FILE"
+      fi
+    fi
+  fi
+fi
+
+LOCAL_HOOK="$(dirname "$0")/prepare-commit-msg.local"
+if [ -x "$LOCAL_HOOK" ]; then
+  exec "$LOCAL_HOOK" "$@"
+fi
+EOF
+
 install_hook pre-commit <<'EOF'
 #!/usr/bin/env bash
 # commit-standards-hook
