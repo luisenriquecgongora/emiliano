@@ -229,6 +229,15 @@ class ToolSafetyGuardrail(BaseGuardrail):
         re.compile(r"(?i)\bgit\s+push\s+.*--force.*(main|master)"),   # destructive git force push to prod branches
     ]
 
+    # Sensitive in-workspace files that must never be read, edited or written by agent tools
+    FORBIDDEN_WORKSPACE_FILE_PATTERNS: List[re.Pattern] = [
+        re.compile(r"(?i)(^|[/\\])\.env(\.[a-zA-Z0-9_-]+)?$"),        # .env, .env.local, .env.production
+        re.compile(r"(?i)\.(pem|key|pfx|p12|pkcs12)$"),                 # Private keys & certificates
+        re.compile(r"(?i)(^|[/\\])(id_rsa|id_ed25519|id_ecdsa)$"),      # SSH private keys
+        re.compile(r"(?i)(credentials\.json|service_account\.json)$"), # Cloud credentials
+        re.compile(r"(?i)(^|[/\\])\.git[/\\]config$"),                  # Git config with tokens
+    ]
+
     # Sensitive paths outside workspace that should never be accessed
     FORBIDDEN_EXTERNAL_PATHS: Set[str] = {
         "/etc/shadow", "/etc/passwd", "/root", "~/.ssh", "~/.aws", "~/.gnupg"
@@ -252,9 +261,22 @@ class ToolSafetyGuardrail(BaseGuardrail):
             return False
 
     def check_tool(self, tool_name: str, args: Dict[str, Any], workspace: str = ".") -> GuardrailVerdict:
-        # 1. Path confinement check for file operations
+        # 1. In-workspace sensitive file shield and path confinement check
         if tool_name in ("read_file", "write_file", "edit_file", "list_dir"):
             path = args.get("path") or args.get("file") or ""
+            if path:
+                for pat in self.FORBIDDEN_WORKSPACE_FILE_PATTERNS:
+                    if pat.search(path):
+                        reason = f"Security violation: access to confidential file '{path}' is strictly blocked"
+                        logger.error(f"[{self.name}] {reason}")
+                        return GuardrailVerdict(
+                            guardrail_name=self.name,
+                            allowed=False,
+                            action="block",
+                            reason=reason,
+                            details={"tool": tool_name, "path": path, "workspace": workspace},
+                        )
+
             if self.enforce_workspace_confinement and path:
                 if not self._is_path_confined(path, workspace):
                     reason = f"Security violation: path '{path}' escapes workspace boundary '{workspace}'"

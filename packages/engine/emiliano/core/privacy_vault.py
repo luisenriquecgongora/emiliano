@@ -188,6 +188,26 @@ class PrivacyVault:
         # Custom user-defined patterns
         self._custom_patterns: List[Tuple[VaultCategory, re.Pattern]] = []
 
+        # Automatically register host C: volume user paths and high-entropy secrets
+        self.auto_register_host_environment()
+
+    def auto_register_host_environment(self) -> None:
+        """Pre-registers Windows C: volume user paths and existing environment variables as surrogates."""
+        with self._lock:
+            userprofile = os.environ.get("USERPROFILE")
+            if userprofile and len(userprofile) > 3:
+                self.register_secret_literal(userprofile, VaultCategory.CUSTOM)
+                self.register_secret_literal(userprofile.replace("\\", "/"), VaultCategory.CUSTOM)
+
+            username = os.environ.get("USERNAME")
+            if username and len(username) > 3:
+                self.register_secret_literal(username, VaultCategory.CUSTOM)
+
+            for key, value in os.environ.items():
+                if any(token in key.upper() for token in ["KEY", "SECRET", "TOKEN", "PASSWORD", "AUTH"]):
+                    if len(value) >= 8:
+                        self.register_secret_literal(value, VaultCategory.SECRET_GENERIC)
+
     def register_custom_pattern(self, name: str, regex: str | re.Pattern) -> None:
         """Adds a proprietary domain entity pattern (e.g. internal customer UUIDs, tenant keys)."""
         pattern = re.compile(regex) if isinstance(regex, str) else regex

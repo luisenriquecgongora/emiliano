@@ -51,6 +51,33 @@ def _read_json(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+SAFE_ENV_ALLOWLIST = {
+    "PATH", "PATHEXT", "SYSTEMROOT", "COMSPEC", "TEMP", "TMP",
+    "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "NUMBER_OF_PROCESSORS",
+    "OS", "PROCESSOR_ARCHITECTURE", "TERM", "LANG", "LC_ALL"
+}
+
+
+def sanitize_subprocess_env(custom_overrides: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """
+    Constructs a hermetic clean-room environment for agent subprocesses.
+    Purges parent API keys, cloud tokens, database URLs, and .env leaks.
+    """
+    clean_env: Dict[str, str] = {}
+    for key, value in os.environ.items():
+        if key.upper() in SAFE_ENV_ALLOWLIST:
+            clean_env[key] = value
+
+    clean_env["FORCE_COLOR"] = "1"
+    clean_env["COLORTERM"] = "truecolor"
+    clean_env["PYTHONUNBUFFERED"] = "1"
+
+    if custom_overrides:
+        clean_env.update(custom_overrides)
+
+    return clean_env
+
+
 class BaseHarness(ABC):
     def __init__(self, name: str, command: str, display_name: str = "", acp_command: Optional[str] = None):
         self.name = name
@@ -243,10 +270,7 @@ class BaseHarness(ABC):
                     "Remove those characters or use a different harness."
                 )
 
-            env = dict(os.environ)
-            env["FORCE_COLOR"] = "1"
-            env["COLORTERM"] = "truecolor"
-            env["PYTHONUNBUFFERED"] = "1"
+            env = sanitize_subprocess_env()
 
             logger.info(f"[Harness] Running {self.name}: {inv.args[:2]}...")
             proc = subprocess.Popen(
