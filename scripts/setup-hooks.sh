@@ -64,6 +64,15 @@ set -e
 AGAINST=HEAD
 git rev-parse --verify HEAD >/dev/null 2>&1 || AGAINST=$(git hash-object -t tree /dev/null)
 
+# 0. Strict Confidential Data & .env Blinding Check
+FORBIDDEN_FILES=$(git diff --cached --name-only | grep -Ei '(^|/)(\.env(\..+)?|\.pem|\.key|\.pfx|\.p12|credentials\.json|service_account\.json|id_rsa.*|id_ed25519.*)$' || true)
+if [ -n "$FORBIDDEN_FILES" ]; then
+  echo "❌ [SECURITY VIOLATION] Staged changes contain forbidden confidential file(s):"
+  echo "$FORBIDDEN_FILES"
+  echo "Confidential files must NEVER be tracked in git. Unstage them with: git reset HEAD <file>"
+  exit 1
+fi
+
 # 1. Prevent trailing whitespace noise from being staged
 if ! git diff-index --check --cached "$AGAINST" --; then
   echo "❌ [Whitespace Error] Staged changes contain trailing whitespace or newline artifacts."
@@ -91,7 +100,7 @@ if [ "$STAGED_FILES" -gt "$MAX_FILES" ]; then
 fi
 
 # 3. Block mixing configuration/infrastructure with application source
-CONFIG_RE='(tsconfig|\.eslintrc|vite\.config|webpack|Dockerfile|\.env|CMakeLists\.txt)'
+CONFIG_RE='(tsconfig|\.eslintrc|vite\.config|webpack|Dockerfile|CMakeLists\.txt)'
 SRC_RE='^(src/|lib/|packages/|apps?/)'
 HAS_CONFIG=$(git diff --cached --name-only | grep -E "$CONFIG_RE" || true)
 HAS_SRC=$(git diff --cached --name-only | grep -Ev "$CONFIG_RE" | grep -E "$SRC_RE" || true)
