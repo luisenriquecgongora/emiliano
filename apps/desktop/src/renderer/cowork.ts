@@ -41,13 +41,28 @@ export interface PinResponse {
 }
 
 export const coworkApi = {
-  getBrowserStatus: async (): Promise<{ connected: boolean; extension_info: Record<string, any> }> => {
+  getBrowserStatus: async (): Promise<{ connected: boolean; extension_info: Record<string, any>; connected_browsers?: any[] }> => {
     try {
       const res = await fetch(`${ENGINE_HTTP_URL}/api/browser/status`);
-      if (!res.ok) return { connected: false, extension_info: {} };
+      if (!res.ok) return { connected: false, extension_info: {}, connected_browsers: [] };
       return res.json();
     } catch {
-      return { connected: false, extension_info: {} };
+      return { connected: false, extension_info: {}, connected_browsers: [] };
+    }
+  },
+
+  revealExtensionFolder: async (browser: 'chrome' | 'firefox' = 'chrome'): Promise<{ opened: boolean; path: string }> => {
+    try {
+      const res = await fetch(`${ENGINE_HTTP_URL}/api/browser/reveal-extension`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ browser }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    } catch (e) {
+      console.warn('[coworkApi] revealExtensionFolder failed:', e);
+      return { opened: false, path: '' };
     }
   },
 

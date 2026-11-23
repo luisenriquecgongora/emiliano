@@ -27,6 +27,7 @@ import {
   Eye,
   FileText,
   FolderGit2,
+  FolderOpen,
   Globe,
   Heart,
   HelpCircle,
@@ -1106,22 +1107,38 @@ export default function Dock() {
           </div>
         )}
 
-        {/* Clear, unmissable banner when the Chrome Companion Extension is disconnected */}
-        {!browserStatus.connected && (pinnedWindow?.title?.toLowerCase().includes('chrome') || sidebarTab === 'skills') && (
+        {/* Clear, unmissable banner when the Browser Companion Extension is disconnected */}
+        {!browserStatus.connected && (pinnedWindow?.title?.toLowerCase().includes('chrome') || pinnedWindow?.title?.toLowerCase().includes('firefox') || sidebarTab === 'skills') && (
           <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-rose-950/80 border border-rose-700/80 flex items-center justify-between text-[11px] text-rose-200 shadow-md">
             <div className="flex items-center space-x-2 truncate">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 animate-pulse" />
               <div className="truncate">
-                <span className="font-semibold text-rose-100">Chrome Extension Offline:</span>{' '}
-                <span className="text-rose-300">Background DOM automation & receipts paused.</span>
+                <span className="font-semibold text-rose-100">Browser Companion Offline:</span>{' '}
+                <span className="text-rose-300">Chrome/Firefox background automation paused.</span>
               </div>
             </div>
-            <button
-              onClick={handleOpenBrowserSetup}
-              className="px-2 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-[10px] text-white font-medium shrink-0 ml-2 border border-rose-600/60 shadow-xs"
-            >
-              Setup Guide
-            </button>
+            <div className="flex items-center space-x-1 shrink-0 ml-2">
+              <button
+                onClick={() => coworkApi.revealExtensionFolder('chrome')}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-cyan-300 font-medium border border-slate-700 shadow-xs"
+                title="Reveal Chrome extension binaries in Windows Explorer"
+              >
+                Reveal Chrome
+              </button>
+              <button
+                onClick={() => coworkApi.revealExtensionFolder('firefox')}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-amber-300 font-medium border border-slate-700 shadow-xs"
+                title="Reveal Firefox extension binaries in Windows Explorer"
+              >
+                Reveal Firefox
+              </button>
+              <button
+                onClick={handleOpenBrowserSetup}
+                className="px-2 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-[10px] text-white font-medium border border-rose-600/60 shadow-xs"
+              >
+                Setup
+              </button>
+            </div>
           </div>
         )}
 
@@ -1438,22 +1455,22 @@ export default function Dock() {
 
                   {browserStatus.connected ? (
                     <div
-                      title={`Chrome Companion Extension is connected (v${browserStatus.extension_info?.version || '1.0.0'}).`}
+                      title={`Browser Companion is connected (${browserStatus.extension_info?.browser || 'Chrome'} v${browserStatus.extension_info?.version || '1.0.0'}).`}
                       className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-950/70 border border-emerald-700/60 text-[11px] text-emerald-300 shadow-xs"
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                       <Globe className="w-3 h-3 text-emerald-400" />
-                      <span>Chrome Ext Active</span>
+                      <span>{browserStatus.extension_info?.browser?.toLowerCase() === 'firefox' ? 'Firefox Ext Active' : 'Chrome Ext Active'}</span>
                     </div>
                   ) : (
                     <button
                       onClick={handleOpenBrowserSetup}
-                      title="Chrome Companion Extension is disconnected. Click to open setup."
+                      title="Browser Companion Extension is disconnected. Click to open Chrome/Firefox setup."
                       className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600/70 text-[11px] text-rose-300 hover:bg-rose-900/80 transition-all shadow-xs cursor-pointer animate-pulse"
                     >
                       <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
                       <Globe className="w-3 h-3 text-rose-400" />
-                      <span>Chrome Disconnected</span>
+                      <span>Browser Offline</span>
                       <AlertTriangle className="w-3 h-3 text-rose-400" />
                     </button>
                   )}
@@ -1857,28 +1874,32 @@ function Header(props: {
           </button>
         )}
 
-        {/* Chrome Extension Live Connection Indicator */}
+        {/* Browser Extension Live Connection Indicator */}
         {props.browserStatus?.connected ? (
           <button
             onClick={props.onOpenBrowserSetup}
-            title={`Chrome Companion Connected${
-              props.browserStatus.extension_info?.version ? ` (v${props.browserStatus.extension_info.version})` : ''
-            }. Background DOM automation active. Click to view companion.`}
+            title={`Browser Companion Connected (${props.browserStatus.extension_info?.browser || 'Chrome'}${
+              props.browserStatus.extension_info?.version ? ` v${props.browserStatus.extension_info.version}` : ''
+            }). Background DOM automation active. Click to view companion.`}
             className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/50 text-[10px] text-emerald-300 font-mono hover:bg-emerald-900/60 transition-colors cursor-pointer shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_#34d399]" />
             <Globe className="w-3 h-3 text-emerald-400 shrink-0" />
-            {props.currentWidth >= 520 && <span className="font-medium">{props.currentWidth >= 620 ? 'Chrome Ext' : 'Ext'}</span>}
+            {props.currentWidth >= 520 && (
+              <span className="font-medium">
+                {props.currentWidth >= 620 ? (props.browserStatus.extension_info?.browser?.toLowerCase() === 'firefox' ? 'Firefox Ext' : 'Chrome Ext') : 'Ext'}
+              </span>
+            )}
           </button>
         ) : (
           <button
             onClick={props.onOpenBrowserSetup}
-            title="Chrome Companion Extension is DISCONNECTED! Click to open companion setup."
+            title="Browser Companion Extension is DISCONNECTED! Click to open Chrome/Firefox companion setup."
             className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-rose-950/90 border border-rose-500/80 text-[10px] text-rose-300 font-mono font-bold animate-pulse hover:bg-rose-900 transition-all cursor-pointer shadow-[0_0_8px_rgba(244,63,94,0.35)] shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
             <Globe className="w-3 h-3 text-rose-400 shrink-0" />
-            {props.currentWidth >= 520 && <span>{props.currentWidth >= 620 ? 'Chrome Offline' : 'Offline'}</span>}
+            {props.currentWidth >= 520 && <span>{props.currentWidth >= 620 ? 'Browser Offline' : 'Offline'}</span>}
             <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
           </button>
         )}
@@ -2146,6 +2167,19 @@ function FixedSidebar(props: {
   const [approvingSkillId, setApprovingSkillId] = useState<string | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+  const [selectedBrowserTab, setSelectedBrowserTab] = useState<'chrome' | 'firefox'>('chrome');
+  const [revealingFolder, setRevealingFolder] = useState(false);
+  const [copiedExtensionPath, setCopiedExtensionPath] = useState(false);
+
+  const isSelectedBrowserConnected = useMemo(() => {
+    if (!props.browserStatus.connected) return false;
+    const connectedList = (props.browserStatus as any).connected_browsers || [];
+    if (connectedList.length > 0) {
+      return connectedList.some((b: any) => (b.browser || '').toLowerCase() === selectedBrowserTab);
+    }
+    const current = (props.browserStatus.extension_info?.browser || 'chrome').toLowerCase();
+    return current === selectedBrowserTab || props.browserStatus.connected;
+  }, [props.browserStatus, selectedBrowserTab]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -2573,42 +2607,109 @@ function FixedSidebar(props: {
             {/* SUBTAB 1: SURFACE (Execution Canvas) */}
             {coworkSubTab === 'surface' && (
               <>
-                {/* Background Browser Companion Card */}
-                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 shadow-sm">
+                {/* Background Browser Companion Card (Chrome & Firefox) */}
+                <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-100">
                       <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span>Chrome Companion</span>
+                      <span>Browser Companion</span>
                     </div>
                     <span
                       className={`text-[9px] px-1.5 py-0.5 rounded font-medium border flex items-center space-x-1 ${
-                        props.browserStatus.connected
+                        isSelectedBrowserConnected
                           ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/40'
                           : 'bg-rose-950/80 text-rose-400 border-rose-800/40'
                       }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${props.browserStatus.connected ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
-                      <span>{props.browserStatus.connected ? 'Active (Background)' : 'Offline'}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSelectedBrowserConnected ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
+                      <span>{isSelectedBrowserConnected ? `Active (${selectedBrowserTab === 'chrome' ? 'Chrome' : 'Firefox'})` : 'Offline'}</span>
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    {props.browserStatus.connected
-                      ? `Silent DOM injection, background tab navigation, and visual receipts with zero mouse movement (v${props.browserStatus.extension_info?.version || '1.0.0'}).`
-                      : 'Load the Emiliano Companion Extension in Google Chrome (chrome://extensions) to enable background browser automation.'}
-                  </p>
+                  {/* Browser Selector Pills */}
+                  <div className="flex items-center space-x-1 bg-slate-950/70 p-0.5 rounded-lg border border-slate-800/60">
+                    <button
+                      onClick={() => setSelectedBrowserTab('chrome')}
+                      className={`flex-1 py-1 px-2 rounded-md text-[10.5px] font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                        selectedBrowserTab === 'chrome'
+                          ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-800/50 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>Google Chrome</span>
+                      {props.browserStatus.connected && (props.browserStatus.extension_info?.browser || 'chrome') === 'chrome' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setSelectedBrowserTab('firefox')}
+                      className={`flex-1 py-1 px-2 rounded-md text-[10.5px] font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                        selectedBrowserTab === 'firefox'
+                          ? 'bg-amber-950/90 text-amber-300 border border-amber-800/50 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>Mozilla Firefox</span>
+                      {props.browserStatus.connected && (props.browserStatus.extension_info?.browser || '').toLowerCase() === 'firefox' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+                      )}
+                    </button>
+                  </div>
 
-                  <div className="pt-1 border-t border-slate-800/60 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500 font-mono">
-                      {props.browserStatus.connected ? 'Tier 1: Chrome Extension' : 'Status: Disconnected'}
-                    </span>
+                  {/* Dynamic Instructions & Details */}
+                  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70 space-y-1 text-[11px]">
+                    <div className="text-slate-300 font-medium flex items-center justify-between">
+                      <span>{selectedBrowserTab === 'chrome' ? 'Chrome Unpacked Setup' : 'Firefox Temporary Add-on'}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {selectedBrowserTab === 'chrome' ? 'chrome://extensions' : 'about:debugging'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      {selectedBrowserTab === 'chrome'
+                        ? '1. Open chrome://extensions & enable Developer mode. 2. Click "Load unpacked" and select the dist/chrome folder.'
+                        : '1. Open about:debugging#/runtime/this-firefox. 2. Click "Load Temporary Add-on..." and select dist/firefox/manifest.json.'}
+                    </p>
+                  </div>
+
+                  {/* Action Bar: Reveal Binaries in Explorer + Copy Path + Ping */}
+                  <div className="pt-1.5 border-t border-slate-800/60 flex items-center space-x-1.5 text-[10px]">
+                    <button
+                      onClick={async () => {
+                        setRevealingFolder(true);
+                        await coworkApi.revealExtensionFolder(selectedBrowserTab);
+                        setTimeout(() => setRevealingFolder(false), 1200);
+                      }}
+                      className="flex-1 py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title={`Open ${selectedBrowserTab === 'chrome' ? 'Chrome' : 'Firefox'} extension directory in Windows Explorer`}
+                    >
+                      <FolderOpen className="w-3 h-3 text-cyan-400" />
+                      <span>{revealingFolder ? 'Opening…' : 'Reveal Binaries'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const targetPath = selectedBrowserTab === 'chrome'
+                          ? 'dist/chrome'
+                          : 'dist/firefox/manifest.json';
+                        navigator.clipboard.writeText(targetPath);
+                        setCopiedExtensionPath(true);
+                        setTimeout(() => setCopiedExtensionPath(false), 2000);
+                      }}
+                      className="py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title="Copy path to clipboard"
+                    >
+                      {copiedExtensionPath ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                      <span>{copiedExtensionPath ? 'Copied' : 'Copy Path'}</span>
+                    </button>
+
                     <button
                       onClick={props.onRefreshBrowserStatus}
                       disabled={props.loadingBrowser}
-                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 flex items-center space-x-1 text-[10px] transition-colors"
+                      className="py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title="Check engine connection"
                     >
-                      <RefreshCw className={`w-2.5 h-2.5 ${props.loadingBrowser ? 'animate-spin' : ''}`} />
-                      <span>{props.loadingBrowser ? 'Checking…' : 'Ping'}</span>
+                      <RefreshCw className={`w-3 h-3 ${props.loadingBrowser ? 'animate-spin' : ''}`} />
+                      <span>Ping</span>
                     </button>
                   </div>
                 </div>

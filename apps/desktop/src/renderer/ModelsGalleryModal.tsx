@@ -76,6 +76,7 @@ export default function ModelsGalleryModal({
 }: ModelsGalleryModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState<'all' | 'loaded' | 'recommended' | 'installed'>('all');
+  const [memoryFitFilter, setMemoryFitFilter] = useState<'all' | 'fits_gpu' | 'slow' | 'too_big'>('all');
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
   const [selectedKnowledgeTag, setSelectedKnowledgeTag] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -217,6 +218,8 @@ export default function ModelsGalleryModal({
 
   const filteredRecommended = useMemo(() => {
     return recommendedPresets.filter((p) => {
+      const fit = getArchitectureFit(p.sizeGb, hw);
+      if (memoryFitFilter !== 'all' && fit.fit !== memoryFitFilter) return false;
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
@@ -226,7 +229,18 @@ export default function ModelsGalleryModal({
         p.family.toLowerCase().includes(q)
       );
     });
-  }, [recommendedPresets, q]);
+  }, [recommendedPresets, q, hw, memoryFitFilter]);
+
+  const recommendedFitCounts = useMemo(() => {
+    return recommendedPresets.reduce(
+      (counts, preset) => {
+        const fit = getArchitectureFit(preset.sizeGb, hw);
+        counts[fit.fit] += 1;
+        return counts;
+      },
+      { fits_gpu: 0, slow: 0, too_big: 0 }
+    );
+  }, [recommendedPresets, hw]);
 
   const isExactInstalled = useMemo(() => {
     if (!q) return true;
@@ -429,6 +443,43 @@ export default function ModelsGalleryModal({
                 {installedModels.length}
               </span>
             </button>
+          </div>
+
+          {/* Hardware-memory filters apply to recommended downloads. */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+            <span className="mr-0.5 text-slate-500 font-medium">Memory fit:</span>
+            {([
+              ['all', 'All models'],
+              ['fits_gpu', 'Fits GPU'],
+              ['slow', 'Spills to RAM'],
+              ['too_big', 'Too large'],
+            ] as const).map(([filter, label]) => {
+              const isActive = memoryFitFilter === filter;
+              const count = filter === 'all'
+                ? recommendedPresets.length
+                : recommendedFitCounts[filter];
+              const color = filter === 'fits_gpu'
+                ? 'border-emerald-700/70 text-emerald-300 bg-emerald-950/60'
+                : filter === 'slow'
+                ? 'border-amber-700/70 text-amber-300 bg-amber-950/60'
+                : filter === 'too_big'
+                ? 'border-rose-700/70 text-rose-300 bg-rose-950/60'
+                : 'border-cyan-700/70 text-cyan-300 bg-cyan-950/60';
+
+              return (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setMemoryFitFilter(filter)}
+                  className={`px-2 py-1 rounded-lg border font-medium transition-colors cursor-pointer ${
+                    isActive ? color : 'border-slate-700 bg-slate-800/60 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                  }`}
+                  title={filter === 'slow' ? 'Models that work by using both GPU VRAM and normal system RAM; they will be slower.' : undefined}
+                >
+                  {label} <span className="ml-0.5 opacity-70">{count}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
