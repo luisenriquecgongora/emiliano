@@ -56,12 +56,12 @@ _VERBS = (
     r"fix|update|add|remove|delete|rename|refactor|run|execute|install|uninstall|commit|push|pull|merge|"
     r"create|implement|debug|build|compile|start|stop|restart|deploy|review|inspect|check|scan|audit|look|find|"
     r"search|grep|list|move|format|lint|migrate|upgrade|bump|clean|open|edit|change|modify|replace|write|"
-    r"generate|test|document|split|extract|optimi[sz]e|"
+    r"generate|test|document|split|extract|optimi[sz]e|translate|localise|localize|"
     r"arregla|corrige|actualiza|añade|agrega|elimina|borra|quita|renombra|refactoriza|ejecuta|corre|lanza|"
     r"instala|crea|implementa|depura|compila|inicia|arranca|despliega|revisa|inspecciona|busca|lista|mueve|"
-    r"cambia|modifica|reemplaza|escribe|genera|prueba|documenta|"
+    r"cambia|modifica|reemplaza|escribe|genera|prueba|documenta|traduce|localiza|"
     r"arreglar|corregir|actualizar|añadir|agregar|eliminar|borrar|renombrar|ejecutar|instalar|crear|revisar|"
-    r"buscar|cambiar|modificar|escribir|encontrar|averiguar"
+    r"buscar|cambiar|modificar|escribir|encontrar|averiguar|traducir|localizar"
 )
 _POLITE = (r"(?:please\s+|pls\s+|(?:can|could|would) (?:you|u)\s+(?:please\s+)?(?:help me\s+(?:to\s+)?)?|"
            r"help me\s+(?:to\s+)?|por favor\s+|puedes\s+|podr[ií]as\s+|ay[uú]dame a\s+)?")

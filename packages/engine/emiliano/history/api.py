@@ -59,6 +59,7 @@ MODES = {
     "compliance": (None, None),
     "coding": (None, None),
     "design": (None, None),
+    "translator": (None, None),
     "antigravity": (None, "agy"),
     "direct": ("local", None),
     "claude_code": (None, "claude"),
@@ -200,6 +201,24 @@ SPECIALIST_MODE_CONFIGS = {
             "Focus on modern user interfaces, Tailwind CSS, clean layouts, micro-interactions, responsive typography, visual balance, menu graphic design, and component architecture."
         ),
         "preferred_skills": ["tailwind", "ui_ux", "artifact_canvas", "svg_preview"],
+    },
+    "translator": {
+        "title": "Codebase Localization & Translator",
+        "category": "tech",
+        "badge": "i18n & Program Code",
+        "system_prompt": (
+            "You are in 'Codebase Localization & Translator' Mode. You act as a Principal Internationalization (i18n) "
+            "and Localization (l10n) Software Engineer for codebases and multi-tier monorepos. "
+            "Analyze project i18n architectures (TypeScript dictionaries, JSON locale trees, gettext PO, Edge normalizers), "
+            "extract reference strings, and add complete, culturally authentic, and grammatically precise language support.\n"
+            "MANDATORY CONSTRAINTS:\n"
+            "1. KEY PARITY: Every target dictionary MUST match 100% of reference keys (zero missing keys).\n"
+            "2. VARIABLE LOCK: Never translate or modify interpolation tokens (e.g. {var}, {businessName}, %s, ${count}).\n"
+            "3. AST INTEGRITY: Preserve TypeScript types, interfaces, and export syntax without syntax errors.\n"
+            "4. MULTI-TIER COHERENCE: Update core language registries, code normalizers, backend notifications, and UI selectors.\n"
+            "5. VERIFY: Verify your modifications with project typechecks/linters before concluding."
+        ),
+        "preferred_skills": ["codebase-translator", "i18n_ast", "key_parity", "variable_lock"],
     },
     "antigravity": {
         "title": "Desktop Cowork & Automation",
