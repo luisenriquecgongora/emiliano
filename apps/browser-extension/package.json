@@ -4,7 +4,9 @@
   "description": "Privileged autonomous browser companion extension for the Emiliano Desktop Cowork platform.",
   "private": true,
   "scripts": {
-    "build": "echo 'Browser extension ready to load unpacked'"
+    "build": "node build.js all",
+    "build:chrome": "node build.js chrome",
+    "build:firefox": "node build.js firefox"
   },
   "author": "Antigravity Engineering",
   "license": "PolyForm-Shield-1.0.0"
