@@ -1,31 +1,32 @@
-## Description
-<!-- Provide a brief description of what this PR does and the rationale behind the changes. -->
+## What and why
+<!-- What this PR changes and the reason for it. Link the issue if there is one. -->
 
-## Type of Change
-- [ ] 🐛 Bug fix (non-breaking change fixing an issue)
-- [ ] ✨ New feature (non-breaking change adding functionality or a new harness adapter)
-- [ ] 💥 Breaking change (fix or feature that alters existing behavior or protocol)
-- [ ] 📝 Documentation update
-- [ ] 🛡️ Security / Safety guardrail enhancement
+## ⚡ Visual Delta (Fast Inspection)
+<!--
+Run `python scripts/visual-diff.py` to auto-generate this Mermaid diagram for staged changes,
+or paste your custom flow delta using the docs/ARCHITECTURE.md palette:
+-->
 
-## Subsystems Affected
-- [ ] `packages/engine` (Python Meta-Harness & Direct Execution Engine)
-- [ ] `packages/protocol` (Shared TypeScript/Python schemas)
-- [ ] `apps/desktop` (Tauri Cowork UI & HUD Overlay)
-- [ ] CI/CD or Repository tooling
+```mermaid
+flowchart LR
+    Caller["🟪 Caller / Trigger"] --> Component["🟦 Modified Component"]
+    Component --> Output["🟩 Output / Result"]
 
-## Diagram
-<!-- If this changes a structure or a flow: a small colored Mermaid diagram of the new shape, and the
-     updated docs/ARCHITECTURE.md. Delete this section otherwise. -->
+    classDef ours fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef input fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef gate fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef done fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef risk fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    class Caller input
+    class Component ours
+    class Output done
+```
 
-## Verification & Testing
-<!-- Describe how you verified your changes (e.g. CLI run, desktop app smoke test, unit tests). -->
-- [ ] Tested locally with `python -m emiliano.cli harnesses`
-- [ ] Emergency stop (<kbd>Esc</kbd>) remains functional
-- [ ] Code formatted and typechecked
+## Verification
 - [ ] `python scripts/verify.py` passes (any skipped checks are listed below)
+- [ ] Behavior changes come with a new or updated test
+- [ ] Commits follow the conventions in `AGENTS.md`
+- [ ] Visual delta diagram inspected (`python scripts/visual-diff.py --open`)
 
-## Checklist
-- [ ] I have read the [CONTRIBUTING.md](CONTRIBUTING.md) guide.
-- [ ] My code adheres to the project style guidelines.
-- [ ] I have updated documentation where appropriate.
+## Notes for review
+<!-- Anything risky, follow-ups, or skipped checks. -->
