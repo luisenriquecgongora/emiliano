@@ -2,8 +2,15 @@
 
 import type { ArtifactPayload } from '@emiliano/protocol';
 
-export const ENGINE_HTTP_URL = 'http://127.0.0.1:8765';
-export const CHAT_WS_URL = 'ws://127.0.0.1:8765/api/chat';
+const enginePort =
+  (typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).get('port') ||
+      (window as any).__EMILIANO_ENGINE_PORT__)) ||
+  (import.meta as any).env?.VITE_ENGINE_PORT ||
+  '8765';
+
+export const ENGINE_HTTP_URL = `http://127.0.0.1:${enginePort}`;
+export const CHAT_WS_URL = `ws://127.0.0.1:${enginePort}/api/chat`;
 
 export interface ChatSummary {
   id: string;
@@ -120,6 +127,7 @@ export interface CompactResult {
 
 export const MODE_CATEGORIES = [
   { id: 'all', label: 'All Modes' },
+  { id: 'career', label: 'Career & Jobs' },
   { id: 'hospitality', label: 'Hospitality & F&B' },
   { id: 'finance', label: 'Finance & Stock' },
   { id: 'growth', label: 'Marketing & Sales' },
@@ -328,6 +336,19 @@ export const SPECIALIST_MODES: SpecialistModeDef[] = [
     featured: true,
   },
   {
+    id: 'job_hunter',
+    name: 'Job Hunter & Career Agent',
+    shortLabel: 'Job Hunter',
+    category: 'career',
+    description: 'Autonomous job position diagnostics, ATS resume tailoring, prompt-injection defense, anti-AI detector stylometry, and Chrome cowork autofill.',
+    badge: 'Career & Anti-Detect',
+    skills: 'Position Diagnostics • Anti-AI Detect • ATS Resumes • Chrome Cowork',
+    icon: 'briefcase',
+    color: 'from-blue-600/20 to-indigo-600/20 text-blue-400 border-blue-500/40',
+    accentClass: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+    featured: true,
+  },
+  {
     id: 'antigravity',
     name: 'Desktop Cowork & Automation',
     shortLabel: 'Cowork',
@@ -357,6 +378,7 @@ export const MODES = [
   { value: 'coding', label: 'Coding & POS Systems' },
   { value: 'design', label: 'Design & Creative Studio' },
   { value: 'translator', label: 'Codebase Translator & i18n' },
+  { value: 'job_hunter', label: 'Job Hunter & Career Agent' },
   { value: 'antigravity', label: 'Desktop Cowork & Automation' },
   { value: 'direct', label: 'Local model' },
   { value: 'claude_code', label: 'Claude Code' },

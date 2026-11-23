@@ -6,6 +6,7 @@ import {
   BookOpen,
   Bot,
   Boxes,
+  Briefcase,
   Calendar,
   Check,
   CheckCircle2,
@@ -4546,6 +4547,7 @@ function ModePicker(props: {
       case 'shield': return <Shield className={className} />;
       case 'code': return <Code2 className={className} />;
       case 'palette': return <Palette className={className} />;
+      case 'briefcase': return <Briefcase className={className} />;
       case 'bot': return <Bot className={className} />;
       default: return <Sparkles className={className} />;
     }

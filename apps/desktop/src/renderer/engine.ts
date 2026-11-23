@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 
-export const ENGINE_WS_URL = 'ws://127.0.0.1:8765/ws';
+const enginePort =
+  (typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).get('port') ||
+      (window as any).__EMILIANO_ENGINE_PORT__)) ||
+  (import.meta as any).env?.VITE_ENGINE_PORT ||
+  '8765';
+
+export const ENGINE_WS_URL = `ws://127.0.0.1:${enginePort}/ws`;
 const RECONNECT_DELAY_MS = 1500;
 
 /** True when this page is the transparent HUD overlay window (or #overlay in a plain browser). */
