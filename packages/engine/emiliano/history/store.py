@@ -218,6 +218,44 @@ class HistoryStore:
                     )
                     db.add(plaatoos_proj)
 
+                job_search_path = Path(r"C:\Users\artlu\OracliomNew\Oracliom\ai-job-search")
+                if not db.get(Project, "ai-job-search"):
+                    job_proj = Project(
+                        id="ai-job-search",
+                        name="Autonomous Job Hunter",
+                        description="Autonomous AI job search, position diagnostics, ATS-tailored CVs & cover letters, and Chrome cowork autofill",
+                        root_path=str(job_search_path),
+                        system_prompt=(
+                            "Autonomous job search and career engineering agent. Specializes in job position diagnostics, "
+                            "zero-hallucination ATS CV tailoring, prompt injection / canary trap neutralization, "
+                            "anti-AI detector stylometrics (high burstiness, no clichés), and browser cowork form completion."
+                        ),
+                    )
+                    db.add(job_proj)
+
+                job_plan_file = Path(r"C:\Users\artlu\.gemini\antigravity-cli\brain\341564c4-af40-4a75-af75-ae781c806de9\job_hunter_autonomous_plan.md")
+                if not db.get(Artifact, "art-job-hunter-plan"):
+                    content = job_plan_file.read_text(encoding="utf-8") if job_plan_file.exists() else "# Autonomous Job Hunter Architecture & State of the Art\n\nPosition diagnostics, ATS tailoring, and Chrome cowork."
+                    db.add(Artifact(
+                        id="art-job-hunter-plan",
+                        project_id="ai-job-search",
+                        title="Autonomous Job Hunter Architecture & SOTA Plan",
+                        kind="markdown",
+                        content=content,
+                        file_path=str(job_plan_file) if job_plan_file.exists() else None,
+                    ))
+
+                user_cv_file = Path(r"C:\Users\artlu\OracliomNew\Oracliom\JobsApplication\LUIS CASTILLO - RESUME - 2026 - JULY-4.pdf")
+                if user_cv_file.exists() and not db.get(Artifact, "art-luis-castillo-cv"):
+                    db.add(Artifact(
+                        id="art-luis-castillo-cv",
+                        project_id="ai-job-search",
+                        title="Luis Castillo Master Resume (July 2026)",
+                        kind="text",
+                        content="Master Candidate Resume for Luis Castillo (Senior Software Engineer, 9+ yrs exp). Located in JobsApplication.",
+                        file_path=str(user_cv_file),
+                    ))
+
                 if not db.get(Artifact, "art-outreach-analysis"):
                     analysis_file = Path(r"C:\Users\artlu\.gemini\antigravity-cli\brain\8fbaa064-7416-4540-8a08-956d9cba103b\state_of_the_art_outreach_analysis.md")
                     content = analysis_file.read_text(encoding="utf-8") if analysis_file.exists() else "# Autonomous B2B Outreach Engine Analysis\n\nPolyForm Shield 1.0.0 compliance and multi-channel architecture."
