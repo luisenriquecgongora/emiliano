@@ -27,7 +27,7 @@ class TestSpecialistModesSuite:
         modes = {m["id"]: m for m in data["modes"]}
 
         # Must include all primary domain modes
-        expected_modes = ["coding", "financial", "design", "outreach", "antigravity"]
+        expected_modes = ["coding", "financial", "design", "outreach", "antigravity", "translator"]
         for mode_id in expected_modes:
             assert mode_id in modes, f"Missing specialist mode: {mode_id}"
             m = modes[mode_id]
@@ -38,7 +38,7 @@ class TestSpecialistModesSuite:
 
     def test_02_mode_resolution_mappings(self):
         """Verifies resolve_mode handles all built-in and specialist modes."""
-        for mode_id in ("auto", "coding", "financial", "design", "outreach", "antigravity", "direct"):
+        for mode_id in ("auto", "coding", "financial", "design", "outreach", "antigravity", "translator", "direct"):
             policy, harness = resolve_mode(mode_id)
             if mode_id == "antigravity":
                 assert harness == "agy"
@@ -160,20 +160,31 @@ class TestSpecialistModesSuite:
         assert "alcohol licensing" in cfg["system_prompt"].lower()
         assert "haccp_checklists" in cfg["preferred_skills"]
 
-    def test_15_all_14_small_business_modes_in_api_modes_endpoint(self, test_client):
-        """Verifies that GET /api/modes returns all 14 modes with correct categories."""
+    def test_15_translator_mode_metadata_and_skills(self):
+        """Verifies Translator mode focuses on codebase internationalization, key parity, and token locks."""
+        cfg = SPECIALIST_MODE_CONFIGS["translator"]
+        assert cfg["category"] == "tech"
+        assert "Codebase Localization" in cfg["title"]
+        assert "i18n & Program Code" in cfg["badge"]
+        assert "key parity" in cfg["system_prompt"].lower()
+        assert "variable lock" in cfg["system_prompt"].lower()
+        assert "codebase-translator" in cfg["preferred_skills"]
+        assert "key_parity" in cfg["preferred_skills"]
+
+    def test_16_all_15_modes_in_api_modes_endpoint(self, test_client):
+        """Verifies that GET /api/modes returns all 15 modes with correct categories."""
         resp = test_client.get("/api/modes")
         assert resp.status_code == 200
         data = resp.json()
         modes = {m["id"]: m for m in data["modes"]}
 
-        all_14_ids = [
+        all_15_ids = [
             "auto", "financial", "fnb_menu", "concierge", "inventory",
             "shifts", "marketing", "outreach", "reviews", "retention",
-            "compliance", "coding", "design", "antigravity"
+            "compliance", "coding", "design", "translator", "antigravity"
         ]
-        assert len(modes) == 14
-        for mid in all_14_ids:
+        assert len(modes) == 15
+        for mid in all_15_ids:
             assert mid in modes
             assert "category" in modes[mid]
             assert "badge" in modes[mid]

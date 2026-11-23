@@ -91,12 +91,13 @@ class BaseBrowserBridge:
 
 
 class BrowserBridge(BaseBrowserBridge):
-    """Singleton bridge that routes automation requests to connected Chrome extensions via direct WebSocket."""
+    """Singleton bridge that routes automation requests to connected Chrome and Firefox extensions via direct WebSocket."""
 
     _instance: Optional[BrowserBridge] = None
 
     def __init__(self) -> None:
         self._active_ws = None
+        self._active_connections: Dict[Any, Dict[str, Any]] = {}
         self._pending_requests: Dict[str, asyncio.Future] = {}
         self._lock = asyncio.Lock()
         self._extension_info: Dict[str, Any] = {}
@@ -109,16 +110,22 @@ class BrowserBridge(BaseBrowserBridge):
 
     @property
     def is_connected(self) -> bool:
-        return self._active_ws is not None
+        return bool(self._active_connections or self._active_ws)
 
     @property
     def extension_info(self) -> Dict[str, Any]:
         return self._extension_info
 
+    @property
+    def connected_browsers(self) -> List[Dict[str, Any]]:
+        """Returns list of currently connected browser extensions."""
+        return list(self._active_connections.values())
+
     async def handle_connection(self, websocket) -> None:
         """Handles the lifecycle of an incoming browser extension WebSocket connection."""
         self._active_ws = websocket
-        logger.info("[BrowserBridge] Chrome extension connected successfully.")
+        self._active_connections[websocket] = {"connected_at": asyncio.get_event_loop().time()}
+        logger.info("[BrowserBridge] Browser extension connected successfully.")
         try:
             while True:
                 raw_data = await websocket.receive_text()
@@ -128,8 +135,11 @@ class BrowserBridge(BaseBrowserBridge):
                     msg_id = data.get("id")
 
                     if msg_type == "EXTENSION_HANDSHAKE":
-                        self._extension_info = data.get("payload", {})
-                        logger.info(f"[BrowserBridge] Extension handshake: {self._extension_info}")
+                        info = data.get("payload", {})
+                        self._extension_info = info
+                        self._active_connections[websocket] = info
+                        browser_name = info.get("browser", "Browser")
+                        logger.info(f"[BrowserBridge] {browser_name} extension handshake: {info}")
                         await websocket.send_text(json.dumps({"type": "HANDSHAKE_ACK", "id": msg_id, "status": "ok"}))
                     elif msg_type == "PING":
                         await websocket.send_text(json.dumps({"type": "PONG"}))
@@ -147,19 +157,30 @@ class BrowserBridge(BaseBrowserBridge):
                 except json.JSONDecodeError:
                     logger.warning(f"[BrowserBridge] Invalid JSON received: {raw_data}")
         except Exception as e:
-            logger.info(f"[BrowserBridge] Chrome extension connection closed: {e}")
+            logger.info(f"[BrowserBridge] Browser extension connection closed: {e}")
         finally:
-            self._active_ws = None
-            self._extension_info = {}
+            self._active_connections.pop(websocket, None)
+            if self._active_ws == websocket:
+                self._active_ws = next(iter(self._active_connections.keys())) if self._active_connections else None
+                self._extension_info = self._active_connections.get(self._active_ws, {}) if self._active_ws else {}
             for future in self._pending_requests.values():
                 if not future.done():
                     future.set_exception(ConnectionResetError("Browser extension disconnected."))
             self._pending_requests.clear()
 
-    async def send_command(self, action: str, params: Optional[Dict[str, Any]] = None, timeout: float = 20.0) -> Any:
+    async def send_command(self, action: str, params: Optional[Dict[str, Any]] = None, timeout: float = 20.0, browser: Optional[str] = None) -> Any:
         """Sends an RPC command to the connected extension and awaits the result."""
-        if not self.is_connected or self._active_ws is None:
-            raise RuntimeError("Browser extension is not connected. Open Chrome with the Emiliano extension installed.")
+        target_ws = None
+        if browser and self._active_connections:
+            for ws, info in self._active_connections.items():
+                if info.get("browser", "").lower() == browser.lower():
+                    target_ws = ws
+                    break
+        if target_ws is None:
+            target_ws = self._active_ws
+
+        if not self.is_connected or target_ws is None:
+            raise RuntimeError("Browser extension is not connected. Open Chrome or Firefox with the Emiliano extension installed.")
 
         req_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
@@ -173,7 +194,7 @@ class BrowserBridge(BaseBrowserBridge):
         }
 
         try:
-            await self._active_ws.send_text(json.dumps(message))
+            await target_ws.send_text(json.dumps(message))
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             self._pending_requests.pop(req_id, None)

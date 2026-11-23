@@ -47,7 +47,7 @@ def verify_ipc_token(provided_token: Optional[str]) -> bool:
 
 
 def get_allowed_extension_ids() -> Set[str]:
-    """Whitelisted Chrome extension IDs. If empty, allows extension when no whitelist is defined."""
+    """Whitelisted Chrome and Firefox extension IDs. If empty, allows extension when no whitelist is defined."""
     raw = os.environ.get("EMILIANO_ALLOWED_EXTENSIONS")
     if not raw:
         return set()
@@ -59,11 +59,13 @@ def is_origin_allowed(origin: Optional[str]) -> bool:
         return True
     origin = origin.rstrip("/")
     # Chrome extensions connecting via local WebSocket have origins like chrome-extension://<id>
-    if origin.startswith("chrome-extension://"):
+    # Firefox extensions connecting via local WebSocket have origins like moz-extension://<uuid>
+    if origin.startswith("chrome-extension://") or origin.startswith("moz-extension://"):
         allowed_ids = get_allowed_extension_ids()
         if not allowed_ids:
             return True
-        ext_id = origin.replace("chrome-extension://", "").split("/")[0].lower()
+        prefix = "chrome-extension://" if origin.startswith("chrome-extension://") else "moz-extension://"
+        ext_id = origin.replace(prefix, "").split("/")[0].lower()
         return ext_id in allowed_ids
     # "null" (sandboxed iframes, data: URLs) is deliberately not allowed
     return origin in get_allowed_origins()

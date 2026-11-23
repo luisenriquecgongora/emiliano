@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Set, Union
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -470,9 +474,21 @@ class PatchSkillPayload(BaseModel):
     append_notes: Optional[str] = None
 
 
+class ResearchRequestPayload(BaseModel):
+    selection: str
+    context: Optional[str] = ""
+    url: Optional[str] = ""
+    page_title: Optional[str] = ""
+    language: Optional[str] = ""
+    query_type: Optional[str] = "concept"  # "concept", "code", "replication"
+    follow_up: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
+
+
 BrowserCommandPayload.model_rebuild()
 SynthesizeSkillPayload.model_rebuild()
 PatchSkillPayload.model_rebuild()
+ResearchRequestPayload.model_rebuild()
 
 
 @app.get("/api/cowork/windows")
@@ -882,7 +898,8 @@ async def get_browser_status():
     bridge = BrowserBridge.get_instance()
     return {
         "connected": bridge.is_connected,
-        "extension_info": bridge.extension_info
+        "extension_info": bridge.extension_info,
+        "connected_browsers": getattr(bridge, "connected_browsers", []),
     }
 
 
@@ -898,6 +915,130 @@ async def execute_browser_command(payload: BrowserCommandPayload):
     except Exception as e:
         logger.error(f"[Server] Browser command failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/browser/reveal-extension")
+async def reveal_browser_extension(payload: Optional[Dict[str, Any]] = None):
+    """
+    Reveals the extension binaries/unpacked directory in Windows Explorer (or OS file manager)
+    for Chrome or Firefox.
+    """
+    browser = (payload or {}).get("browser", "chrome").lower()
+    if browser not in ("chrome", "firefox"):
+        browser = "chrome"
+
+    base_dir = Path(__file__).resolve().parents[4] / "apps" / "browser-extension"
+    target_dir = base_dir / "dist" / browser
+
+    if not target_dir.exists():
+        target_dir = base_dir
+
+    path_str = str(target_dir)
+    try:
+        if os.name == "nt":
+            os.startfile(path_str)
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path_str])
+        return {"opened": True, "path": path_str, "browser": browser}
+    except Exception as e:
+        logger.error(f"[Server] Failed to reveal extension folder {path_str}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/cowork/research")
+async def research_concept(payload: ResearchRequestPayload):
+    """
+    Analyzes a highlighted code snippet or concept in depth, generating
+    architectural breakdown, canonical documentation links, replication repos,
+    and gotchas.
+    """
+    selection = payload.selection.strip()
+    if not selection:
+        raise HTTPException(status_code=400, detail="Selection cannot be empty.")
+
+    query_type = payload.query_type or "concept"
+    llm_output = None
+
+    try:
+        from emiliano.direct.client import UnifiedLLMClient
+        client = UnifiedLLMClient()
+
+        system_prompt = (
+            "You are Emiliano's Deep Research Lens and Code Inspector.\n"
+            "Analyze the highlighted code snippet or technical concept in depth.\n"
+            "Structure your response in clean Markdown with clear sections:\n"
+            "### 1. Executive Synopsis & Core Concept\n"
+            "Explain exactly what this is, why it is used, and how it works under the hood.\n\n"
+            "### 2. Architecture & Implementation Mechanics\n"
+            "Detail the internal mechanics, algorithmic complexity, protocols, or structural patterns.\n\n"
+            "### 3. Canonical Documentation & Specifications\n"
+            "Provide direct canonical links or references (e.g. official docs, RFC numbers, W3C/PEP specs).\n\n"
+            "### 4. Real-World Replications & Reference Repos\n"
+            "Provide search/deep links to GitHub repositories, Papers With Code, or open-source implementations demonstrating how this is replicated in production.\n\n"
+            "### 5. Production Gotchas & Pitfalls\n"
+            "Detail 2-3 critical edge cases, security considerations, or performance traps.\n"
+        )
+
+        user_msg = f"Highlighted target:\n```\n{selection}\n```\n"
+        if payload.language:
+            user_msg += f"Language: {payload.language}\n"
+        if payload.page_title:
+            user_msg += f"Source Page: {payload.page_title}\n"
+        if payload.url:
+            user_msg += f"Source URL: {payload.url}\n"
+        if payload.context:
+            user_msg += f"Surrounding Context:\n```\n{payload.context[:1000]}\n```\n"
+        if payload.follow_up:
+            user_msg += f"\nFollow-up question:\n{payload.follow_up}\n"
+
+        messages = [{"role": "system", "content": system_prompt}]
+        if payload.history:
+            messages.extend(payload.history)
+        messages.append({"role": "user", "content": user_msg})
+
+        chunks = []
+        async for chunk in client.stream_completion(messages, temperature=0.2, timeout=45.0):
+            chunks.append(chunk)
+        if chunks:
+            llm_output = "".join(chunks)
+    except Exception as e:
+        logger.warning(f"[Server] LLM research completion unavailable or failed: {e}")
+
+    # Fallback deterministic structured response if no LLM configured/online
+    if not llm_output:
+        import urllib.parse
+        encoded_q = urllib.parse.quote_plus(selection[:120])
+        github_search = f"https://github.com/search?q={encoded_q}&type=code"
+        pypi_search = f"https://pypi.org/search/?q={encoded_q}"
+        mdn_search = f"https://developer.mozilla.org/en-US/search?q={encoded_q}"
+        arxiv_search = f"https://arxiv.org/search/?query={encoded_q}&searchtype=all"
+        rfc_search = f"https://www.rfc-editor.org/search/rfc_search_detail.php?title={encoded_q}"
+
+        llm_output = (
+            f"### 🔍 Emiliano Technical Inspector\n\n"
+            f"**Target**: `{selection[:100]}`\n"
+            f"**Source**: {payload.page_title or payload.url or 'In-browser selection'}\n\n"
+            f"#### 1. Technical Synopsis\n"
+            f"Analyzed technical symbol `{selection[:80]}`. "
+            f"To enable autonomous deep generative synthesis with Emiliano, configure an LLM provider "
+            f"(Ollama local model or remote API key) in your environment or `emiliano.yaml`.\n\n"
+            f"#### 2. Canonical Specifications & Docs\n"
+            f"- [MDN Web Docs Search]({mdn_search})\n"
+            f"- [RFC Specifications Editor]({rfc_search})\n"
+            f"- [PyPI Package Repository]({pypi_search})\n\n"
+            f"#### 3. Replications & Reference Repositories\n"
+            f"- [GitHub Code Search: `{selection[:60]}`]({github_search})\n"
+            f"- [ArXiv Research Papers]({arxiv_search})\n\n"
+            f"#### 4. Engine Connection Status\n"
+            f"Emiliano Engine daemon is active and responding on `127.0.0.1:8765`."
+        )
+
+    return {
+        "status": "ok",
+        "query_type": query_type,
+        "selection": selection,
+        "markdown": llm_output,
+    }
 
 
 @app.websocket("/ws")

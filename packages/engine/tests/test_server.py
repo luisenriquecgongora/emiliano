@@ -301,10 +301,69 @@ class TestHttpRequestChecks(unittest.TestCase):
 
     def test_extension_id_whitelist(self):
         with patch.dict(os.environ, {"EMILIANO_ALLOWED_EXTENSIONS": "trustedextid123"}):
-            # Whitelisted extension origin succeeds
+            # Whitelisted Chrome extension origin succeeds
             self.assertEqual(self.client.get("/health", headers={"origin": "chrome-extension://trustedextid123"}).status_code, 200)
-            # Untrusted extension origin fails with 403
+            # Untrusted Chrome extension origin fails with 403
             self.assertEqual(self.client.get("/health", headers={"origin": "chrome-extension://maliciousextid456"}).status_code, 403)
+            # Whitelisted Firefox extension origin succeeds
+            self.assertEqual(self.client.get("/health", headers={"origin": "moz-extension://trustedextid123"}).status_code, 200)
+            # Untrusted Firefox extension origin fails with 403
+            self.assertEqual(self.client.get("/health", headers={"origin": "moz-extension://maliciousextid456"}).status_code, 403)
+
+    def test_firefox_extension_origin_allowed_by_default(self):
+        # When no whitelist is configured, any moz-extension origin is allowed
+        resp = self.client.get("/health", headers={"origin": "moz-extension://e1b64bf2-386d-476c-843e-c67d162e245a"})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_cowork_research_endpoint(self):
+        # Empty payload fails
+        resp_empty = self.client.post("/api/cowork/research", json={"selection": ""})
+        self.assertEqual(resp_empty.status_code, 400)
+
+        # Mock stream_completion to return deterministic chunks fast
+        async def fake_stream(*args, **kwargs):
+            yield "### 🔍 Deep Concept Analysis\n\n"
+            yield "Here is the explanation with [GitHub](https://github.com/search) reference."
+
+        with patch("emiliano.direct.client.UnifiedLLMClient.stream_completion", side_effect=fake_stream):
+            resp = self.client.post("/api/cowork/research", json={
+                "selection": "AsyncGenerator in Python asyncio",
+                "context": "async def stream_completion(...) -> AsyncGenerator[str, None]:",
+                "page_title": "Python Documentation",
+                "url": "https://docs.python.org/3/library/asyncio.html",
+                "query_type": "concept"
+            })
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["status"], "ok")
+            self.assertIn("markdown", data)
+            self.assertIn("github", data["markdown"].lower())
+
+    def test_browser_status_reports_connected_browsers(self):
+        resp = self.client.get("/api/browser/status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("connected_browsers", data)
+        self.assertIsInstance(data["connected_browsers"], list)
+
+    def test_reveal_browser_extension(self):
+        with patch("os.startfile", return_value=None) as mock_startfile:
+            resp = self.client.post("/api/browser/reveal-extension", json={"browser": "chrome"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["opened"])
+            self.assertEqual(data["browser"], "chrome")
+            self.assertIn("chrome", data["path"].lower())
+            mock_startfile.assert_called_once()
+
+        with patch("os.startfile", return_value=None) as mock_startfile:
+            resp = self.client.post("/api/browser/reveal-extension", json={"browser": "firefox"})
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["opened"])
+            self.assertEqual(data["browser"], "firefox")
+            self.assertIn("firefox", data["path"].lower())
+            mock_startfile.assert_called_once()
 
 
     def test_voice_status_and_transcribe(self):
