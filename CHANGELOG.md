@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.7.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.6.0...v0.7.0) (2026-11-24)
+
+
+### Features
+
+* add domain specialist modes picker and persona routing ([d737473](https://github.com/luisenriquecgongora/emiliano/commit/d737473ab8223d8db53877215c048968823be39b))
+* add small business specialist modes gallery with search ([b5931e2](https://github.com/luisenriquecgongora/emiliano/commit/b5931e2a7e36878ef68b9c970bd97ca7de22ab9b))
+* **crm:** add job application tracker CRM artifact and dock launcher ([d01ba1b](https://github.com/luisenriquecgongora/emiliano/commit/d01ba1b36c587cba00e71c23939ddbb569142d08))
+* **desktop:** add chat history persistence and active modes gallery ([43da143](https://github.com/luisenriquecgongora/emiliano/commit/43da143e6351f95730d8207f69c9e6528f29f9ae))
+* **desktop:** add dedicated models gallery view with vram telemetry ([3994152](https://github.com/luisenriquecgongora/emiliano/commit/39941526b1da6c13d3413f15d01835986ee847a6))
+* **desktop:** update Dock and ModelsGalleryModal with translator mode and cowork hooks ([75fc18d](https://github.com/luisenriquecgongora/emiliano/commit/75fc18d32a364801885f27cafb8aff7fe074a3fd))
+* **engine:** add history store endpoints and token security ([1570cee](https://github.com/luisenriquecgongora/emiliano/commit/1570cee26b4ba4596f7d88c26585a6dddb1f6f89))
+* **engine:** add security guards, browser bridge, and server test suites ([34596cf](https://github.com/luisenriquecgongora/emiliano/commit/34596cf66ec656c1b53a420e959a873ddc57f9c1))
+* **evals:** add codebase-translator skill and eval suite ([bf264f3](https://github.com/luisenriquecgongora/emiliano/commit/bf264f3b7c75ccd6f9f17df8ac2af67f59603f28))
+* **extension:** add HUD overlay and Firefox manifest ([7eec1e3](https://github.com/luisenriquecgongora/emiliano/commit/7eec1e37d5b5ea268f721394588b9cae660cc55e))
+* **extension:** update background and popup handlers ([5f0ab1b](https://github.com/luisenriquecgongora/emiliano/commit/5f0ab1b74ca32515461869df24c95afaf4ca4ed5))
+* **models:** add model capability cards ([07ade29](https://github.com/luisenriquecgongora/emiliano/commit/07ade292ad9de4f965b9ede9ece8644bb483097f))
+* **modes:** register translator specialist mode in desktop UI and engine router ([e9836ab](https://github.com/luisenriquecgongora/emiliano/commit/e9836abfc4cf0389b6b346e60ec38df021e00513))
+* **scripts:** add visual diff and open artifact helpers ([b9dd5d7](https://github.com/luisenriquecgongora/emiliano/commit/b9dd5d70d2b1c38826cfccb74cf3125bae754503))
+* **scripts:** sync cowork vision hud and visual release digest v1.4.5 ([7925d82](https://github.com/luisenriquecgongora/emiliano/commit/7925d82f47bbf124c0bca5416d03cd0ae8ea6ee2))
+* **security:** clean-room env and secret blinding ([3a6ffaa](https://github.com/luisenriquecgongora/emiliano/commit/3a6ffaa5a99dbd9a15bcfea1dda908adf68104cf))
+* **ui:** add interactive non-linear execution flux diagram modal ([365d7e6](https://github.com/luisenriquecgongora/emiliano/commit/365d7e67772a34e10d2b67dd1f619025eb5ada1e))
+
+
+### Bug Fixes
+
+* **engine:** add missing typing annotations in dispatcher and manager ([c32c914](https://github.com/luisenriquecgongora/emiliano/commit/c32c91494e6cb6685d8cf76a0019e0271b5afa37))
+* **engine:** skip synthetic persona injection for default auto mode ([ba4bddc](https://github.com/luisenriquecgongora/emiliano/commit/ba4bddcc88e652478841c6bfeb95e5b097e4d5c2))
+* **hud:** default general mode, uncrop popover, wire pro and model chip ([38ece5e](https://github.com/luisenriquecgongora/emiliano/commit/38ece5e243a4d645df03fd450a6e48d80ead6ce2))
+
 ## [0.6.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.5.0...v0.6.0) (2026-11-19)
 
 ### Features
