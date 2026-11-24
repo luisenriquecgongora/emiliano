@@ -188,11 +188,13 @@ class UnifiedLLMClient:
         timeout: float = 120.0,
         on_reasoning: Optional[Callable[[str], None]] = None,
         think: Optional[bool] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams completion tokens, trying the requested model first or cascading down viable candidates.
         think=False turns off reasoning on local Ollama models (a greeting drops from ~45s to ~1s
         on a small thinking model); None leaves each model's default.
+        tools allows passing OpenAI/Ollama compatible function calling schemas.
         """
         candidates = await self.get_viable_candidates(model_name=model_name)
 
@@ -217,7 +219,7 @@ class UnifiedLLMClient:
             try:
                 self.last_model, self.last_usage = target_model, None
                 if target_model.startswith("ollama/"):
-                    deltas = self._stream_ollama(target_model, messages, api_base, temperature, think, timeout)
+                    deltas = self._stream_ollama(target_model, messages, api_base, temperature, think, timeout, tools=tools)
                 else:
                     deltas = self._stream_litellm(target_model, messages, api_base, temperature, timeout)
                 produced_content = False
@@ -247,14 +249,21 @@ class UnifiedLLMClient:
 
     async def _stream_ollama(self, target_model: str, messages: List[Dict[str, str]], api_base: Optional[str],
                              temperature: float, think: Optional[bool],
-                             timeout: float) -> AsyncGenerator[Tuple[str, str], None]:
+                             timeout: float,
+                             tools: Optional[List[Dict[str, Any]]] = None) -> AsyncGenerator[Tuple[str, str], None]:
         """Streams (content, reasoning) pairs from Ollama's /api/chat directly. Going through litellm would add
         its ~13 s import to the first local reply, and this HTTP API is all a local model needs."""
-        options: Dict[str, object] = {"temperature": temperature}
+        options: Dict[str, object] = {
+            "temperature": temperature,
+            "repeat_penalty": 1.15,
+            "repeat_last_n": 64,
+        }
         if self.ollama_num_ctx:
             options["num_ctx"] = self.ollama_num_ctx
         payload: Dict[str, object] = {"model": target_model.removeprefix("ollama/"), "messages": messages,
                                       "stream": True, "options": options}
+        if tools:
+            payload["tools"] = tools
         if self.idle_unload_timeout_seconds is not None:
             payload["keep_alive"] = self.idle_unload_timeout_seconds
         if think is not None:
@@ -276,6 +285,38 @@ class UnifiedLLMClient:
                         body = json.loads(body).get("error", body)
                     except ValueError:
                         pass
+                    if "does not support thinking" in str(body).lower():
+                        logger.info(f"[LLM] Model {target_model} does not support thinking; retrying without 'think' parameter.")
+                        payload.pop("think", None)
+                        async with client.stream("POST", url, json=payload) as res_retry:
+                            if res_retry.status_code != 200:
+                                retry_body = (await res_retry.aread()).decode("utf-8", errors="replace")
+                                raise RuntimeError(f"Ollama returned HTTP {res_retry.status_code}: {str(retry_body)[:300]}")
+                            async for line in res_retry.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                data = json.loads(line)
+                                if data.get("error"):
+                                    raise RuntimeError(f"Ollama error: {data['error']}")
+                                message = data.get("message") or {}
+                                content = message.get("content") or ""
+                                thinking = message.get("thinking") or ""
+                                tool_calls = message.get("tool_calls")
+                                if tool_calls and isinstance(tool_calls, list):
+                                    for tc in tool_calls:
+                                        fn = tc.get("function") or {}
+                                        fn_name = fn.get("name")
+                                        fn_args = fn.get("arguments") or {}
+                                        if fn_name:
+                                            tool_block = f"\n<tool_call>{json.dumps({'name': fn_name, 'arguments': fn_args})}</tool_call>\n"
+                                            content = (content + tool_block) if content else tool_block
+                                yield content, thinking
+                                if data.get("done"):
+                                    if isinstance(data.get("eval_count"), int):
+                                        self.last_usage = {"prompt_tokens": data.get("prompt_eval_count") or 0,
+                                                           "completion_tokens": data["eval_count"]}
+                                    return
+                        return
                     raise RuntimeError(f"Ollama returned HTTP {res.status_code}: {str(body)[:300]}")
                 async for line in res.aiter_lines():
                     if not line.strip():
@@ -284,7 +325,21 @@ class UnifiedLLMClient:
                     if data.get("error"):
                         raise RuntimeError(f"Ollama error: {data['error']}")
                     message = data.get("message") or {}
-                    yield message.get("content") or "", message.get("thinking") or ""
+                    content = message.get("content") or ""
+                    thinking = message.get("thinking") or ""
+
+                    # Intercept native structured tool_calls from Ollama
+                    tool_calls = message.get("tool_calls")
+                    if tool_calls and isinstance(tool_calls, list):
+                        for tc in tool_calls:
+                            fn = tc.get("function") or {}
+                            fn_name = fn.get("name")
+                            fn_args = fn.get("arguments") or {}
+                            if fn_name:
+                                tool_block = f"\n<tool_call>{json.dumps({'name': fn_name, 'arguments': fn_args})}</tool_call>\n"
+                                content = (content + tool_block) if content else tool_block
+
+                    yield content, thinking
                     if data.get("done"):
                         if isinstance(data.get("eval_count"), int):
                             self.last_usage = {"prompt_tokens": data.get("prompt_eval_count") or 0,

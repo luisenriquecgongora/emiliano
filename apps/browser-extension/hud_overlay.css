@@ -1,0 +1,335 @@
+:host {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  color-scheme: dark;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #f1f5f9;
+  z-index: 2147483647;
+  position: fixed;
+  pointer-events: none;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+.hud-panel {
+  pointer-events: auto;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 480px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(99, 102, 241, 0.2);
+  overflow: hidden;
+  animation: hud-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes hud-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Header */
+.hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(30, 41, 59, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: grab;
+  user-select: none;
+}
+
+.hud-header:active {
+  cursor: grabbing;
+}
+
+.hud-branding {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-logo {
+  width: 26px;
+  height: 26px;
+  background: linear-gradient(135deg, #6366f1, #10b981);
+  color: #fff;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+}
+
+.hud-title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.hud-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.hud-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  margin-left: 6px;
+}
+
+.hud-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-icon-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 14px;
+}
+
+.hud-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+/* Snippet Preview */
+.hud-snippet {
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  color: #93c5fd;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 60px;
+  overflow-y: auto;
+}
+
+/* Scrollable Body */
+.hud-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  flex: 1;
+  max-height: 440px;
+}
+
+.hud-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hud-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+/* Loading State */
+.hud-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 0;
+  gap: 14px;
+  color: #94a3b8;
+}
+
+.hud-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(99, 102, 241, 0.2);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: hud-spin 0.8s linear infinite;
+}
+
+@keyframes hud-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Markdown Rendering Inside Body */
+.hud-markdown h1, .hud-markdown h2, .hud-markdown h3, .hud-markdown h4 {
+  margin: 16px 0 8px;
+  color: #f8fafc;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.hud-markdown h3 {
+  font-size: 13.5px;
+  color: #a5b4fc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding-bottom: 4px;
+}
+
+.hud-markdown h4 {
+  font-size: 12.5px;
+  color: #38bdf8;
+}
+
+.hud-markdown p {
+  margin: 0 0 10px;
+  color: #cbd5e1;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.hud-markdown ul, .hud-markdown ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.hud-markdown li {
+  margin-bottom: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.hud-markdown a {
+  color: #38bdf8;
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(56, 189, 248, 0.4);
+  transition: all 0.15s ease;
+}
+
+.hud-markdown a:hover {
+  color: #7dd3fc;
+  border-bottom-style: solid;
+}
+
+.hud-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #e2e8f0;
+}
+
+.hud-markdown pre {
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.hud-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Follow-up Section */
+.hud-footer {
+  padding: 10px 14px 14px;
+  background: rgba(30, 41, 59, 0.5);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hud-copy-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hud-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.hud-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.hud-input {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #f8fafc;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.hud-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.hud-submit-btn {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+  color: #fff;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.hud-submit-btn:hover {
+  opacity: 0.9;
+}

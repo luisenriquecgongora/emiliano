@@ -56,12 +56,12 @@ _VERBS = (
     r"fix|update|add|remove|delete|rename|refactor|run|execute|install|uninstall|commit|push|pull|merge|"
     r"create|implement|debug|build|compile|start|stop|restart|deploy|review|inspect|check|scan|audit|look|find|"
     r"search|grep|list|move|format|lint|migrate|upgrade|bump|clean|open|edit|change|modify|replace|write|"
-    r"generate|test|document|split|extract|optimi[sz]e|"
+    r"generate|test|document|split|extract|optimi[sz]e|translate|localise|localize|"
     r"arregla|corrige|actualiza|añade|agrega|elimina|borra|quita|renombra|refactoriza|ejecuta|corre|lanza|"
     r"instala|crea|implementa|depura|compila|inicia|arranca|despliega|revisa|inspecciona|busca|lista|mueve|"
-    r"cambia|modifica|reemplaza|escribe|genera|prueba|documenta|"
+    r"cambia|modifica|reemplaza|escribe|genera|prueba|documenta|traduce|localiza|"
     r"arreglar|corregir|actualizar|añadir|agregar|eliminar|borrar|renombrar|ejecutar|instalar|crear|revisar|"
-    r"buscar|cambiar|modificar|escribir|encontrar|averiguar"
+    r"buscar|cambiar|modificar|escribir|encontrar|averiguar|traducir|localizar"
 )
 _POLITE = (r"(?:please\s+|pls\s+|(?:can|could|would) (?:you|u)\s+(?:please\s+)?(?:help me\s+(?:to\s+)?)?|"
            r"help me\s+(?:to\s+)?|por favor\s+|puedes\s+|podr[ií]as\s+|ay[uú]dame a\s+)?")
@@ -117,6 +117,56 @@ def needs_workspace(goal: str) -> bool:
         return True
     if _COMMAND.search(g) and (specific or _BARE_THING.search(g)):       # C
         return True
-    # "run tests", "npm test" as a command, even without a determiner
+# "run tests", "npm test" as a command, even without a determiner
     return bool(re.search(r"\b(?:run|ejecuta|corre)\s+(?:the\s+|los\s+)?(?:tests?|pruebas)\b|"
                           r"\b(?:pytest|npm test|cargo test|go test|yarn test)\b", low))
+
+
+# External MCP tools & service operations (PlaatoOS, site editing, business operations)
+_MCP_ACTIONS = (
+    r"query|check|show|list|get|find|view|inspect|fetch|update|change|modify|patch|propose|"
+    r"create|add|remove|delete|audit|apply|load|run|publish|design|set|draft|suggest|analyze|"
+    r"predict|forecast|estimate|breakdown|"
+    r"what(?:\s+is|\s+are|'s)?|how\s+much|how\s+many|tell(?:\s+me)?|give(?:\s+me)?|report|detail|"
+    r"current|status|balance|total|overview|summary|"
+    r"consulta|muestra|lista|obten|encuentra|actualiza|cambia|modifica|prop[oó]n|crea|agrega|elimina|publica|"
+    r"pronostica|predice|cu[aá]nto|qu[eé](?:\s+es|\s+hay)?|dime|dame|estado|balance"
+)
+
+_MCP_ENTITIES = (
+    r"site|website|webpage|web page|landing page|home page|homepage|subpage|blocks?|hero|"
+    r"theme|themes|branding|design tokens?|palette|colors?|navigation|nav|"
+    r"business|venue|venues|events?|tickets?|menu|menu items?|dishes|products?|orders?|"
+    r"reservations?|bookings?|shifts?|finances?|revenue|forecast|inventory|schedule|loyalty|"
+    r"income|sales|cash|cash boxes|money|cash in till|till|tills|drawer|safe|shift money|payouts?|profit|"
+    r"songs?|song requests?|playlists?|karaoke|dj requests?|music queue|"
+    r"opening hours?|business settings?|venue profile|venue contact|"
+    r"taki\s*taki(?: katowice)?|vibra|virgen\s*latina|"
+    r"sitio|sitio web|p[aá]gina|bloque|bloques|tema|negocio|local|locales|evento|eventos|men[uú]|reservas|"
+    r"ingresos|ventas|caja|cajas|dinero|efectivo|canciones|cancion|horarios"
+)
+
+_MCP_ACTION_PATTERN = re.compile(
+    rf"\b(?:{_MCP_ACTIONS})\b.*?\b(?:{_MCP_ENTITIES})\b|\b(?:{_MCP_ENTITIES})\b.*?\b(?:{_MCP_ACTIONS})\b",
+    re.IGNORECASE
+)
+
+_MCP_DIRECT_MENTION = re.compile(
+    r"\b(?:plaatoos|mcp|mcp_tools?|api-takient|taki\s*taki|vibra|virgen\s*latina|la estaci[oó]n(?: del verano)?|luis enrique builds?)\b",
+    re.IGNORECASE
+)
+
+
+def needs_mcp_or_tools(goal: str) -> bool:
+    """
+    True when a user's goal targets external service actions, business queries, or website modifications
+    provided by MCP servers (such as PlaatoOS website management, business configuration, or venue operations).
+    """
+    g = " ".join(goal.split())
+    if not g:
+        return False
+    if _MCP_DIRECT_MENTION.search(g):
+        return True
+    if _MCP_ACTION_PATTERN.search(g):
+        return True
+    return False

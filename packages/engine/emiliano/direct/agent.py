@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -39,8 +40,8 @@ Your goal is to inspect the codebase, locate issues, make surgical code modifica
 
 You have access to the following workspace tools:
 - read_file(path, start_line=1, end_line=None): Read file contents with line numbers
-- edit_file(path, target, replacement): Replace target string with replacement string in path (supports indentation tolerance)
-- write_file(path, content): Create or overwrite a file with content
+- edit_file(path, target, replacement): Replace target string with replacement string in path. To append a new function to the end of the file, pass an empty target: target=""
+- write_file(path, content): Create a NEW file (DO NOT use on existing files to avoid overwriting existing code/functions!)
 - list_dir(path="."): List files in a directory
 - grep(pattern, path=".", glob=None): Search for regex pattern or text across codebase files
 - bash(command): Execute a shell command in the current directory and get stdout/stderr/exit code
@@ -48,18 +49,16 @@ You have access to the following workspace tools:
 To invoke a tool, output a tool call block using one of these formats:
 
 Format 1 (XML - Recommended):
-<call:read_file path="calc.py"/>
+<call:read_file path="example.py"/>
 <call:list_dir path="."/>
-<call:grep pattern="def total" path="."/>
+<call:grep pattern="target_symbol" path="."/>
 <call:bash command="python check.py"/>
-<call:edit_file path="calc.py">
+<call:edit_file path="example.py">
 <target>
-def total(n):
-    return sum(range(n))
+old_code_here
 </target>
 <replacement>
-def total(n):
-    return sum(range(1, n + 1))
+new_code_here
 </replacement>
 </call:edit_file>
 <call:write_file path="new_file.py">
@@ -68,14 +67,16 @@ file content here
 
 Format 2 (JSON):
 <tool_call>
-{"name": "read_file", "arguments": {"path": "calc.py"}}
+{"name": "read_file", "arguments": {"path": "example.py"}}
 </tool_call>
 
 Workflow Guidelines:
-1. Always read existing files before modifying them to understand context and exact formatting.
-2. When editing code, provide exact target lines including indentation.
-3. Always run the check/test command (via bash) to verify your fix.
-4. When finished and all checks pass, output a concise explanation of what was done without any further tool calls.
+1. Always read existing files (`read_file`) before modifying them to understand context and existing code.
+2. SURGICAL EDITS: Always use `edit_file` when modifying existing files. Never use `write_file` on existing files, because it erases all other existing functions and imports! To add a new function or import, use `edit_file`.
+3. INVESTIGATE: If an import or symbol is missing or failing, search with `list_dir` or `grep` for the actual symbol name to find where it is defined.
+4. DEPENDENCIES: If you use helper libraries (e.g. `import re`), make sure to add the import at the top of the file.
+5. VERIFY: Always run the check/test command (via `bash`) to verify your fix passes before concluding.
+6. When finished and all checks pass, output a concise explanation of what was done without any further tool calls.
 """
 
 
@@ -194,6 +195,13 @@ def tool_edit_file(path: str, target: str, replacement: str, cwd: str = ".") -> 
         return f"Error: File '{path}' does not exist."
     try:
         content = target_path.read_text(encoding="utf-8", errors="replace")
+        if not target or not target.strip():
+            # Empty target -> append replacement to the end of the file
+            sep = "\n" if content and not content.endswith("\n") else ""
+            new_content = content + sep + replacement + "\n"
+            target_path.write_text(new_content, encoding="utf-8")
+            return f"Successfully appended to '{path}'."
+
         new_content, matches = fuzzy_replace(content, target, replacement)
         if new_content is None:
             return f"Error: Target text not found in '{path}'. Please inspect the file with read_file or grep first."
@@ -356,18 +364,146 @@ async def tool_bash(command: str, cwd: str = ".", timeout: float = 60.0) -> str:
         return f"Error executing command '{command}': {e}"
 
 
+class StreamTagFilter:
+    """
+    Buffers and filters raw tool execution tags (<call:...>, </call:...>, <tool_call>...</tool_call>,
+    <tool_response>...</tool_response>) so they never leak into the user's interactive chat UI.
+    """
+    def __init__(self, callback: Optional[Callable[[str], None]]):
+        self.callback = callback
+        self.buf = ""
+        self.in_block = False
+
+    def feed(self, chunk: str) -> None:
+        if not self.callback:
+            return
+        self.buf += chunk
+        while self.buf:
+            if not self.in_block:
+                idx = self.buf.find("<")
+                if idx == -1:
+                    self.callback(self.buf)
+                    self.buf = ""
+                    break
+                if idx > 0:
+                    self.callback(self.buf[:idx])
+                    self.buf = self.buf[idx:]
+                end_idx = self.buf.find(">")
+                if end_idx == -1:
+                    if len(self.buf) > 80:
+                        self.callback(self.buf[0])
+                        self.buf = self.buf[1:]
+                    else:
+                        break
+                else:
+                    tag = self.buf[:end_idx + 1]
+                    tag_low = tag.lower()
+                    is_tool_tag = any(k in tag_low for k in (
+                        "<call:", "</call:", "<tool_call", "</tool_call>",
+                        "<tool_response", "</tool_response>",
+                        "<read_file", "</read_file>", "<edit_file", "</edit_file>",
+                        "<write_file", "</write_file>", "<list_dir", "</list_dir>",
+                        "<bash", "</bash>", "<grep", "</grep>",
+                        "<target>", "</target>", "<replacement>", "</replacement>"
+                    )) or ("__" in tag_low and tag_low.startswith("<"))
+                    self.buf = self.buf[end_idx + 1:]
+                    if is_tool_tag:
+                        if not tag.endswith("/>") and any(b in tag_low for b in (
+                            "<tool_call", "<target>", "<replacement>", "<tool_response", "<edit_file", "<write_file"
+                        )):
+                            self.in_block = True
+                    else:
+                        self.callback(tag)
+            else:
+                end_pos = -1
+                for end_marker in ("</tool_call>", "</target>", "</replacement>", "</tool_response>", "</call:", "</edit_file>", "</write_file>"):
+                    p = self.buf.lower().find(end_marker)
+                    if p != -1:
+                        if end_pos == -1 or p < end_pos:
+                            end_pos = p + len(end_marker)
+                if end_pos != -1:
+                    self.buf = self.buf[end_pos:]
+                    self.in_block = False
+                else:
+                    if len(self.buf) > 30:
+                        self.buf = self.buf[-30:]
+                    break
+
+    def flush(self) -> None:
+        if not self.callback:
+            return
+        if self.buf and not self.in_block:
+            self.callback(self.buf)
+        self.buf = ""
+        self.in_block = False
+
+
+def extract_json_tool_objects(s: str) -> List[Dict[str, Any]]:
+    """Extracts top-level or embedded JSON tool call objects with arbitrary nesting depth."""
+    results = []
+    idx = 0
+    while idx < len(s):
+        start = s.find('{', idx)
+        if start == -1:
+            break
+        depth = 0
+        end = -1
+        for i in range(start, len(s)):
+            if s[i] == '{':
+                depth += 1
+            elif s[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        if end != -1:
+            snippet = s[start:end]
+            try:
+                obj = json.loads(snippet)
+                if isinstance(obj, dict) and any(k in obj for k in ("name", "tool")):
+                    results.append((obj, start, end))
+            except Exception:
+                pass
+            idx = end
+        else:
+            idx = start + 1
+    return results
+
+
+def clean_user_facing_text(text: str) -> str:
+    """Strips any residual internal tool calling tags from text before presenting final output."""
+    t = re.sub(r'<tool_call>.*?</tool_call>', '', text, flags=re.DOTALL)
+    t = re.sub(r'```(?:json)?\s*\{.*?(?:"name"|"tool")\s*:.*?```', '', t, flags=re.DOTALL)
+    t = re.sub(r"<(?:call:)?([a-zA-Z0-9_]+)[^>]*?>.*?</(?:call:)?\1>", "", t, flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"<(?:call:)?([a-zA-Z0-9_]+)[^>]*?/>", "", t, flags=re.DOTALL | re.IGNORECASE)
+    t = re.sub(r"</call:[a-zA-Z0-9_]+>", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"<tool_response[^>]*?>.*?</tool_response>", "", t, flags=re.DOTALL)
+
+    # Strip raw JSON tool objects
+    json_objs = extract_json_tool_objects(t)
+    for _, start, end in reversed(json_objs):
+        t = t[:start] + t[end:]
+
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return t
+
+
 def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
     """
     Parses tool calls from model output.
     Supports:
     1. <call:tool_name attr="val">body</call:tool_name> or self-closing
     2. <tool_call>{"name": "...", "arguments": {...}}</tool_call>
-    3. Direct tags <read_file path="..."/>, <bash command="..."/>
+    3. Markdown JSON ```json {"name": "...", "arguments": {...}} ```
+    4. Raw JSON {"name": "...", "arguments": {...}}
+    5. Direct tags <read_file path="..."/>, <bash command="..."/>
     """
     calls: List[Dict[str, Any]] = []
+    parsed_spans = []
 
     # 1. JSON tool calls: <tool_call>...</tool_call>
     for match in re.finditer(r"<tool_call>\s*({.*?})\s*</tool_call>", text, re.DOTALL):
+        parsed_spans.append(match.span())
         try:
             data = json.loads(match.group(1))
             name = data.get("name")
@@ -377,16 +513,47 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
         except Exception:
             pass
 
+    # 2. Markdown JSON code blocks: ```json {"name": "...", "arguments": {...}} ```
+    for match in re.finditer(r"```(?:json)?\s*({.*?})\s*```", text, re.DOTALL):
+        parsed_spans.append(match.span())
+        try:
+            data = json.loads(match.group(1))
+            name = data.get("name") or data.get("tool")
+            args = data.get("arguments") or data.get("parameters") or {}
+            if name and isinstance(name, str):
+                calls.append({"tool": name, "args": args})
+        except Exception:
+            pass
+
+    # 3. Raw JSON tool objects: {"name": "...", "arguments": {...}}
+    for obj, start, end in extract_json_tool_objects(text):
+        if any(s <= start and end <= e or (start < e and end > s) for s, e in parsed_spans):
+            continue
+        name = obj.get("name") or obj.get("tool")
+        args = obj.get("arguments") or obj.get("parameters") or {}
+        if name and isinstance(name, str):
+            calls.append({"tool": name, "args": args})
+
     # 2. XML call format: <call:name ...> or <name ...>
     xml_pattern = re.compile(
-        r"<(?:call:)?(read_file|edit_file|write_file|list_dir|bash|grep|search)"
+        r"<(?:call:)?([a-zA-Z0-9_]+)"
         r"([^>]*?)(?:/>|>(.*?)</(?:call:)?\1>)",
         re.DOTALL | re.IGNORECASE,
     )
     for match in xml_pattern.finditer(text):
-        tool = match.group(1).lower()
+        tool = match.group(1)
+        tool_lower = tool.lower()
         attr_str = match.group(2)
         body = match.group(3) or ""
+
+        # Only treat as tool if known workspace tool, contains __, or explicit <call:...> prefix
+        is_tool = (
+            tool_lower in ("read_file", "edit_file", "write_file", "list_dir", "bash", "grep", "search")
+            or "__" in tool
+            or match.group(0).lower().startswith("<call:")
+        )
+        if not is_tool:
+            continue
 
         # Parse inline attributes like path="..." or command="..."
         args: Dict[str, Any] = {}
@@ -394,7 +561,7 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
             args[attr_match.group(1)] = attr_match.group(2)
 
         # For edit_file, parse <target> and <replacement> in body if present
-        if tool == "edit_file":
+        if tool_lower == "edit_file":
             target_match = re.search(r"<target>(.*?)</target>", body, re.DOTALL)
             repl_match = re.search(r"<replacement>(.*?)</replacement>", body, re.DOTALL)
             if target_match and repl_match:
@@ -402,20 +569,19 @@ def parse_tool_calls(text: str) -> List[Dict[str, Any]]:
                 args["target"] = target_match.group(1).strip("\r\n")
                 args["replacement"] = repl_match.group(1).strip("\r\n")
             elif "target" not in args and body.strip():
-                # Fallback: check if body has separator
                 pass
-        elif tool == "write_file":
+        elif tool_lower == "write_file":
             if "content" not in args and body:
                 args["content"] = body.strip("\r\n")
-        elif tool == "bash":
+        elif tool_lower == "bash":
             if "command" not in args and body.strip():
                 args["command"] = body.strip()
-        elif tool in ("grep", "search"):
+        elif tool_lower in ("grep", "search"):
             if "pattern" not in args and body.strip():
                 args["pattern"] = body.strip()
 
-        if tool and (args or tool == "list_dir"):
-            calls.append({"tool": tool, "args": args})
+        resolved_name = tool if "__" in tool else tool_lower
+        calls.append({"tool": resolved_name, "args": args})
 
     return calls
 
@@ -477,6 +643,7 @@ class DirectAgentLoop:
         self.trace = trace
         self.files_modified: set[str] = set()
         self.last_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        self.executed_tools: List[Dict[str, Any]] = []
 
     async def _dispatch_tool(self, tool_name: str, args: Dict[str, Any], cwd: str) -> str:
         """Internal dispatch for built-in and MCP tools."""
@@ -561,6 +728,7 @@ class DirectAgentLoop:
         messages: Optional[List[Dict[str, str]]] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
         reasoning: Optional[bool] = None,
     ) -> str:
         """
@@ -583,15 +751,68 @@ class DirectAgentLoop:
             goal = sanitized_goal
 
         history: List[Dict[str, str]] = []
-        system_prompt = AGENT_SYSTEM_PROMPT + (self.mcp.prompt_section() if self.mcp is not None else "")
+        mcp_prompt = ""
+        if self.mcp is not None:
+            mcp_prompt = (
+                "\n\n## Connected Business & External MCP Services\n"
+                "You have live access to connected business systems (such as PlaatoOS) via MCP tools.\n"
+                "When asked about business status, cash, tills, shift money, finances, revenue, bookings, orders, menu items, drinks, events, or inventory, "
+                "you MUST use the appropriate MCP tool to fetch live data. Never state that you do not have real-time or database access.\n"
+                "IMPORTANT TOOL CALLING DIRECTIVES:\n"
+                "1. Direct Invocation: Do NOT output conversational preamble or tutorial text explaining how to call tools (e.g. 'To find X, you can use the tool...'). Output the tool call directly.\n"
+                "2. Broad Initial Queries: When querying menu items, drinks, events, playlists, or bookings, prefer broad queries first with arguments: {\"limit\": 50} or {}. Do NOT invent restrictive array filters for single-string fields like groupTag, and do NOT add hasRecipe: false unless explicitly requested.\n"
+                "3. Ground Truth Presentation: Once tools return data, summarize the real items, prices, and details clearly for the user.\n"
+                "4. Business Summary & Telemetry: When asked for a summary of the business, an overview of Taki Taki, or company KPIs, proactively call plaatoos__query_business and plaatoos__query_finances to inspect the venue and revenue before responding. Never claim lack of access.\n"
+                "5. Karaoke & Songs Resolution: When asked for the most played or popular songs in karaoke or DJ queues, call plaatoos__query_song_requests with {\"aggregate\": \"top_songs\"} or {\"limit\": 20}. When inspecting playlist tracks with plaatoos__query_playlist_songs, you MUST call plaatoos__query_playlists first to discover the real playlist ID. Never invent placeholder IDs like '<specific-playlist-id>' and never instruct the user to call tools.\n"
+                + self.mcp.prompt_section(goal=goal)
+            )
+        system_prompt = AGENT_SYSTEM_PROMPT + mcp_prompt
         history.append({"role": "system", "content": system_prompt})
         if messages:
-            # Include prior conversation history excluding existing system prompt
+            # Include prior conversation history excluding existing system prompt.
+            # When MCP tools are connected, sanitize out stale hallucinated refusals from previous
+            # untooled turns to prevent smaller models (3B) from anchoring to repetitive refusal loops.
+            clean_history: List[Dict[str, str]] = []
             for m in messages:
-                if m.get("role") != "system":
-                    history.append(dict(m))
+                if m.get("role") == "system":
+                    continue
+                if self.mcp is not None and m.get("role") == "assistant":
+                    txt = (m.get("content") or "").lower()
+                    if any(phrase in txt for phrase in (
+                        "don't have access to real-time",
+                        "do not have access to real-time",
+                        "as an ai language model",
+                        "cannot access external databases",
+                        "don't have access to financial data",
+                        "do not have access to financial data",
+                        "don't have real-time access",
+                        "no access to real-time",
+                        "unable to query external databases",
+                        "don't have access to your specific business information",
+                        "do not have access to your specific business information",
+                        "don't have access to business information",
+                        "which aspects of your business you'd like summarized",
+                        "replace <specific-playlist-id>",
+                        "replace <",
+                        "to find out which songs are most played in the karaoke",
+                        "let's try a different approach to find out which songs",
+                    )):
+                        continue
+                # Collapse consecutive identical user messages resulting from repeated retries
+                if m.get("role") == "user" and clean_history and clean_history[-1].get("role") == "user":
+                    if clean_history[-1].get("content") == m.get("content"):
+                        continue
+                clean_history.append(dict(m))
+            history.extend(clean_history)
         else:
             history.append({"role": "user", "content": goal})
+
+        # Prepare Ollama native tools if model supports native function calling
+        ollama_tools = None
+        if self.mcp is not None and ("ollama" in (self.model_id or "").lower() or not self.model_id):
+            model_low = (self.model_id or "").lower()
+            if any(m in model_low for m in ("coder", "qwen2.5", "llama3", "mistral", "hermes")):
+                ollama_tools = self.mcp.to_ollama_tools(goal=goal, max_tools=6)
 
         full_output_parts: List[str] = []
         verification_attempted = False
@@ -612,19 +833,23 @@ class DirectAgentLoop:
                     attributes={"model": self.model_id, "turn": turn + 1},
                 )
 
+            stream_filter = StreamTagFilter(on_chunk)
             async for chunk in self.client.stream_completion(
                 messages=history,
                 model_name=self.model_id,
                 timeout=self.timeout,
                 on_reasoning=on_reasoning,
                 think=reasoning,
+                tools=ollama_tools,
             ):
                 turn_chunks.append(chunk)
-                if on_chunk:
-                    on_chunk(chunk)
+                stream_filter.feed(chunk)
+            stream_filter.flush()
 
             turn_text = "".join(turn_chunks)
-            full_output_parts.append(turn_text)
+            clean_turn = clean_user_facing_text(turn_text)
+            if clean_turn:
+                full_output_parts.append(clean_turn)
 
             # Accumulate token usage & record span attributes
             if self.client.last_usage:
@@ -689,18 +914,54 @@ class DirectAgentLoop:
                 tool_name = call["tool"]
                 args = call["args"]
                 logger.info(f"[DirectAgent] Executing tool: {tool_name}({args})")
+                t_tool_start = time.perf_counter()
                 if on_chunk:
-                    on_chunk(f"\n[Executing: {tool_name} {args.get('path') or args.get('command') or ''}]\n")
+                    if "__" in tool_name:
+                        on_chunk(f"\n[MCP Tool: {tool_name}]\n")
+                    else:
+                        on_chunk(f"\n[Executing: {tool_name} {args.get('path') or args.get('command') or ''}]\n")
 
                 result = await self.execute_tool(tool_name, args, cwd=workspace)
+                t_tool_end = time.perf_counter()
+                tool_dur = round(max(0.001, t_tool_end - t_tool_start), 2)
+
+                mcp_server = tool_name.split("__")[0] if "__" in tool_name else None
+                short_tool_name = tool_name.split("__")[1] if "__" in tool_name else tool_name
+                tool_entry = {
+                    "tool": tool_name,
+                    "mcp_server": mcp_server,
+                    "tool_name": short_tool_name,
+                    "args": args,
+                    "result": str(result)[:3000] if result is not None else "",
+                    "duration_s": tool_dur,
+                    "status": "error" if "error" in str(result).lower()[:60] else "ok",
+                }
+                self.executed_tools.append(tool_entry)
+                if self.trace:
+                    self.trace.executed_tools.append(tool_entry)
+                if on_tool_call:
+                    try:
+                        on_tool_call(tool_entry)
+                    except Exception as cb_err:
+                        logger.debug(f"[DirectAgent] on_tool_call callback error: {cb_err}")
+
                 tool_responses.append(f"<tool_response name=\"{tool_name}\">\n{result}\n</tool_response>")
+                if on_chunk:
+                    on_chunk(f"\n[MCP Tool Completed: {tool_name} ({tool_dur}s)]\n" if "__" in tool_name else f"\n[Completed: {tool_name} ({tool_dur}s)]\n")
 
             tool_feedback = "\n\n".join(tool_responses)
-            if on_chunk:
-                on_chunk(f"\n{tool_feedback}\n")
-
+            # Do NOT stream internal <tool_response> tags to the UI callback
             history.append({"role": "user", "content": tool_feedback})
             if turn_span:
                 turn_span.finish(status="ok")
 
-        return "\n".join(full_output_parts)
+        # If multiple turns occurred and later turns produced a substantive final answer after tool calls,
+        # prioritize the final verified answer over intermediate tool-calling preamble from Turn 1.
+        if len(full_output_parts) > 1 and any(t.get("status") == "ok" for t in self.executed_tools):
+            last_part = full_output_parts[-1]
+            if len(last_part.strip()) > 80:
+                clean_final = clean_user_facing_text(last_part)
+                return clean_final or "Task completed."
+
+        clean_final = clean_user_facing_text("\n\n".join(full_output_parts))
+        return clean_final or "Task completed."

@@ -5,11 +5,12 @@ Chat history storage: chats, messages, projects, and artifacts in a local SQLite
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, event, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -103,6 +104,8 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String)  # "user" or "assistant"
     content: Mapped[str] = mapped_column(Text)
     reasoning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    metrics: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tool_calls: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     chat: Mapped[Chat] = relationship(back_populates="messages")
 
@@ -116,6 +119,16 @@ class Message(Base):
         }
         if self.reasoning:
             res["reasoning"] = self.reasoning
+        if self.metrics:
+            try:
+                res["metrics"] = json.loads(self.metrics)
+            except Exception:
+                res["metrics"] = self.metrics
+        if self.tool_calls:
+            try:
+                res["tool_calls"] = json.loads(self.tool_calls)
+            except Exception:
+                res["tool_calls"] = self.tool_calls
         return res
 
 
@@ -170,6 +183,12 @@ class HistoryStore:
             if "reasoning" not in msg_cols:
                 conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN reasoning TEXT")
                 conn.commit()
+            if "metrics" not in msg_cols:
+                conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN metrics TEXT")
+                conn.commit()
+            if "tool_calls" not in msg_cols:
+                conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN tool_calls TEXT")
+                conn.commit()
 
         self._session = sessionmaker(self.engine, expire_on_commit=False)
         self._ensure_seeds()
@@ -198,6 +217,55 @@ class HistoryStore:
                         system_prompt="PlaatoOS autonomous growth agent. High bias for action, CRM audit logging, and anti-bot humanized delivery.",
                     )
                     db.add(plaatoos_proj)
+
+                job_search_path = Path(r"C:\Users\artlu\OracliomNew\Oracliom\ai-job-search")
+                if not db.get(Project, "ai-job-search"):
+                    job_proj = Project(
+                        id="ai-job-search",
+                        name="Autonomous Job Hunter",
+                        description="Autonomous AI job search, position diagnostics, ATS-tailored CVs & cover letters, and Chrome cowork autofill",
+                        root_path=str(job_search_path),
+                        system_prompt=(
+                            "Autonomous job search and career engineering agent. Specializes in job position diagnostics, "
+                            "zero-hallucination ATS CV tailoring, prompt injection / canary trap neutralization, "
+                            "anti-AI detector stylometrics (high burstiness, no clichés), and browser cowork form completion."
+                        ),
+                    )
+                    db.add(job_proj)
+
+                job_plan_file = Path(r"C:\Users\artlu\.gemini\antigravity-cli\brain\341564c4-af40-4a75-af75-ae781c806de9\job_hunter_autonomous_plan.md")
+                if not db.get(Artifact, "art-job-hunter-plan"):
+                    content = job_plan_file.read_text(encoding="utf-8") if job_plan_file.exists() else "# Autonomous Job Hunter Architecture & State of the Art\n\nPosition diagnostics, ATS tailoring, and Chrome cowork."
+                    db.add(Artifact(
+                        id="art-job-hunter-plan",
+                        project_id="ai-job-search",
+                        title="Autonomous Job Hunter Architecture & SOTA Plan",
+                        kind="markdown",
+                        content=content,
+                        file_path=str(job_plan_file) if job_plan_file.exists() else None,
+                    ))
+
+                user_cv_file = Path(r"C:\Users\artlu\OracliomNew\Oracliom\JobsApplication\LUIS CASTILLO - RESUME - 2026 - JULY-4.pdf")
+                if user_cv_file.exists() and not db.get(Artifact, "art-luis-castillo-cv"):
+                    db.add(Artifact(
+                        id="art-luis-castillo-cv",
+                        project_id="ai-job-search",
+                        title="Luis Castillo Master Resume (July 2026)",
+                        kind="text",
+                        content="Master Candidate Resume for Luis Castillo (Senior Software Engineer, 9+ yrs exp). Located in JobsApplication.",
+                        file_path=str(user_cv_file),
+                    ))
+
+                tracker_file = job_search_path / "tools" / "job_application_tracker.html"
+                if tracker_file.exists() and not db.get(Artifact, "art-job-tracker-crm"):
+                    db.add(Artifact(
+                        id="art-job-tracker-crm",
+                        project_id="ai-job-search",
+                        title="Job Applications & CV Variant Tracker CRM",
+                        kind="html",
+                        content=tracker_file.read_text(encoding="utf-8"),
+                        file_path=str(tracker_file),
+                    ))
 
                 if not db.get(Artifact, "art-outreach-analysis"):
                     analysis_file = Path(r"C:\Users\artlu\.gemini\antigravity-cli\brain\8fbaa064-7416-4540-8a08-956d9cba103b\state_of_the_art_outreach_analysis.md")
@@ -282,13 +350,30 @@ class HistoryStore:
                 db.delete(chat)
             return len(chats)
 
-    def add_message(self, chat_id: str, role: str, content: str, reasoning: Optional[str] = None) -> Optional[Dict]:
+    def add_message(
+        self,
+        chat_id: str,
+        role: str,
+        content: str,
+        reasoning: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[Dict]:
         """Appends a message; the first user message also becomes the chat's title."""
         with self._session.begin() as db:
             chat = db.get(Chat, chat_id)
             if chat is None:
                 return None
-            message = Message(chat_id=chat_id, role=role, content=content, reasoning=reasoning)
+            metrics_str = json.dumps(metrics) if metrics else None
+            tool_calls_str = json.dumps(tool_calls) if tool_calls else None
+            message = Message(
+                chat_id=chat_id,
+                role=role,
+                content=content,
+                reasoning=reasoning,
+                metrics=metrics_str,
+                tool_calls=tool_calls_str,
+            )
             db.add(message)
             chat.message_count += 1
             chat.updated_at = _now()

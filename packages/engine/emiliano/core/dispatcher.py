@@ -13,7 +13,7 @@ import os
 import threading
 import time
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -27,7 +27,7 @@ from .registry import CapabilityRegistry
 from .workspace import IsolatedWorkspace, WorkspaceSnapshot, changed_paths, workspace_snapshot
 from .enhanced_context_manager import EnhancedContextManager
 from .context_manager import TruncationStrategy
-from .routing import needs_workspace
+from .routing import needs_workspace, needs_mcp_or_tools
 from .traces import TaskTrace, TraceStore
 from .blackboard import Blackboard
 from .extensions import ExtensionManager
@@ -226,6 +226,7 @@ class ExecutionDispatcher:
         on_chunk: Optional[Callable[[str], None]] = None,
         on_reasoning: Optional[Callable[[str], None]] = None,
         on_route_selected: Optional[Callable[[Capability], None]] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
         timeout: float = 300.0,
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]] = None,
         reasoning: Optional[bool] = None,
@@ -314,6 +315,7 @@ class ExecutionDispatcher:
                 trace, goal, policy, harness_override, provider_override, model_override, messages,
                 traced_chunk, traced_reasoning, on_route_selected, timeout, traced_permission, reasoning,
                 workspace=target_dir,
+                on_tool_call=on_tool_call,
             )
             if isolated:
                 if merge_on_success:
@@ -335,7 +337,7 @@ class ExecutionDispatcher:
                     summary_title = goal[:60] + ("..." if len(goal) > 60 else "")
                     summary_text = f"Goal: {goal}\nAgent: {cap.display_name}\nSummary: {reply[:400]}"
                     self.blackboard.record_session_summary(
-                        session_id=trace.task_id or f"task_{int(time.time())}",
+                        session_id=getattr(trace, "trace_id", None) or getattr(trace, "task_id", None) or f"task_{int(time.time())}",
                         title=summary_title,
                         summary=summary_text,
                     )
@@ -377,6 +379,7 @@ class ExecutionDispatcher:
         on_permission: Optional[Callable[[Dict, List[Dict]], Optional[str]]],
         reasoning: Optional[bool] = None,
         workspace: Optional[str] = None,
+        on_tool_call: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Tuple[Capability, str]:
         candidates = await self.route_task(
             goal=goal,
@@ -405,8 +408,13 @@ class ExecutionDispatcher:
                         config=self.config,
                     )
                     # Conversation (e.g. "hi") gets a fast, direct reply; tasks keep the model's
-                    # reasoning and the project's context files (EMILIANO.md, CLAUDE.md)
-                    is_task = self.requires_agent_harness(goal)
+                    # reasoning, MCP tool access, and the project's context files (EMILIANO.md, CLAUDE.md)
+                    has_mcp = bool(getattr(self.config, "mcp_servers", None))
+                    is_casual_greeting = goal.strip().lower() in (
+                        "hi", "hello", "hey", "how are you", "how are you?",
+                        "good morning", "good evening", "good afternoon", "sup", "yo", "thanks", "thank you"
+                    )
+                    is_task = self.requires_agent_harness(goal) or needs_mcp_or_tools(goal) or (has_mcp and not is_casual_greeting)
                     task_messages = list(messages) if messages else [{"role": "user", "content": goal}]
                     if not any(m.get("role") == "system" for m in task_messages):
                         task_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
@@ -448,6 +456,7 @@ class ExecutionDispatcher:
                             messages=task_messages,
                             on_chunk=on_chunk,
                             on_reasoning=on_reasoning,
+                            on_tool_call=on_tool_call,
                             reasoning=reasoning if reasoning is not None else None,
                         )
                         if not output.strip():

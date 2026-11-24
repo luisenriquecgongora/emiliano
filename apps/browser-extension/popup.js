@@ -1,14 +1,18 @@
+// Cross-browser WebExtensions API normalization
+const extApi = (typeof browser !== "undefined" && browser.runtime) ? browser : chrome;
+const actionApi = extApi.action || extApi.browserAction || (typeof chrome !== "undefined" ? chrome.action : null);
+
 document.addEventListener("DOMContentLoaded", async () => {
   const statusBadge = document.getElementById("status-badge");
   const extVersion = document.getElementById("ext-version");
   const activeTabSpan = document.getElementById("active-tab");
   const btnReconnect = document.getElementById("btn-reconnect");
 
-  extVersion.textContent = `v${chrome.runtime.getManifest().version}`;
+  extVersion.textContent = `v${extApi.runtime.getManifest().version}`;
 
   // Check active tab
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await extApi.tabs.query({ active: true, currentWindow: true });
     if (tab) {
       activeTabSpan.textContent = tab.title || tab.url || "Untitled";
     }
@@ -17,19 +21,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Check badge text to reflect connection status
-  chrome.action.getBadgeText({}, (text) => {
-    if (text === "ON") {
-      statusBadge.textContent = "Connected";
-      statusBadge.className = "badge badge-online";
-    } else {
-      statusBadge.textContent = "Offline";
-      statusBadge.className = "badge badge-offline";
-    }
-  });
+  if (actionApi && actionApi.getBadgeText) {
+    actionApi.getBadgeText({}, (text) => {
+      if (text === "ON") {
+        statusBadge.textContent = "Connected";
+        statusBadge.className = "badge badge-online";
+      } else {
+        statusBadge.textContent = "Offline";
+        statusBadge.className = "badge badge-offline";
+      }
+    });
+  }
 
   btnReconnect.addEventListener("click", () => {
     btnReconnect.textContent = "Connecting...";
-    chrome.runtime.reload();
+    extApi.runtime.reload();
   });
 
   // Teach a Task Logic
@@ -38,7 +44,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnTeach = document.getElementById("btn-teach");
 
   // Query background recording state
-  chrome.runtime.sendMessage({ type: "GET_RECORDING_STATUS" }, (res) => {
+  extApi.runtime.sendMessage({ type: "GET_RECORDING_STATUS" }, (res) => {
     if (res && res.active) {
       setRecordingUI(true, res.eventsCount);
       if (res.goal) teachGoalInput.value = res.goal;
@@ -62,13 +68,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   btnTeach.addEventListener("click", async () => {
-    chrome.runtime.sendMessage({ type: "GET_RECORDING_STATUS" }, async (statusRes) => {
+    extApi.runtime.sendMessage({ type: "GET_RECORDING_STATUS" }, async (statusRes) => {
       const isCurrentlyRecording = statusRes && statusRes.active;
 
       if (!isCurrentlyRecording) {
         // Start recording
         const goal = teachGoalInput.value.trim() || "Demonstrated User Workflow";
-        chrome.runtime.sendMessage({
+        extApi.runtime.sendMessage({
           type: "POPUP_START_RECORDING",
           params: { goal: goal }
         }, (res) => {
@@ -77,7 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         // Stop recording
         btnTeach.textContent = "Synthesizing...";
-        chrome.runtime.sendMessage({
+        extApi.runtime.sendMessage({
           type: "POPUP_STOP_RECORDING",
           params: {}
         }, async (res) => {

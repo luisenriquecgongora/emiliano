@@ -2,8 +2,15 @@
 
 import type { ArtifactPayload } from '@emiliano/protocol';
 
-export const ENGINE_HTTP_URL = 'http://127.0.0.1:8765';
-export const CHAT_WS_URL = 'ws://127.0.0.1:8765/api/chat';
+const enginePort =
+  (typeof window !== 'undefined' &&
+    (new URLSearchParams(window.location.search).get('port') ||
+      (window as any).__EMILIANO_ENGINE_PORT__)) ||
+  (import.meta as any).env?.VITE_ENGINE_PORT ||
+  '8765';
+
+export const ENGINE_HTTP_URL = `http://127.0.0.1:${enginePort}`;
+export const CHAT_WS_URL = `ws://127.0.0.1:${enginePort}/api/chat`;
 
 export interface ChatSummary {
   id: string;
@@ -11,6 +18,58 @@ export interface ChatSummary {
   created_at: string;
   updated_at: string;
   message_count: number;
+}
+
+export interface ToolCallRecord {
+  tool: string;
+  mcp_server?: string;
+  tool_name?: string;
+  args?: Record<string, any>;
+  result?: string;
+  duration_s?: number;
+  status?: 'ok' | 'error' | string;
+}
+
+export interface TraceSpanRecord {
+  name: string;
+  trace_id?: string;
+  span_id?: string;
+  parent_span_id?: string;
+  duration_ms?: number;
+  status?: string;
+  error?: string;
+  attributes?: Record<string, any>;
+}
+
+export interface TaskTraceRecord {
+  id: string;
+  goal: string;
+  route?: string;
+  model?: string;
+  duration_s?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  spans?: TraceSpanRecord[];
+  executed_tools?: ToolCallRecord[];
+  guardrails?: any[];
+  attempts?: any[];
+}
+
+export interface ResponseMetrics {
+  total_duration_s: number;
+  formatted_duration: string;
+  ttft_ms?: number;
+  tokens_per_second?: number;
+  completion_tokens?: number;
+  prompt_tokens?: number;
+  thinking_duration_s?: number;
+  generation_duration_s?: number;
+  tool_duration_s?: number;
+  tools_count?: number;
+  route?: string;
+  status?: string;
+  tool_calls?: ToolCallRecord[];
+  trace?: TaskTraceRecord;
 }
 
 export interface ChatMessage {
@@ -23,6 +82,8 @@ export interface ChatMessage {
   route?: string;
   pending?: boolean;
   artifacts?: ArtifactPayload[];
+  metrics?: ResponseMetrics;
+  tool_calls?: ToolCallRecord[];
 }
 
 export interface ChatDetail extends ChatSummary {
@@ -64,17 +125,268 @@ export interface CompactResult {
   message?: string;
 }
 
+export const MODE_CATEGORIES = [
+  { id: 'all', label: 'All Modes' },
+  { id: 'career', label: 'Career & Jobs' },
+  { id: 'hospitality', label: 'Hospitality & F&B' },
+  { id: 'finance', label: 'Finance & Stock' },
+  { id: 'growth', label: 'Marketing & Sales' },
+  { id: 'operations', label: 'Staff & Ops' },
+  { id: 'tech', label: 'Tech & Creative' },
+] as const;
+
+export type ModeCategory = (typeof MODE_CATEGORIES)[number]['id'];
+
 /** The dock's mode dropdown; values match the engine's resolve_mode(). */
+export interface SpecialistModeDef {
+  id: string;
+  name: string;
+  shortLabel: string;
+  category: ModeCategory;
+  description: string;
+  badge: string;
+  skills: string;
+  icon: string;
+  color: string;
+  accentClass: string;
+  featured?: boolean;
+}
+
+export const SPECIALIST_MODES: SpecialistModeDef[] = [
+  {
+    id: 'auto',
+    name: 'General Coworker',
+    shortLabel: 'General',
+    category: 'all',
+    description: 'Universal coworker with autonomous routing across all MCP tools, local models, and online agents.',
+    badge: 'Universal',
+    skills: 'Auto Routing • All MCPs • Multi-Agent',
+    icon: 'zap',
+    color: 'from-amber-500/20 to-orange-500/20 text-amber-400 border-amber-500/40',
+    accentClass: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    featured: true,
+  },
+  {
+    id: 'financial',
+    name: 'Financial & Business Ops',
+    shortLabel: 'Financial',
+    category: 'finance',
+    description: 'Hospitality CFO mode: PlaatoOS financial analytics, POS cash boxes, safe reconciliation, P&L, and KPI metrics.',
+    badge: 'PlaatoOS Finances',
+    skills: 'PlaatoOS MCP • Safe Reconciliation • Cash Boxes • P&L',
+    icon: 'trending-up',
+    color: 'from-emerald-500/20 to-teal-500/20 text-emerald-400 border-emerald-500/40',
+    accentClass: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+    featured: true,
+  },
+  {
+    id: 'fnb_menu',
+    name: 'Food & Beverage Menu Engineer',
+    shortLabel: 'F&B Menu',
+    category: 'hospitality',
+    description: 'Bar & kitchen profitability: recipe costing, cocktail pricing, high-margin item design, happy hour specials, and QR digital menu sync.',
+    badge: 'Menu & Margin',
+    skills: 'Recipe Costing • Margins • Cocktail Engineering • QR Menus',
+    icon: 'wine',
+    color: 'from-rose-500/20 to-pink-500/20 text-rose-400 border-rose-500/40',
+    accentClass: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+    featured: true,
+  },
+  {
+    id: 'concierge',
+    name: 'Reservations & Guest Concierge',
+    shortLabel: 'Concierge',
+    category: 'hospitality',
+    description: 'Table & karaoke room reservations, guest flow coordination, deposit tracking, VIP preferences, and event scheduling.',
+    badge: 'VIP & Bookings',
+    skills: 'Room Bookings • Guest Notes • Karaoke Schedules • Deposits',
+    icon: 'calendar',
+    color: 'from-sky-500/20 to-blue-500/20 text-sky-400 border-sky-500/40',
+    accentClass: 'text-sky-400 bg-sky-500/10 border-sky-500/30',
+    featured: true,
+  },
+  {
+    id: 'inventory',
+    name: 'Inventory & Supplier Purchasing',
+    shortLabel: 'Inventory',
+    category: 'finance',
+    description: 'Par levels, beverage/ingredient stock counts, supplier price tracking, waste reduction audits, and automated purchase orders.',
+    badge: 'Stock & Orders',
+    skills: 'Par Levels • Stock Audits • Supplier Orders • Spoilage Reduction',
+    icon: 'boxes',
+    color: 'from-amber-500/20 to-yellow-500/20 text-yellow-400 border-yellow-500/40',
+    accentClass: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+    featured: false,
+  },
+  {
+    id: 'shifts',
+    name: 'Staff Roster & Shift Operations',
+    shortLabel: 'Staff & Shifts',
+    category: 'operations',
+    description: 'Weekly employee scheduling, shift handovers, tip pooling rules, labor cost vs revenue %, and staff communication.',
+    badge: 'Roster & Team',
+    skills: 'Shift Rosters • Labor % • Tip Pooling • Handover Logs',
+    icon: 'users',
+    color: 'from-teal-500/20 to-cyan-500/20 text-teal-400 border-teal-500/40',
+    accentClass: 'text-teal-400 bg-teal-500/10 border-teal-500/30',
+    featured: false,
+  },
+  {
+    id: 'marketing',
+    name: 'Local Marketing & Social Media',
+    shortLabel: 'Marketing',
+    category: 'growth',
+    description: 'Instagram stories, reels copy, weekend party flyers, local Google Business SEO, promotional calendars, and neighborhood buzz.',
+    badge: 'Local Reach',
+    skills: 'Instagram Captions • Event Flyers • Local SEO • Promos',
+    icon: 'megaphone',
+    color: 'from-orange-500/20 to-amber-500/20 text-orange-400 border-orange-500/40',
+    accentClass: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
+    featured: true,
+  },
+  {
+    id: 'outreach',
+    name: 'B2B Outreach & Private Events',
+    shortLabel: 'Outreach',
+    category: 'growth',
+    description: 'Venue buyout proposals, corporate karaoke team building, B2B lead enrichment, Excel CRM syncing, and Polish cold email outreach.',
+    badge: 'PlaatoOS Growth',
+    skills: 'plaatoos-outreach • Instagram Cowork • Excel CRM • Email Cold',
+    icon: 'target',
+    color: 'from-rose-500/20 to-orange-500/20 text-rose-400 border-rose-500/40',
+    accentClass: 'text-rose-400 bg-rose-500/10 border-rose-500/30',
+    featured: true,
+  },
+  {
+    id: 'reviews',
+    name: 'Customer Reviews & Reputation',
+    shortLabel: 'Reviews',
+    category: 'growth',
+    description: 'Google Maps and TripAdvisor review sentiment analysis, empathetic response drafting, negative review resolution, and review generation.',
+    badge: '5-Star Polish',
+    skills: 'Google Maps • Sentiment • Response Drafting • Reputation',
+    icon: 'star',
+    color: 'from-yellow-500/20 to-amber-500/20 text-yellow-300 border-yellow-500/40',
+    accentClass: 'text-yellow-300 bg-yellow-500/10 border-yellow-500/30',
+    featured: false,
+  },
+  {
+    id: 'retention',
+    name: 'VIP Loyalty & Customer Retention',
+    shortLabel: 'VIP Loyalty',
+    category: 'growth',
+    description: 'Regular customer tracking, birthday campaigns, VIP perks, automated WhatsApp/SMS re-engagement, and repeat visit frequency.',
+    badge: 'Regulars & VIP',
+    skills: 'VIP Clubs • Birthday Perks • Win-Back SMS • Retention',
+    icon: 'heart',
+    color: 'from-pink-500/20 to-rose-500/20 text-pink-400 border-pink-500/40',
+    accentClass: 'text-pink-400 bg-pink-500/10 border-pink-500/30',
+    featured: false,
+  },
+  {
+    id: 'compliance',
+    name: 'Compliance, Licensing & Safety',
+    shortLabel: 'Compliance',
+    category: 'operations',
+    description: 'Alcohol license renewal tracking, food hygiene HACCP logs, occupancy limits, local municipal regulations, and fire safety audits.',
+    badge: 'Permits & Safety',
+    skills: 'Alcohol Permits • HACCP Checklists • Safety Audits • Legal',
+    icon: 'shield',
+    color: 'from-red-500/20 to-rose-500/20 text-red-400 border-red-500/40',
+    accentClass: 'text-red-400 bg-red-500/10 border-red-500/30',
+    featured: false,
+  },
+  {
+    id: 'coding',
+    name: 'Coding & POS Systems',
+    shortLabel: 'Coding',
+    category: 'tech',
+    description: 'Staff Engineer mode: filesystem tools, git operations, diagnostics, debugging, and precise code diffs.',
+    badge: 'Files & Terminal',
+    skills: 'Filesystem • Git • Diagnostics • Refactoring',
+    icon: 'code',
+    color: 'from-blue-500/20 to-indigo-500/20 text-blue-400 border-blue-500/40',
+    accentClass: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+    featured: true,
+  },
+  {
+    id: 'design',
+    name: 'Design & Creative Studio',
+    shortLabel: 'Design',
+    category: 'tech',
+    description: 'Principal Designer mode: modern Tailwind styling, UI/UX components, responsive aesthetics, and canvas previews.',
+    badge: 'Tailwind & Canvas',
+    skills: 'Tailwind CSS • UI/UX Components • Artifact Canvas • Aesthetics',
+    icon: 'palette',
+    color: 'from-purple-500/20 to-pink-500/20 text-purple-400 border-purple-500/40',
+    accentClass: 'text-purple-400 bg-purple-500/10 border-purple-500/30',
+    featured: false,
+  },
+  {
+    id: 'translator',
+    name: 'Codebase Localization & Translator',
+    shortLabel: 'Translator',
+    category: 'tech',
+    description: 'Internationalization engineer: discovers project i18n architectures, ensures 100% key parity, locks variable tokens, and localizes codebases.',
+    badge: 'i18n & Program Code',
+    skills: 'Multi-Language AST • Key Parity • Variable Lock • TypeScript Dictionaries',
+    icon: 'languages',
+    color: 'from-emerald-500/20 to-cyan-500/20 text-emerald-400 border-emerald-500/40',
+    accentClass: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+    featured: true,
+  },
+  {
+    id: 'job_hunter',
+    name: 'Job Hunter & Career Agent',
+    shortLabel: 'Job Hunter',
+    category: 'career',
+    description: 'Autonomous job position diagnostics, ATS resume tailoring, prompt-injection defense, anti-AI detector stylometry, and Chrome cowork autofill.',
+    badge: 'Career & Anti-Detect',
+    skills: 'Position Diagnostics • Anti-AI Detect • ATS Resumes • Chrome Cowork',
+    icon: 'briefcase',
+    color: 'from-blue-600/20 to-indigo-600/20 text-blue-400 border-blue-500/40',
+    accentClass: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+    featured: true,
+  },
+  {
+    id: 'antigravity',
+    name: 'Desktop Cowork & Automation',
+    shortLabel: 'Cowork',
+    category: 'tech',
+    description: 'Autonomous desktop companion for open window inspection, UIA clicks, and multi-window desktop coordination.',
+    badge: 'Desktop UIA',
+    skills: 'Desktop Windows • UIA Clicks • Window Management',
+    icon: 'bot',
+    color: 'from-cyan-500/20 to-sky-500/20 text-cyan-400 border-cyan-500/40',
+    accentClass: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/30',
+    featured: false,
+  },
+];
+
 export const MODES = [
-  { value: 'auto', label: 'Auto' },
+  { value: 'auto', label: 'Auto (General)' },
+  { value: 'financial', label: 'Financial & Business Ops' },
+  { value: 'fnb_menu', label: 'Food & Beverage Menu Engineer' },
+  { value: 'concierge', label: 'Reservations & Guest Concierge' },
+  { value: 'inventory', label: 'Inventory & Supplier Purchasing' },
+  { value: 'shifts', label: 'Staff Roster & Shift Operations' },
+  { value: 'marketing', label: 'Local Marketing & Social Media' },
+  { value: 'outreach', label: 'B2B Outreach & Private Events' },
+  { value: 'reviews', label: 'Customer Reviews & Reputation' },
+  { value: 'retention', label: 'VIP Loyalty & Customer Retention' },
+  { value: 'compliance', label: 'Compliance, Licensing & Safety' },
+  { value: 'coding', label: 'Coding & POS Systems' },
+  { value: 'design', label: 'Design & Creative Studio' },
+  { value: 'translator', label: 'Codebase Translator & i18n' },
+  { value: 'job_hunter', label: 'Job Hunter & Career Agent' },
+  { value: 'antigravity', label: 'Desktop Cowork & Automation' },
   { value: 'direct', label: 'Local model' },
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex', label: 'Codex' },
-  { value: 'antigravity', label: 'Antigravity' },
   { value: 'opencode', label: 'OpenCode' },
 ] as const;
 
-export type Mode = (typeof MODES)[number]['value'];
+export type Mode = (typeof MODES)[number]['value'] | string;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${ENGINE_HTTP_URL}${path}`, {
@@ -195,12 +507,23 @@ export const modelsApi = {
     }),
 };
 
+export interface ServiceVenue {
+  business_id: string;
+  name: string;
+  slug: string;
+  icon?: string;
+  active: boolean;
+}
+
 /** An MCP service Emiliano can sign in to (GET /api/mcp/connections). */
 export interface ServiceConnection {
   service: string;
   title: string;
   connected: boolean;
   auth: 'oauth' | 'token' | null;
+  tenant?: string;
+  business_id?: string;
+  venues?: ServiceVenue[];
 }
 
 export interface ConnectResult {
@@ -217,6 +540,32 @@ export const connectionsApi = {
     request<ConnectResult>('/api/mcp/connect', { method: 'POST', body: JSON.stringify({ service }) }),
   disconnect: (service: string) =>
     request<{ service: string }>('/api/mcp/disconnect', { method: 'POST', body: JSON.stringify({ service }) }),
+  switchVenue: (service: string, business_id: string) =>
+    request<{ ok: boolean; active_venue: string; business_id: string; venues: ServiceVenue[] }>(
+      '/api/mcp/switch-venue',
+      { method: 'POST', body: JSON.stringify({ service, business_id }) }
+    ),
+};
+
+export interface StagedProposal {
+  action_id: string;
+  routine_id?: string;
+  routine_name?: string;
+  step_index?: number;
+  tool?: string;
+  arguments?: Record<string, any>;
+  preview?: string;
+  status: 'pending' | 'approved' | 'rejected' | 'executed';
+  created_at?: string;
+}
+
+export const stagedApi = {
+  list: (status: string = 'pending') =>
+    request<{ staged_actions: StagedProposal[] }>(`/api/routines/staged?status=${status}`),
+  approve: (action_id: string) =>
+    request<{ status: string }>(`/api/routines/staged/${action_id}/approve`, { method: 'POST' }),
+  reject: (action_id: string) =>
+    request<{ status: string }>(`/api/routines/staged/${action_id}/reject`, { method: 'POST' }),
 };
 
 export interface SkillItem {

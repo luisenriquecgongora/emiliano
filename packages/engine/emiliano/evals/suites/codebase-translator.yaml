@@ -1,0 +1,67 @@
+# Emiliano Codebase Translator & i18n Evaluation Suite
+# Evaluates autonomous project localization, key parity enforcement, variable token protection,
+# BCP 47 language code normalization, and multi-tier translation verification.
+name: codebase-translator
+description: Codebase internationalization, key parity verification, variable token locking, and multi-tier localization
+tasks:
+  # 1. Routing & Specialist Intent Detection
+  - id: route-translator-add-language
+    kind: route
+    goal: "Translate the codebase to add support for Peruvian Quechua (Runasimi)"
+    expect: {route: harness}
+
+  - id: route-translator-i18n-audit
+    kind: route
+    goal: "Audit the project translation files and report missing keys across languages"
+    expect: {route: harness}
+
+  # 2. Variable Token Lock & Interpolation Guard (Answer / String Checks)
+  - id: check-token-lock-preservation
+    kind: answer
+    goal: "Translate this string to Quechua preserving variables: 'Welcome to {businessName}, open daily from {openTime} to {closeTime}!'"
+    expect:
+      contains: ["{businessName}", "{openTime}", "{closeTime}"]
+
+  - id: check-token-printf-preservation
+    kind: answer
+    goal: "Translate this string to Quechua preserving printf formatting: 'Total room rate is %s per hour with %d guests.'"
+    expect:
+      contains: ["%s", "%d"]
+
+  # 3. Code-Level Localization & Key Parity Task
+  - id: code-i18n-dictionary-parity
+    kind: code
+    goal: >-
+      Add support for Quechua ('qu') to locales.py. Every key present in 'en' must exist in 'qu'.
+      Ensure `python check.py` passes cleanly without modifying check.py.
+    files:
+      locales.py: |
+        LOCALES = {
+            "en": {
+                "welcome": "Welcome",
+                "sing_song": "Sing song",
+                "room_price": "Price per hour",
+                "book_room": "Book a room",
+                "closed": "Closed",
+            },
+            "es": {
+                "welcome": "Bienvenido",
+                "sing_song": "Cantar canción",
+                "room_price": "Precio por hora",
+                "book_room": "Reservar sala",
+                "closed": "Cerrado",
+            }
+        }
+      check.py: |
+        from locales import LOCALES
+        assert "qu" in LOCALES, "Missing 'qu' locale"
+        en_keys = set(LOCALES["en"].keys())
+        qu_keys = set(LOCALES["qu"].keys())
+        missing = en_keys - qu_keys
+        assert not missing, f"Missing keys in Quechua locale: {missing}"
+        # Validate authentic Quechua domain words
+        assert LOCALES["qu"]["sing_song"].lower() in ("takiy", "taki", "takiy takina"), f"Invalid sing: {LOCALES['qu']['sing_song']}"
+        assert "chani" in LOCALES["qu"]["room_price"].lower(), f"Invalid price: {LOCALES['qu']['room_price']}"
+        assert LOCALES["qu"]["closed"].lower() in ("wichqasqa", "wisq'asqa"), f"Invalid closed: {LOCALES['qu']['closed']}"
+        print("ok")
+    check: "python check.py"

@@ -14,7 +14,7 @@ import json
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     from loguru import logger
@@ -30,7 +30,7 @@ _DESCRIPTION_CHARS = 200
 # Above this many MCP tools the prompt lists names and short descriptions only; the model fetches a tool's
 # parameters with mcp_describe. A big catalog (PlaatoOS has 100+) would otherwise fill a small model's context.
 COMPACT_ABOVE = 25
-_COMPACT_DESCRIPTION_CHARS = 70
+_COMPACT_DESCRIPTION_CHARS = 140
 DESCRIBE_TOOL = "mcp_describe"
 
 
@@ -159,6 +159,21 @@ class McpManager:
         schema = json.dumps(tool.input_schema, ensure_ascii=False, indent=1)
         return f"{tool.qualified_name}: {tool.description}\nParameters (JSON schema):\n{schema}"
 
+    def _sanitize_tool_args(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitizes argument types and strips overly restrictive or mistyped defaults from small models."""
+        cleaned = dict(args)
+        if "query_menu" in tool_name:
+            # groupTag should be a string, but models sometimes pass a list of strings
+            if isinstance(cleaned.get("groupTag"), list):
+                if len(cleaned["groupTag"]) == 1:
+                    cleaned["groupTag"] = str(cleaned["groupTag"][0])
+                else:
+                    cleaned.pop("groupTag", None)
+            # hasRecipe: false is often mistakenly added by models thinking it means 'no recipe needed'
+            if cleaned.get("hasRecipe") is False:
+                cleaned.pop("hasRecipe", None)
+        return cleaned
+
     def call(self, qualified_name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         if qualified_name == DESCRIBE_TOOL:
             args = arguments or {}
@@ -174,7 +189,22 @@ class McpManager:
             if client is None:
                 return f"Error: MCP server '{tool.server}' is not running: {self.statuses[tool.server].error}"
         try:
-            return client.call_tool(tool.name, arguments or {}, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+            clean_args = self._sanitize_tool_args(tool.name, arguments or {})
+            res = client.call_tool(tool.name, clean_args, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+            # Auto-fallback: if filtered query returned empty results, retry with broad query so model has real data
+            if isinstance(res, str) and any(k in tool.name for k in ("query_menu", "query_events", "query_playlists")):
+                try:
+                    parsed = json.loads(res)
+                    items_key = "items" if "items" in parsed else ("events" if "events" in parsed else ("playlists" if "playlists" in parsed else None))
+                    if items_key and isinstance(parsed.get(items_key), list) and len(parsed[items_key]) == 0 and len(clean_args) > 1:
+                        logger.info(f"[MCP] {tool.name} returned 0 results with filters {clean_args}. Falling back to broad query.")
+                        fallback_res = client.call_tool(tool.name, {"limit": 50}, timeout=getattr(self.servers[tool.server], "timeout", 60.0))
+                        fallback_parsed = json.loads(fallback_res)
+                        if items_key in fallback_parsed and len(fallback_parsed[items_key]) > 0:
+                            return fallback_res
+                except Exception:
+                    pass
+            return res
         except Exception as e:
             return f"Error: {e}"
 
@@ -184,18 +214,97 @@ class McpManager:
     async def acall(self, qualified_name: str, arguments: Optional[Dict[str, Any]] = None) -> str:
         return await asyncio.to_thread(self.call, qualified_name, arguments)
 
-    def describe_tools(self) -> str:
+    def filter_tools_for_goal(self, goal: Optional[str] = None, max_tools: int = 6) -> List[McpTool]:
+        """
+        Prunes tools to the most relevant subset for a given goal.
+        If goal is empty or total tools <= max_tools, returns all tools.
+        Otherwise ranks by token overlap in tool name and description.
+        """
+        all_tools = list(self.tools.values())
+        if not goal or len(all_tools) <= max_tools:
+            return all_tools
+
+        import re
+        tokens = set(re.findall(r"[a-zA-Z0-9_]{3,}", goal.lower()))
+        stop_words = {"the", "and", "for", "with", "this", "that", "from", "you", "your", "our", "please", "can", "could", "would", "help", "need"}
+        keywords = {t for t in tokens if t not in stop_words}
+
+        domain_boosters = {
+            "site": {"site", "website", "block", "hero", "header", "footer", "theme", "title", "page", "landing"},
+            "event": {"event", "ticket", "venue", "booking", "schedule", "party", "calendar"},
+            "menu": {"menu", "dish", "price", "order", "food", "drink", "drinks", "beer", "beers", "cocktail", "cocktails", "wine", "beverage", "beverages", "bar", "kitchen"},
+            "cash": {"cash", "finance", "finances", "revenue", "money", "till", "safe", "shift", "box", "boxes", "ledger", "count"},
+            "inventory": {"inventory", "stock", "product", "products", "item", "items", "warehouse", "ingredient", "ingredients"},
+            "playlist": {"playlist", "playlists", "karaoke", "music", "song", "songs", "track", "tracks", "played", "popular", "dj", "request", "requests", "top"},
+            "staff": {"staff", "user", "users", "employee", "employees", "role", "permissions", "team"},
+            "business": {"business", "settings", "company", "info", "config", "profile", "summary", "overview", "operation", "operations", "status", "taki", "report", "kpi", "performance", "about"},
+        }
+        domain_tool_mapping = {
+            "cash": ("query_cash_boxes", "query_shift_money", "query_finances"),
+            "menu": ("query_menu", "find_duplicate_menu_items", "propose_menu_item"),
+            "inventory": ("query_inventory_products", "query_products", "propose_inventory_product"),
+            "event": ("query_events", "query_tickets", "propose_event"),
+            "playlist": ("query_song_requests", "query_playlists", "query_playlist_songs", "query_karaoke_queue"),
+            "staff": ("query_users", "query_business_users"),
+            "site": ("query_business_site", "query_site_blocks", "propose_site_pages"),
+            "business": ("query_business", "query_finances", "query_business_settings", "query_menu"),
+        }
+        active_domains = {dom for dom, terms in domain_boosters.items() if any(term in keywords for term in terms)}
+
+        scored: List[Tuple[float, McpTool]] = []
+        for tool in all_tools:
+            score = 0.0
+            tool_name_lower = tool.qualified_name.lower()
+            desc_lower = (tool.description or "").lower()
+
+            for kw in keywords:
+                if kw in tool_name_lower:
+                    score += 5.0
+                if kw in desc_lower:
+                    score += 1.5
+
+            for dom in active_domains:
+                if dom in tool_name_lower:
+                    score += 3.0
+                if dom in desc_lower:
+                    score += 1.0
+                preferred_tools = domain_tool_mapping.get(dom, ())
+                tool_action = tool_name_lower.split("__")[-1]
+                for rank_idx, pt in enumerate(preferred_tools):
+                    if pt == tool_action:
+                        score += max(4.0, 18.0 - (rank_idx * 3.0))
+                        break
+                    elif pt in tool_name_lower:
+                        score += max(2.0, 10.0 - (rank_idx * 2.0))
+                        break
+
+            if any(w in keywords for w in ("query", "get", "check", "read", "inspect", "show", "list")):
+                if any(w in tool_name_lower for w in ("query", "get", "read", "list", "inspect")):
+                    score += 2.0
+
+            scored.append((score, tool))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = [t for s, t in scored if s > 0][:max_tools]
+        if not top:
+            top = [t for t in all_tools if any(k in t.qualified_name.lower() for k in ("query", "list", "get", "status"))][:max_tools]
+            if not top:
+                top = all_tools[:max_tools]
+        return top
+
+    def describe_tools(self, tools: Optional[Iterable[McpTool]] = None) -> str:
         """The tool list for the agent's system prompt, with each tool's parameters ('?' marks optional ones);
         in compact mode names and short descriptions only."""
+        tools_list = list(tools) if tools is not None else list(self.tools.values())
         lines = []
         if self.compact:
-            for tool in self.tools.values():
+            for tool in tools_list:
                 desc = " ".join(tool.description.split())
                 if len(desc) > _COMPACT_DESCRIPTION_CHARS:
                     desc = desc[:_COMPACT_DESCRIPTION_CHARS].rstrip() + "..."
                 lines.append(f"- {tool.qualified_name}: {desc}" if desc else f"- {tool.qualified_name}")
             return "\n".join(lines)
-        for tool in self.tools.values():
+        for tool in tools_list:
             props = (tool.input_schema.get("properties") or {}) if isinstance(tool.input_schema, dict) else {}
             required = set(tool.input_schema.get("required") or []) if isinstance(tool.input_schema, dict) else set()
             params = ", ".join(f"{p}{'' if p in required else '?'}: {(spec or {}).get('type', 'any')}"
@@ -206,23 +315,44 @@ class McpManager:
             lines.append(f"- {tool.qualified_name}({params}): {desc}" if desc else f"- {tool.qualified_name}({params})")
         return "\n".join(lines)
 
-    def prompt_section(self) -> str:
+    def prompt_section(self, goal: Optional[str] = None) -> str:
         """Extra system-prompt text that teaches the model to call MCP tools; empty when there are none."""
         if not self.tools:
             return ""
-        example = next(iter(self.tools.values()))
+        selected_tools = self.filter_tools_for_goal(goal, max_tools=6) if goal else list(self.tools.values())
+        example = selected_tools[0] if selected_tools else next(iter(self.tools.values()))
         example_args = {p: "..." for p in list((example.input_schema.get("properties") or {}))[:1]}
         lookup = ""
         if self.compact:
             describe = json.dumps({"name": DESCRIBE_TOOL, "arguments": {"name": example.qualified_name}})
-            lookup = f"Their parameters are not listed: before calling one, get them with\n<tool_call>{describe}</tool_call>\n"
+            lookup = (
+                "Their parameter schemas are not listed above to conserve context. "
+                "For query or read tools with no required parameters (such as query_business, query_business_site), call them directly with arguments: {}.\n"
+                f"For complex modification tools, fetch their schema first with:\n<tool_call>{describe}</tool_call>\n"
+            )
         return (
             "\n\nYou also have these external tools (from MCP servers):\n"
-            f"{self.describe_tools()}\n"
+            f"{self.describe_tools(selected_tools)}\n"
             f"{lookup}"
             "Call them with the JSON format, passing arguments by name:\n"
             f"<tool_call>{json.dumps({'name': example.qualified_name, 'arguments': example_args})}</tool_call>\n"
         )
+
+    def to_ollama_tools(self, goal: Optional[str] = None, max_tools: int = 6) -> List[Dict[str, Any]]:
+        """Converts filtered MCP tools into Ollama/OpenAI standard tool definitions."""
+        selected = self.filter_tools_for_goal(goal, max_tools=max_tools) if goal else list(self.tools.values())
+        tools: List[Dict[str, Any]] = []
+        for t in selected:
+            schema = t.input_schema if isinstance(t.input_schema, dict) else {}
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": t.qualified_name,
+                    "description": t.description or "",
+                    "parameters": schema or {"type": "object", "properties": {}},
+                }
+            })
+        return tools
 
     def close(self) -> None:
         with self._lock:

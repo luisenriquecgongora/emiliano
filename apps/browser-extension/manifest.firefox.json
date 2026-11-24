@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Emiliano Cowork Companion",
+  "version": "1.0.0",
+  "description": "Autonomous background browser bridge and Deep Concept Research Lens for the Emiliano Desktop Cowork platform.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "emiliano-companion@oracliom.com",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": [
+    "tabs",
+    "scripting",
+    "activeTab",
+    "storage",
+    "alarms",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Emiliano Cowork Companion",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

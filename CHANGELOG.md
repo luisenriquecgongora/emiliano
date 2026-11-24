@@ -1,7 +1,36 @@
 # Changelog
 
-## [0.4.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.3.0...v0.4.0) (2026-11-18)
+## [0.6.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.5.0...v0.6.0) (2026-11-19)
 
+### Features
+
+* **desktop:** add interactive Always-On-Top lock toggle with Win32 multi-window DWM Z-order synchronization
+* **desktop:** add subtle native window drag handles with clean hover indicators and F11 maximize toggle
+* **telemetry:** add granular per-process step latencies (Reasoning/Thinking, MCP Tool Execution, Generation, TTFT)
+* **mcp:** enhance PlaatoOS query routing and domain boosters for multi-turn business summaries and song request analytics
+
+### Bug Fixes
+
+* **desktop:** synchronize non-topmost window styles on startup and unpin to prevent foreground persistence over Windows Search
+* **direct:** purge conversational refusal echoes and placeholder strings from agent message history
+
+## [0.5.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.4.0...v0.5.0) (2026-11-18)
+
+### Features
+
+* **desktop:** add topbar window controls (minimize, maximize/restore, close) with responsive layout
+* **desktop:** add context metrics badge and manual compaction action in dock
+* **desktop:** add Ctrl+B keyboard shortcut and dedicated button for sidebar toggle
+* **extension:** route script evaluations through Chrome debugger to bypass strict page CSP restrictions
+* **outreach:** integrate PlaatoOS autonomous outreach engine with live HUD telemetry and verified DOM delivery receipts
+* **crm:** cross landmark 500+ verified hospitality venues contacted with direct self-registration links
+
+### Bug Fixes
+
+* **engine:** eliminate recursive deadlock in `/api/browser/status` bridge resolution
+* **desktop:** prevent window control clipping in compact dock widths with non-shrinkable headers
+
+## [0.4.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.3.0...v0.4.0) (2026-11-18)
 
 ### Features
 
@@ -42,7 +71,6 @@
 * **server:** add ipc bearer token verification and gateway auth ([b8b01d2](https://github.com/luisenriquecgongora/emiliano/commit/b8b01d258f9cba4bf83c313ad9b3bfde482637a2))
 * **server:** enforce origin checking before health endpoint bypass ([d0ffd8b](https://github.com/luisenriquecgongora/emiliano/commit/d0ffd8b22b713a70a291890890c192a01c857398))
 * **server:** expose routine, browser, and history apis ([33efbe8](https://github.com/luisenriquecgongora/emiliano/commit/33efbe86e55326d6205c766221a59df9f393483b))
-
 
 ### Bug Fixes
 

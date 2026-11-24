@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Set, Union
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -262,6 +266,24 @@ async def mcp_disconnect(payload: ConnectPayload):
     return result
 
 
+class SwitchVenuePayload(BaseModel):
+    service: str = "plaatoos"
+    business_id: str
+
+
+@app.post("/api/mcp/switch-venue")
+async def mcp_switch_venue(payload: SwitchVenuePayload):
+    from ..mcp.connect import SERVICES, switch_venue
+    if payload.service not in SERVICES:
+        raise HTTPException(status_code=404, detail=f"Unknown service: {payload.service}")
+    try:
+        result = await asyncio.to_thread(switch_venue, payload.service, payload.business_id)
+        get_dispatcher().reload_mcp()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 class ModelPayload(BaseModel):
     model: str
     keep_alive: Optional[Union[int, str]] = None
@@ -452,9 +474,21 @@ class PatchSkillPayload(BaseModel):
     append_notes: Optional[str] = None
 
 
+class ResearchRequestPayload(BaseModel):
+    selection: str
+    context: Optional[str] = ""
+    url: Optional[str] = ""
+    page_title: Optional[str] = ""
+    language: Optional[str] = ""
+    query_type: Optional[str] = "concept"  # "concept", "code", "replication"
+    follow_up: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
+
+
 BrowserCommandPayload.model_rebuild()
 SynthesizeSkillPayload.model_rebuild()
 PatchSkillPayload.model_rebuild()
+ResearchRequestPayload.model_rebuild()
 
 
 @app.get("/api/cowork/windows")
@@ -555,6 +589,82 @@ async def resize_hud(payload: ResizeHudPayload):
         return {"status": "ok", "width": new_w, "height": new_h, "x": new_x, "y": new_y}
     except Exception as e:
         logger.error(f"[Server] Failed to resize HUD: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+class AlwaysOnTopPayload(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/cowork/always_on_top")
+async def set_always_on_top(payload: AlwaysOnTopPayload):
+    """Dynamically toggles whether the Emiliano HUD window stays locked Always On Top."""
+    import sys
+    if sys.platform != "win32":
+        return {"status": "unsupported", "platform": sys.platform}
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+
+        matched_hwnds = []
+        def enum_windows_callback(hwnd, _lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip().lower()
+                if "emiliano" in title:
+                    matched_hwnds.append(hwnd)
+            return True
+
+        # Ensure calling thread is attached to interactive desktop (WinSta0\Default)
+        hwinsta = user32.OpenWindowStationW("WinSta0", False, 0x037F)
+        if hwinsta:
+            user32.SetProcessWindowStation(hwinsta)
+        hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        cb = WNDENUMPROC(enum_windows_callback)
+        if hdesk:
+            user32.EnumDesktopWindows(hdesk, cb, 0)
+        if not matched_hwnds:
+            user32.EnumWindows(cb, 0)
+
+        if not matched_hwnds:
+            return {"status": "not_found", "message": "Emiliano HUD window not found"}
+
+        # HWND_TOPMOST = -1, HWND_NOTOPMOST = -2
+        # SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020
+        hwnd_insert_after = -1 if payload.enabled else -2
+        WS_EX_TOPMOST = 0x00000008
+        GWL_EXSTYLE = -20
+
+        for hwnd in matched_hwnds:
+            ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            if payload.enabled:
+                new_ex_style = ex_style | WS_EX_TOPMOST
+            else:
+                new_ex_style = ex_style & ~WS_EX_TOPMOST
+
+            if new_ex_style != ex_style:
+                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_ex_style)
+
+            user32.SetWindowPos(
+                hwnd,
+                ctypes.c_void_p(hwnd_insert_after),
+                0, 0, 0, 0,
+                0x0001 | 0x0002 | 0x0010 | 0x0020
+            )
+
+        logger.info(f"[Server] Updated always_on_top={payload.enabled} across {len(matched_hwnds)} window(s)")
+        return {"status": "ok", "always_on_top": payload.enabled, "windows_updated": len(matched_hwnds)}
+    except Exception as e:
+        logger.error(f"[Server] Failed to toggle always_on_top: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -784,18 +894,19 @@ async def browser_websocket_endpoint(websocket: WebSocket):
 
 @app.get("/api/browser/status")
 async def get_browser_status():
-    from emiliano.cowork.browser_bridge import get_browser_bridge
-    bridge = get_browser_bridge()
+    from emiliano.cowork.browser_bridge import BrowserBridge
+    bridge = BrowserBridge.get_instance()
     return {
         "connected": bridge.is_connected,
-        "extension_info": bridge.extension_info
+        "extension_info": bridge.extension_info,
+        "connected_browsers": getattr(bridge, "connected_browsers", []),
     }
 
 
 @app.post("/api/browser/command")
 async def execute_browser_command(payload: BrowserCommandPayload):
-    from emiliano.cowork.browser_bridge import get_browser_bridge
-    bridge = get_browser_bridge()
+    from emiliano.cowork.browser_bridge import BrowserBridge
+    bridge = BrowserBridge.get_instance()
     if not bridge.is_connected:
         raise HTTPException(status_code=503, detail="Browser extension is not connected.")
     try:
@@ -804,6 +915,130 @@ async def execute_browser_command(payload: BrowserCommandPayload):
     except Exception as e:
         logger.error(f"[Server] Browser command failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/browser/reveal-extension")
+async def reveal_browser_extension(payload: Optional[Dict[str, Any]] = None):
+    """
+    Reveals the extension binaries/unpacked directory in Windows Explorer (or OS file manager)
+    for Chrome or Firefox.
+    """
+    browser = (payload or {}).get("browser", "chrome").lower()
+    if browser not in ("chrome", "firefox"):
+        browser = "chrome"
+
+    base_dir = Path(__file__).resolve().parents[4] / "apps" / "browser-extension"
+    target_dir = base_dir / "dist" / browser
+
+    if not target_dir.exists():
+        target_dir = base_dir
+
+    path_str = str(target_dir)
+    try:
+        if os.name == "nt":
+            os.startfile(path_str)
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path_str])
+        return {"opened": True, "path": path_str, "browser": browser}
+    except Exception as e:
+        logger.error(f"[Server] Failed to reveal extension folder {path_str}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/cowork/research")
+async def research_concept(payload: ResearchRequestPayload):
+    """
+    Analyzes a highlighted code snippet or concept in depth, generating
+    architectural breakdown, canonical documentation links, replication repos,
+    and gotchas.
+    """
+    selection = payload.selection.strip()
+    if not selection:
+        raise HTTPException(status_code=400, detail="Selection cannot be empty.")
+
+    query_type = payload.query_type or "concept"
+    llm_output = None
+
+    try:
+        from emiliano.direct.client import UnifiedLLMClient
+        client = UnifiedLLMClient()
+
+        system_prompt = (
+            "You are Emiliano's Deep Research Lens and Code Inspector.\n"
+            "Analyze the highlighted code snippet or technical concept in depth.\n"
+            "Structure your response in clean Markdown with clear sections:\n"
+            "### 1. Executive Synopsis & Core Concept\n"
+            "Explain exactly what this is, why it is used, and how it works under the hood.\n\n"
+            "### 2. Architecture & Implementation Mechanics\n"
+            "Detail the internal mechanics, algorithmic complexity, protocols, or structural patterns.\n\n"
+            "### 3. Canonical Documentation & Specifications\n"
+            "Provide direct canonical links or references (e.g. official docs, RFC numbers, W3C/PEP specs).\n\n"
+            "### 4. Real-World Replications & Reference Repos\n"
+            "Provide search/deep links to GitHub repositories, Papers With Code, or open-source implementations demonstrating how this is replicated in production.\n\n"
+            "### 5. Production Gotchas & Pitfalls\n"
+            "Detail 2-3 critical edge cases, security considerations, or performance traps.\n"
+        )
+
+        user_msg = f"Highlighted target:\n```\n{selection}\n```\n"
+        if payload.language:
+            user_msg += f"Language: {payload.language}\n"
+        if payload.page_title:
+            user_msg += f"Source Page: {payload.page_title}\n"
+        if payload.url:
+            user_msg += f"Source URL: {payload.url}\n"
+        if payload.context:
+            user_msg += f"Surrounding Context:\n```\n{payload.context[:1000]}\n```\n"
+        if payload.follow_up:
+            user_msg += f"\nFollow-up question:\n{payload.follow_up}\n"
+
+        messages = [{"role": "system", "content": system_prompt}]
+        if payload.history:
+            messages.extend(payload.history)
+        messages.append({"role": "user", "content": user_msg})
+
+        chunks = []
+        async for chunk in client.stream_completion(messages, temperature=0.2, timeout=45.0):
+            chunks.append(chunk)
+        if chunks:
+            llm_output = "".join(chunks)
+    except Exception as e:
+        logger.warning(f"[Server] LLM research completion unavailable or failed: {e}")
+
+    # Fallback deterministic structured response if no LLM configured/online
+    if not llm_output:
+        import urllib.parse
+        encoded_q = urllib.parse.quote_plus(selection[:120])
+        github_search = f"https://github.com/search?q={encoded_q}&type=code"
+        pypi_search = f"https://pypi.org/search/?q={encoded_q}"
+        mdn_search = f"https://developer.mozilla.org/en-US/search?q={encoded_q}"
+        arxiv_search = f"https://arxiv.org/search/?query={encoded_q}&searchtype=all"
+        rfc_search = f"https://www.rfc-editor.org/search/rfc_search_detail.php?title={encoded_q}"
+
+        llm_output = (
+            f"### 🔍 Emiliano Technical Inspector\n\n"
+            f"**Target**: `{selection[:100]}`\n"
+            f"**Source**: {payload.page_title or payload.url or 'In-browser selection'}\n\n"
+            f"#### 1. Technical Synopsis\n"
+            f"Analyzed technical symbol `{selection[:80]}`. "
+            f"To enable autonomous deep generative synthesis with Emiliano, configure an LLM provider "
+            f"(Ollama local model or remote API key) in your environment or `emiliano.yaml`.\n\n"
+            f"#### 2. Canonical Specifications & Docs\n"
+            f"- [MDN Web Docs Search]({mdn_search})\n"
+            f"- [RFC Specifications Editor]({rfc_search})\n"
+            f"- [PyPI Package Repository]({pypi_search})\n\n"
+            f"#### 3. Replications & Reference Repositories\n"
+            f"- [GitHub Code Search: `{selection[:60]}`]({github_search})\n"
+            f"- [ArXiv Research Papers]({arxiv_search})\n\n"
+            f"#### 4. Engine Connection Status\n"
+            f"Emiliano Engine daemon is active and responding on `127.0.0.1:8765`."
+        )
+
+    return {
+        "status": "ok",
+        "query_type": query_type,
+        "selection": selection,
+        "markdown": llm_output,
+    }
 
 
 @app.websocket("/ws")

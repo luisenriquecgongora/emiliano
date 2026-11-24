@@ -97,9 +97,110 @@ def disconnect(service: str) -> Dict[str, Any]:
     return {"service": service, "removed_credentials": had_credentials, "config": str(path)}
 
 
+def _resolve_tenant(service: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts active tenant businessId and venue name from OAuth access token claims or record."""
+    if not record:
+        return {}
+    active_bid = record.get("active_business_id") or record.get("business_id")
+    venues = record.get("venues", {})
+    if active_bid and active_bid in venues:
+        return {"tenant": venues[active_bid].get("name", "Active Venue"), "business_id": active_bid}
+    if record.get("tenant"):
+        return {"tenant": record.get("tenant"), "business_id": record.get("business_id")}
+    if record.get("kind") == "oauth":
+        try:
+            import json
+            import base64
+            from .auth import TokenProvider
+            tok = TokenProvider(service).token()
+            parts = tok.split(".")
+            if len(parts) >= 2:
+                payload = parts[1] + "=" * (-len(parts[1]) % 4)
+                claims = json.loads(base64.urlsafe_b64decode(payload).decode())
+                bid = claims.get("businessId")
+                name = claims.get("businessName")
+                if not name:
+                    if bid == "69ca4850715529f18d18727a":
+                        name = "Taki Taki Katowice"
+                    elif bid == "69ca4852715529f18d1872a6":
+                        name = "La Estación del Verano"
+                    elif bid:
+                        name = f"Venue ({bid[:6]})"
+                return {"tenant": name or "Active Venue", "business_id": bid}
+        except Exception:
+            pass
+    elif record.get("kind") == "token":
+        return {"tenant": "Static Agent Token", "business_id": None}
+    return {}
+
+
 def status(service: str) -> Dict[str, Any]:
     """Whether a service is connected, without contacting it."""
     from . import credentials
     record = credentials.load(service) or {}
     configured = service in (_read(config_path()).get("mcp_servers") or {})
-    return {"service": service, "connected": bool(record) and configured, "auth": record.get("kind")}
+    connected = bool(record) and configured
+    out: Dict[str, Any] = {
+        "service": service,
+        "connected": connected,
+        "auth": record.get("kind"),
+    }
+    if connected:
+        out.update(_resolve_tenant(service, record))
+        venues = record.get("venues")
+        active_id = record.get("active_business_id") or out.get("business_id")
+        if venues:
+            out["venues"] = [
+                {
+                    "business_id": v.get("business_id"),
+                    "name": v.get("name"),
+                    "slug": v.get("slug"),
+                    "icon": v.get("icon", "🍸"),
+                    "active": v.get("business_id") == active_id,
+                }
+                for v in venues.values()
+            ]
+        else:
+            out["venues"] = [
+                {
+                    "business_id": out.get("business_id"),
+                    "name": out.get("tenant", "Primary Venue"),
+                    "slug": "active-venue",
+                    "icon": "🍸",
+                    "active": True,
+                }
+            ]
+    return out
+
+
+def switch_venue(service: str, business_id: str) -> Dict[str, Any]:
+    """Switches the active business tenant for an MCP service."""
+    from . import credentials
+    record = credentials.load(service) or {}
+    venues = record.get("venues", {})
+    if business_id not in venues:
+        raise ValueError(f"Unknown venue '{business_id}'. Known venues: {list(venues.keys())}")
+
+    venue_info = venues[business_id]
+    record["active_business_id"] = business_id
+    record["refresh_token"] = venue_info["refresh_token"]
+    record["tenant"] = venue_info.get("name")
+    record["business_id"] = business_id
+    credentials.save(service, record)
+
+    return {
+        "ok": True,
+        "service": service,
+        "active_venue": venue_info.get("name"),
+        "business_id": business_id,
+        "venues": [
+            {
+                "business_id": v.get("business_id"),
+                "name": v.get("name"),
+                "slug": v.get("slug"),
+                "icon": v.get("icon", "🍸"),
+                "active": v.get("business_id") == business_id,
+            }
+            for v in venues.values()
+        ],
+    }

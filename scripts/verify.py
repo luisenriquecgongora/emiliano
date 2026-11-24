@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -92,6 +93,41 @@ def resolve(part: str, tokens: dict[str, list[str] | None]) -> list[str] | None:
     return [part]
 
 
+SECRET_PATTERNS = [
+    ("Private Key", re.compile(r"-----BEGIN (RSA|EC|DSA|OPENSSH|PRIVATE) KEY-----")),
+    ("OpenAI API Key", re.compile(r"\b(sk-[a-zA-Z0-9]{20,T3BlbkFJ[a-zA-Z0-9]{20,}|sk-proj-[a-zA-Z0-9_-]{40,})\b")),
+    ("Anthropic API Key", re.compile(r"\bsk-ant-api[a-zA-Z0-9_-]{30,}\b")),
+    ("GitHub Token", re.compile(r"\b(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})\b")),
+    ("AWS Key ID", re.compile(r"\b(AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}\b")),
+]
+
+
+def scan_tracked_files_for_secrets() -> list[str]:
+    """Zero-dependency in-tree secret audit scanning tracked files for high-risk credentials."""
+    problems: list[str] = []
+    res = subprocess.run(["git", "ls-files"], capture_output=True, text=True, cwd=ROOT)
+    if res.returncode != 0:
+        return problems
+    for rel_path in res.stdout.splitlines():
+        # Exclude binaries, images, lockfiles, and test fixtures
+        if rel_path.endswith((".png", ".jpg", ".jpeg", ".webp", ".ico", ".svg", ".lock", ".exe", ".pdf")):
+            continue
+        norm_path = rel_path.replace("\\", "/")
+        if any(marker in norm_path for marker in ("/tests/", "/test/", "test_", "_test.", "/fixtures/")):
+            continue
+        file_path = ROOT / rel_path
+        if not file_path.is_file() or file_path.stat().st_size > 500_000:
+            continue
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+            for label, pattern in SECRET_PATTERNS:
+                if pattern.search(content):
+                    problems.append(f"{rel_path}: contains potential {label}")
+        except Exception:
+            pass
+    return problems
+
+
 def secret_scan() -> list[tuple[str, str, str, list[str]]]:
     # "{gitleaks}" resolves to None when it is not installed; CI always runs it.
     return [("secrets", "secret scan", ".", ["{gitleaks}", "git", "--no-banner", "--redact", "."])]
@@ -127,11 +163,26 @@ def skill_problems(fix: bool = False) -> list[str]:
 
 
 def main() -> int:
+    is_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
     groups = sorted({group for group, *_ in CHECKS} | {"secrets", "skills"})
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--only", choices=groups)
     parser.add_argument("--fix", action="store_true", help="create missing agent skill symlinks")
+    parser.add_argument("-v", "--verbose", action="store_true", help="log commands and working directories")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        default=is_ci,
+        help="fail if any configured check is skipped (default: true in CI, false locally)",
+    )
+    parser.add_argument(
+        "--allow-skipped",
+        action="store_true",
+        help="allow skipped checks to exit 0 (overrides --strict)",
+    )
     args = parser.parse_args()
+
+    strict = args.strict and not args.allow_skipped
 
     if args.only in (None, "skills"):
         print("-- agent skills", flush=True)
@@ -141,9 +192,22 @@ def main() -> int:
             print("FAILED: agent skills", file=sys.stderr)
             return 1
 
+    if args.only in (None, "secrets"):
+        secret_problems = scan_tracked_files_for_secrets()
+        if secret_problems:
+            print("-- secret audit: FAILED", file=sys.stderr)
+            print("\n".join(secret_problems), file=sys.stderr)
+            return 1
+
     tokens = tool_tokens(python_interpreter())
     skipped: list[str] = []
-    for group, name, cwd, cmd in CHECKS + secret_scan():
+    skipped_required: list[str] = []
+
+    # Required project checks from CHECKS, followed by optional local secret scan
+    items = [(group, name, cwd, cmd, True) for group, name, cwd, cmd in CHECKS]
+    items += [(group, name, cwd, cmd, False) for group, name, cwd, cmd in secret_scan()]
+
+    for group, name, cwd, cmd, is_required in items:
         if args.only and group != args.only:
             continue
         workdir = ROOT / cwd
@@ -154,18 +218,40 @@ def main() -> int:
         elif "{yarn}" in cmd and not any((d / "node_modules").exists() for d in (workdir, ROOT)):
             reason = f"run `yarn install` in {cwd} first"
         elif None in parts:
-            reason = f"{cmd[parts.index(None)].strip('{}')} not installed"
+            missing_tool = cmd[parts.index(None)].strip("{}")
+            reason = f"{missing_tool} not installed"
         if reason:
-            print(f"-- {name}: SKIPPED ({reason})")
+            msg = f"-- {name}: SKIPPED ({reason})"
+            if strict and is_required:
+                print(msg, file=sys.stderr)
+                skipped_required.append(f"{name} ({reason})")
+            else:
+                print(msg)
             skipped.append(name)
             continue
-        print(f"-- {name}", flush=True)
+
         argv = [arg for part in parts for arg in part]
+        if args.verbose or is_ci:
+            rel_cwd = workdir.relative_to(ROOT) if workdir != ROOT else "."
+            print(f"-- {name} [{rel_cwd}]: {' '.join(argv)}", flush=True)
+        else:
+            print(f"-- {name}", flush=True)
+
         if subprocess.run(argv, cwd=workdir).returncode != 0:
             print(f"FAILED: {name}", file=sys.stderr)
             return 1
+
     if skipped:
-        print(f"verify: passed, but NOT COMPLETE. Skipped: {', '.join(skipped)}")
+        summary = f"verify: passed, but NOT COMPLETE. Skipped: {', '.join(skipped)}"
+        if strict and skipped_required:
+            print(summary, file=sys.stderr)
+            print(
+                f"FAILED: {len(skipped_required)} required check(s) skipped in strict/CI mode:\n  - "
+                + "\n  - ".join(skipped_required),
+                file=sys.stderr,
+            )
+            return 1
+        print(summary)
     else:
         print("verify: all checks passed")
     return 0

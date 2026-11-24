@@ -764,6 +764,8 @@ function renderBadge(text: string, key: number) {
     color = 'bg-rose-950/80 text-rose-400 border-rose-800/70';
   } else if (['warning', 'skip', 'skipped', 'pending', 'unverified'].some((w) => lower.includes(w))) {
     color = 'bg-amber-950/80 text-amber-400 border-amber-800/70';
+  } else if (['mcp tool', 'mcp', 'executing', 'proposal'].some((w) => lower.includes(w))) {
+    color = 'bg-cyan-950/90 text-cyan-300 border-cyan-500/80 shadow-[0_0_10px_rgba(6,182,212,0.25)]';
   } else if (['extension', 'restaurant', 'cafe', 'hotel', 'crm', 'cowork', 'cdp', 'uia'].some((w) => lower.includes(w)) || /^pl-\d+$/i.test(t)) {
     color = 'bg-cyan-950/80 text-cyan-300 border-cyan-800/70';
   }
@@ -781,7 +783,7 @@ function renderBadge(text: string, key: number) {
 function renderInline(str: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const tokenRegex =
-    /(!?\[[^\]]+\]\([^)]+\)|\[(?:Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)[^\]]*\]|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/gi;
+    /(!?\[[^\]]+\]\([^)]+\)|\[(?:MCP Tool|MCP|Executing|Proposal|Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)[^\]]*\]|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/gi;
 
   let lastIdx = 0;
   let match: RegExpExecArray | null;
@@ -818,7 +820,7 @@ function renderInline(str: string): React.ReactNode[] {
           </a>
         );
       }
-    } else if (/^\[(?:Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)/i.test(token)) {
+    } else if (/^\[(?:MCP Tool|MCP|Executing|Proposal|Extension|RESTAURANT|CAFE|HOTEL|SUCCESS|COMPLETED|ACTIVE|ABORTED|FAILED|WARNING|VERIFIED|PL-\d+)/i.test(token)) {
       nodes.push(renderBadge(token, key));
     } else if (token.startsWith('`') && token.endsWith('`')) {
       nodes.push(

@@ -1,0 +1,145 @@
+# Emiliano Claude Cowork Parity Evaluation Suite
+# Comprehensive benchmark suite testing autonomous desktop perception, non-activating browser automation,
+# PlaatoOS MCP tool integration, intent routing discipline, humanized anti-bot protocols, and CRM audit sync.
+name: claude-cowork
+description: Claude Cowork parity benchmark testing autonomous desktop workflows, MCP tools, browser bridge, and safety gates
+tasks:
+  # --------------------------------------------------------------------------
+  # 1. Intent Routing & Discipline (Positive Cowork Routing)
+  # --------------------------------------------------------------------------
+  - id: route-cowork-plaatoos-site
+    kind: route
+    goal: "cowork with me to update our PlaatoOS venue website"
+    expect: {route: direct}
+
+  - id: route-cowork-outreach-ig
+    kind: route
+    goal: "cowork on instagram outreach for 3 new restaurant prospects"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-cowork-email-prospecting
+    kind: route
+    goal: "run email lead enrichment and generate cold outreach drafts"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-cowork-crm-audit
+    kind: route
+    goal: "audit crm lead pipeline status and recent replies"
+    expect: {route: plaatoos-outreach}
+
+  - id: route-cowork-browser-dom
+    kind: route
+    goal: "automate browser check for our venue website"
+    expect: {route: direct}
+
+  - id: route-cowork-dms-batch
+    kind: route
+    goal: "send 5 dms to cafe prospects"
+    expect: {route: plaatoos-outreach}
+
+  # --------------------------------------------------------------------------
+  # 2. Negative Safety Boundaries & Lane Discipline
+  # --------------------------------------------------------------------------
+  - id: route-neg-general-chat
+    kind: route
+    goal: "What is the difference between a process and a thread in modern operating systems?"
+    expect: {route: direct}
+
+  - id: route-neg-git-diff
+    kind: route
+    goal: "git diff --stat and show recent commits"
+    expect: {route: harness}
+
+  - id: route-neg-run-unit-tests
+    kind: route
+    goal: "run pytest on the engine test suite in this repo"
+    expect: {route: harness}
+
+  - id: route-neg-code-refactor
+    kind: route
+    goal: "refactor the LLM client class in direct/client.py to use async locks"
+    expect: {route: harness}
+
+  - id: route-neg-casual-greeting
+    kind: route
+    goal: "Good morning Emiliano! How are you doing today?"
+    expect: {route: direct}
+
+  # --------------------------------------------------------------------------
+  # 3. Autonomous Cowork Workflow Execution (Dry Run & Verified State)
+  # --------------------------------------------------------------------------
+  - id: cowork-crm-status-inspection
+    kind: cowork
+    goal: "check crm status and pending restaurant leads"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "PlaatoOS CRM Live Status Report"
+        - "Total Tracked Leads"
+        - "restaurant"
+
+  - id: cowork-outreach-dryrun-single
+    kind: cowork
+    goal: "outreach 1 new client (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Outreach Batch Completed"
+        - "Batch Size"
+        - "1 leads processed"
+        - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-dryrun-cafe
+    kind: cowork
+    goal: "please outreach 2 cafe leads (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [CAFE]"
+        - "Outreach Batch Completed"
+        - "Remaining Pending in CRM"
+
+  - id: cowork-outreach-dryrun-hotel
+    kind: cowork
+    goal: "outreach 2 hotel leads (dry run)"
+    expect:
+      route: plaatoos-outreach
+      all_of:
+        - "Target Batch [HOTEL]"
+        - "Outreach Batch Completed"
+
+  - id: cowork-email-drafts-waterfall
+    kind: cowork
+    goal: "email leads progress and next batch"
+    expect:
+      route: plaatoos-outreach
+      any_of:
+        - "Cold Email Engine Activated"
+        - "No pending leads with pre-configured emails"
+        - "drafts prepared"
+
+  # --------------------------------------------------------------------------
+  # 4. Multi-Turn Format & Anti-Bot Protocol Adherence
+  # --------------------------------------------------------------------------
+  - id: format-3-bubble-cadence
+    kind: answer
+    goal: >-
+      Write an Instagram DM pitch for a restaurant called 'Bistro Warsaw' offering PlaatoOS table reservation software.
+      Follow strict Claude Cowork protocol: exactly 3 bubbles separated by '---', natural friendly Polish, no spam tone.
+    expect:
+      all_of:
+        - "---"
+        - "Bistro Warsaw"
+        - "PlaatoOS"
+        - "rezerwacj"
+
+  - id: format-json-telemetry-extraction
+    kind: answer
+    goal: >-
+      Format a tool execution receipt as JSON with keys "status" set to "ok", "tool_name" set to "propose_site_pages", and "duration_s" set to 2.14.
+      Reply with only the JSON object.
+    expect:
+      json:
+        status: "ok"
+        tool_name: "propose_site_pages"
+        duration_s: 2.14

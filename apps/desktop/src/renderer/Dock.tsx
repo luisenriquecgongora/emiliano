@@ -3,11 +3,17 @@ import {
   AlertTriangle,
   AudioWaveform,
   Blocks,
+  BookOpen,
+  Bot,
+  Boxes,
+  Briefcase,
+  Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Circle,
   CircleDot,
   Code,
@@ -22,16 +28,22 @@ import {
   Eye,
   FileText,
   FolderGit2,
+  FolderOpen,
   Globe,
+  Heart,
+  HelpCircle,
   History,
   Layers,
   Maximize2,
+  Megaphone,
   Menu,
   MessageSquare,
   Mic,
   MicOff,
   Minimize2,
+  Minus,
   Monitor,
+  Palette,
   PanelLeft,
   PanelLeftClose,
   Pin,
@@ -41,14 +53,23 @@ import {
   RefreshCw,
   Search,
   Send,
+  Shield,
   ShieldAlert,
+  ShieldCheck,
   SlidersHorizontal,
   Smartphone,
   Sparkles,
   Square,
+  Star,
+  Store,
   Tablet,
+  Target,
   Trash2,
+  TrendingUp,
   User,
+  Users,
+  Wine,
+  Workflow,
   Wrench,
   X,
   Zap,
@@ -56,13 +77,18 @@ import {
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, PhysicalSize } from '@tauri-apps/api/window';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useEngineSocket } from './engine';
 import { ParsedMessageContent } from './Artifacts';
+import ExecutionFluxModal from './ExecutionFluxModal';
+import ModesGalleryModal from './ModesGalleryModal';
+import ModelsGalleryModal from './ModelsGalleryModal';
 import {
   CHAT_WS_URL,
   ENGINE_HTTP_URL,
   ChatMessage,
   ChatSummary,
+  ToolCallRecord,
   DownloadStatus,
   ContextMetrics,
   FIT_LABELS,
@@ -74,11 +100,16 @@ import {
   ModelRecommendations,
   PermissionRequest,
   ProjectItem,
+  SPECIALIST_MODES,
+  SpecialistModeDef,
   ArtifactItem,
   projectsApi,
   artifactsApi,
   ServiceConnection,
+  ServiceVenue,
   SkillItem,
+  StagedProposal,
+  stagedApi,
   chatsApi,
   connectionsApi,
   directModelGroups,
@@ -109,6 +140,7 @@ export default function Dock() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<Mode>('auto');
+  const [showModesGallery, setShowModesGallery] = useState(false);
   const [model, setModel] = useState<ModelChoice>({ provider: '', model: '' });
   const [modelGroups, setModelGroups] = useState<ModelProvider[]>([]);
   const [localModels, setLocalModels] = useState<ModelRecommendations | null>(null);
@@ -140,6 +172,7 @@ export default function Dock() {
   const [loadingArtifacts, setLoadingArtifacts] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [previewArtifact, setPreviewArtifact] = useState<ArtifactItem | null>(null);
+  const [selectedFluxMessage, setSelectedFluxMessage] = useState<ChatMessage | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showContextDetails, setShowContextDetails] = useState(false);
   const [browserStatus, setBrowserStatus] = useState<{ connected: boolean; extension_info: any }>({
@@ -275,6 +308,26 @@ export default function Dock() {
     });
     setShowWindows(false);
   }, [refreshSkills, refreshChats, refreshProjects, refreshArtifacts]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        handleToggleMaximize();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+        if (activeTag === 'textarea' || activeTag === 'input') {
+          return;
+        }
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleSidebar]);
 
   const openChatsSidebar = useCallback(() => {
     setSidebarTab('chats');
@@ -493,6 +546,15 @@ export default function Dock() {
             artifacts: [...(m.artifacts ?? []), event as any],
           }));
           break;
+        case 'tool_call':
+          updatePending((m) => {
+            const existing = m.tool_calls || [];
+            return {
+              ...m,
+              tool_calls: [...existing, event as any],
+            };
+          });
+          break;
         case 'permission_request':
           setPermission(event as PermissionRequest);
           break;
@@ -501,7 +563,13 @@ export default function Dock() {
           break;
         case 'done':
           setPermission(null);
-          updatePending((m) => ({ ...event.message, reasoning: m.reasoning, route: m.route }));
+          updatePending((m) => ({
+            ...event.message,
+            reasoning: m.reasoning,
+            route: m.route,
+            metrics: event.metrics || event.message?.metrics,
+            tool_calls: event.tool_calls || event.message?.tool_calls || m.tool_calls,
+          }));
           setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
           if (event.chat?.id) refreshMetrics(event.chat.id);
           refreshArtifacts();
@@ -509,7 +577,13 @@ export default function Dock() {
           break;
         case 'cancelled':
           setPermission(null);
-          updatePending((m) => ({ ...m, id: `stopped-${Date.now()}`, pending: false, content: `${m.content}\n\n[stopped]` }));
+          updatePending((m) => ({
+            ...m,
+            id: `stopped-${Date.now()}`,
+            pending: false,
+            content: `${m.content}\n\n[stopped]`,
+            metrics: event.metrics,
+          }));
           setBusy(false);
           break;
         case 'error':
@@ -569,6 +643,7 @@ export default function Dock() {
     setError(null);
     setBusy(false);
     setDraft('');
+    setMode('auto');
   };
 
   const newChat = () => {
@@ -678,6 +753,8 @@ export default function Dock() {
             : `${c.title} connected, but its tools did not load: ${r.error}`,
         );
       }
+      const { connections } = await connectionsApi.list();
+      setConnections(connections);
     } catch (e) {
       setConnectNote(null);
       setError(String(e));
@@ -686,6 +763,123 @@ export default function Dock() {
       refreshModels();
     }
   };
+
+  const connectService = async (c: ServiceConnection) => {
+    setConnecting(c.service);
+    setConnectNote(`Approve connection in browser: select your venue (Taki Taki Katowice, Vibra, or Virgen Latina).`);
+    try {
+      const r = await connectionsApi.connect(c.service);
+      setConnectNote(
+        r.ok
+          ? `${c.title} connected: ${r.tools} tools available to the models.`
+          : `${c.title} connected, but its tools did not load: ${r.error}`,
+      );
+      const { connections } = await connectionsApi.list();
+      setConnections(connections);
+    } catch (e) {
+      setConnectNote(null);
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  };
+
+  const handleSwitchVenue = useCallback(async (service: string, businessId: string) => {
+    setConnecting(service);
+    try {
+      const res = await connectionsApi.switchVenue(service, businessId);
+      if (res.ok) {
+        setConnectNote(`Switched venue to ${res.active_venue}.`);
+        const { connections } = await connectionsApi.list();
+        setConnections(connections);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setConnecting(null);
+      refreshModels();
+    }
+  }, [refreshModels]);
+
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      win.isMaximized().then(setIsMaximized).catch(() => {});
+      const unlistenPromise = win.onResized(async () => {
+        const max = await win.isMaximized().catch(() => false);
+        setIsMaximized(max);
+      });
+      return () => {
+        unlistenPromise.then((fn) => fn());
+      };
+    } catch {}
+  }, []);
+
+  const handleToggleMaximize = useCallback(async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      const isMax = await win.isMaximized().catch(() => false);
+      if (isMax) {
+        await win.unmaximize();
+        setIsMaximized(false);
+      } else {
+        await win.maximize();
+        setIsMaximized(true);
+      }
+    } catch (err) {
+      console.warn('[Dock] native maximize failed:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.toggleMaximize();
+        const max = await win.isMaximized().catch(() => false);
+        setIsMaximized(max);
+      } catch (e) {
+        console.error('[Dock] fallback toggle failed:', e);
+      }
+    }
+  }, []);
+
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = useState<boolean>(() => {
+    const saved = localStorage.getItem('emiliano_always_on_top');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const applyAlwaysOnTop = useCallback(async (enabled: boolean) => {
+    localStorage.setItem('emiliano_always_on_top', String(enabled));
+    if (isTauri()) {
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.setAlwaysOnTop(enabled);
+      } catch (err) {
+        console.warn('[Dock] tauri setAlwaysOnTop error:', err);
+      }
+    }
+    await coworkApi.setAlwaysOnTop(enabled).catch(() => {});
+  }, []);
+
+  const handleToggleAlwaysOnTop = useCallback(async () => {
+    const next = !isAlwaysOnTop;
+    setIsAlwaysOnTop(next);
+    await applyAlwaysOnTop(next);
+  }, [isAlwaysOnTop, applyAlwaysOnTop]);
+
+  // Synchronize initial Always-On-Top preference immediately upon mounting
+  useEffect(() => {
+    applyAlwaysOnTop(isAlwaysOnTop);
+  }, []);
+
+  const handleOpenMcp = useCallback(() => {
+    setSidebarOpen(true);
+    setSidebarTab('connects');
+    if (window.innerWidth < 480) {
+      coworkApi.resizeHud(940).catch(() => {});
+    }
+  }, []);
 
   // The models to pick from: refreshed whenever the engine (re)connects, e.g. after `ollama pull`
   useEffect(() => {
@@ -770,81 +964,84 @@ export default function Dock() {
   };
 
   return (
-    <div className="w-full h-full p-2.5 flex flex-col relative select-none">
+    <div className={`w-full h-full flex flex-col relative select-none ${isMaximized ? 'p-0' : 'p-2.5'}`}>
       {/* ========================================================================= */}
-      {/* 8-Direction Frameless Window Border Drag Handles (Claude Cowork Style)    */}
+      {/* 8-Direction Frameless Window Border Drag Handles (Subtle Native Style)     */}
       {/* ========================================================================= */}
-      {/* 1. Left Border (West) */}
-      <div
-        className="absolute left-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag left border to resize horizontally"
-        onMouseDown={(e) => handleStartResize(e, 'West')}
-      >
-        <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-      </div>
+      {!isMaximized && (
+        <>
+          {/* 1. Left Border (West) */}
+          <div
+            className="absolute left-0 top-3 bottom-3 w-1.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
+            title="Drag left border to resize horizontally"
+            onMouseDown={(e) => handleStartResize(e, 'West')}
+          />
 
-      {/* 2. Right Border (East) */}
-      <div
-        className="absolute right-0 top-3 bottom-3 w-2.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag right border to resize horizontally"
-        onMouseDown={(e) => handleStartResize(e, 'East')}
-      >
-        <div className="w-0.5 h-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-y-125 transition-all" />
-      </div>
+          {/* 2. Right Border (East) */}
+          <div
+            className="absolute right-0 top-3 bottom-3 w-1.5 cursor-ew-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
+            title="Drag right border to resize horizontally"
+            onMouseDown={(e) => handleStartResize(e, 'East')}
+          />
 
-      {/* 3. Top Border (North) */}
-      <div
-        className="absolute top-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag top border to resize vertically"
-        onMouseDown={(e) => handleStartResize(e, 'North')}
-      >
-        <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-      </div>
+          {/* 3. Top Border (North) */}
+          <div
+            className="absolute top-0 left-3 right-3 h-1.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
+            title="Drag top border to resize vertically"
+            onMouseDown={(e) => handleStartResize(e, 'North')}
+          />
 
-      {/* 4. Bottom Border (South) */}
-      <div
-        className="absolute bottom-0 left-3 right-3 h-2.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50 flex items-center justify-center group"
-        title="Drag bottom border to resize vertically"
-        onMouseDown={(e) => handleStartResize(e, 'South')}
-      >
-        <div className="h-0.5 w-10 rounded-full bg-slate-600/30 group-hover:bg-cyan-400 group-hover:scale-x-125 transition-all" />
-      </div>
+          {/* 4. Bottom Border (South) */}
+          <div
+            className="absolute bottom-0 left-3 right-3 h-1.5 cursor-ns-resize hover:bg-cyan-500/20 active:bg-cyan-500/50 transition-colors z-50"
+            title="Drag bottom border to resize vertically"
+            onMouseDown={(e) => handleStartResize(e, 'South')}
+          />
 
-      {/* 5. Top-Left Corner (NorthWest) */}
-      <div
-        className="absolute top-0 left-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'NorthWest')}
-      />
+          {/* 5. Top-Left Corner (NorthWest) */}
+          <div
+            className="absolute top-0 left-0 w-3 h-3 cursor-nwse-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-tl-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'NorthWest')}
+          />
 
-      {/* 6. Top-Right Corner (NorthEast) */}
-      <div
-        className="absolute top-0 right-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'NorthEast')}
-      />
+          {/* 6. Top-Right Corner (NorthEast) */}
+          <div
+            className="absolute top-0 right-0 w-3 h-3 cursor-nesw-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-tr-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'NorthEast')}
+          />
 
-      {/* 7. Bottom-Left Corner (SouthWest) */}
-      <div
-        className="absolute bottom-0 left-0 w-3.5 h-3.5 cursor-nesw-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'SouthWest')}
-      />
+          {/* 7. Bottom-Left Corner (SouthWest) */}
+          <div
+            className="absolute bottom-0 left-0 w-3 h-3 cursor-nesw-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-bl-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'SouthWest')}
+          />
 
-      {/* 8. Bottom-Right Corner (SouthEast) */}
-      <div
-        className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize hover:bg-cyan-400/40 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
-        title="Drag corner to resize diagonally"
-        onMouseDown={(e) => handleStartResize(e, 'SouthEast')}
-      />
+          {/* 8. Bottom-Right Corner (SouthEast) */}
+          <div
+            className="absolute bottom-0 right-0 w-3 h-3 cursor-nwse-resize hover:bg-cyan-400/30 active:bg-cyan-400 rounded-br-xl transition-colors z-50"
+            title="Drag corner to resize diagonally"
+            onMouseDown={(e) => handleStartResize(e, 'SouthEast')}
+          />
+        </>
+      )}
 
       <div
-        className={`glass-panel rounded-2xl p-4 flex-1 flex flex-col overflow-hidden relative ${
-          isResizing ? 'pointer-events-none select-none' : ''
-        }`}
+        className={`glass-panel p-4 flex-1 flex flex-col overflow-hidden relative ${
+          isMaximized ? 'rounded-none border-0' : 'rounded-2xl'
+        } ${isResizing ? 'pointer-events-none select-none' : ''}`}
       >
         <Header
+          isMaximized={isMaximized}
+          onToggleMaximize={handleToggleMaximize}
+          isAlwaysOnTop={isAlwaysOnTop}
+          onToggleAlwaysOnTop={handleToggleAlwaysOnTop}
           connected={!!ws}
+          plaatoosConnection={connections.find((c) => c.service === 'plaatoos')}
+          onOpenMcp={handleOpenMcp}
+          onSwitchVenue={handleSwitchVenue}
           browserStatus={browserStatus}
           historyOpen={sidebarOpen && sidebarTab === 'chats'}
           windowsOpen={showWindows}
@@ -911,22 +1108,38 @@ export default function Dock() {
           </div>
         )}
 
-        {/* Clear, unmissable banner when the Chrome Companion Extension is disconnected */}
-        {!browserStatus.connected && (pinnedWindow?.title?.toLowerCase().includes('chrome') || sidebarTab === 'skills') && (
+        {/* Clear, unmissable banner when the Browser Companion Extension is disconnected */}
+        {!browserStatus.connected && (pinnedWindow?.title?.toLowerCase().includes('chrome') || pinnedWindow?.title?.toLowerCase().includes('firefox') || sidebarTab === 'skills') && (
           <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-rose-950/80 border border-rose-700/80 flex items-center justify-between text-[11px] text-rose-200 shadow-md">
             <div className="flex items-center space-x-2 truncate">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 animate-pulse" />
               <div className="truncate">
-                <span className="font-semibold text-rose-100">Chrome Extension Offline:</span>{' '}
-                <span className="text-rose-300">Background DOM automation & receipts paused.</span>
+                <span className="font-semibold text-rose-100">Browser Companion Offline:</span>{' '}
+                <span className="text-rose-300">Chrome/Firefox background automation paused.</span>
               </div>
             </div>
-            <button
-              onClick={handleOpenBrowserSetup}
-              className="px-2 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-[10px] text-white font-medium shrink-0 ml-2 border border-rose-600/60 shadow-xs"
-            >
-              Setup Guide
-            </button>
+            <div className="flex items-center space-x-1 shrink-0 ml-2">
+              <button
+                onClick={() => coworkApi.revealExtensionFolder('chrome')}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-cyan-300 font-medium border border-slate-700 shadow-xs"
+                title="Reveal Chrome extension binaries in Windows Explorer"
+              >
+                Reveal Chrome
+              </button>
+              <button
+                onClick={() => coworkApi.revealExtensionFolder('firefox')}
+                className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-amber-300 font-medium border border-slate-700 shadow-xs"
+                title="Reveal Firefox extension binaries in Windows Explorer"
+              >
+                Reveal Firefox
+              </button>
+              <button
+                onClick={handleOpenBrowserSetup}
+                className="px-2 py-0.5 rounded bg-rose-900 hover:bg-rose-800 text-[10px] text-white font-medium border border-rose-600/60 shadow-xs"
+              >
+                Setup
+              </button>
+            </div>
           </div>
         )}
 
@@ -979,6 +1192,8 @@ export default function Dock() {
             onRefreshSkills={refreshSkills}
             onRefreshChats={refreshChats}
             onToggleConnection={toggleConnection}
+            onConnectService={connectService}
+            onSwitchVenue={handleSwitchVenue}
             onActionClick={handleQuickAction}
             onClose={() => setSidebarOpen(false)}
             isOverlay={true}
@@ -993,6 +1208,8 @@ export default function Dock() {
             loadingBrowser={loadingBrowser}
             onRefreshBrowserStatus={refreshBrowserStatus}
             onDeleteAllChats={deleteAllChats}
+            onOpenModesGallery={() => setShowModesGallery(true)}
+            onOpenModels={() => setShowModels(true)}
           />
         )}
 
@@ -1026,7 +1243,7 @@ export default function Dock() {
                 <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${showContextDetails ? 'rotate-180 text-cyan-400' : ''}`} />
               </div>
               <div className="flex items-center space-x-1.5">
-                {messages.length >= 4 && (
+                {messages.length >= 2 && (
                   <button
                     onClick={handleCompact}
                     disabled={compacting || busy}
@@ -1195,6 +1412,8 @@ export default function Dock() {
               onRefreshSkills={refreshSkills}
               onRefreshChats={refreshChats}
               onToggleConnection={toggleConnection}
+              onConnectService={connectService}
+              onSwitchVenue={handleSwitchVenue}
               onActionClick={handleQuickAction}
               onClose={() => setSidebarOpen(false)}
               isOverlay={false}
@@ -1209,6 +1428,8 @@ export default function Dock() {
               loadingBrowser={loadingBrowser}
               onRefreshBrowserStatus={refreshBrowserStatus}
               onDeleteAllChats={deleteAllChats}
+              onOpenModesGallery={() => setShowModesGallery(true)}
+              onOpenModels={() => setShowModels(true)}
             />
           )}
 
@@ -1217,29 +1438,40 @@ export default function Dock() {
               /* Claude-style centered Welcome & Hero Canvas */
               <div className="flex-1 flex flex-col items-center justify-center px-4 max-w-xl mx-auto w-full select-none">
                 <div className="mb-4 flex items-center space-x-2">
-                  <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowModels((open) => {
+                        if (!open) refreshModels();
+                        return !open;
+                      });
+                    }}
+                    title="Click to view and configure local models, memory, and engine status"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-[11px] text-slate-300 hover:text-white shadow-xs cursor-pointer transition-all"
+                  >
                     <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                     <span>Local Engine · Connected</span>
-                  </div>
+                    <Cpu className="w-3 h-3 text-slate-400 ml-0.5" />
+                  </button>
 
                   {browserStatus.connected ? (
                     <div
-                      title={`Chrome Companion Extension is connected (v${browserStatus.extension_info?.version || '1.0.0'}).`}
+                      title={`Browser Companion is connected (${browserStatus.extension_info?.browser || 'Chrome'} v${browserStatus.extension_info?.version || '1.0.0'}).`}
                       className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-950/70 border border-emerald-700/60 text-[11px] text-emerald-300 shadow-xs"
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                       <Globe className="w-3 h-3 text-emerald-400" />
-                      <span>Chrome Ext Active</span>
+                      <span>{browserStatus.extension_info?.browser?.toLowerCase() === 'firefox' ? 'Firefox Ext Active' : 'Chrome Ext Active'}</span>
                     </div>
                   ) : (
                     <button
                       onClick={handleOpenBrowserSetup}
-                      title="Chrome Companion Extension is disconnected. Click to open setup."
+                      title="Browser Companion Extension is disconnected. Click to open Chrome/Firefox setup."
                       className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600/70 text-[11px] text-rose-300 hover:bg-rose-900/80 transition-all shadow-xs cursor-pointer animate-pulse"
                     >
                       <span className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
                       <Globe className="w-3 h-3 text-rose-400" />
-                      <span>Chrome Disconnected</span>
+                      <span>Browser Offline</span>
                       <AlertTriangle className="w-3 h-3 text-rose-400" />
                     </button>
                   )}
@@ -1256,6 +1488,7 @@ export default function Dock() {
                     onDraft={setDraft}
                     mode={mode}
                     onMode={setMode}
+                    onOpenModesGallery={() => setShowModesGallery(true)}
                     model={model}
                     modelGroups={modelGroups}
                     localModels={localModels?.models ?? []}
@@ -1285,7 +1518,11 @@ export default function Dock() {
               <>
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1">
                   {messages.map((m) => (
-                    <MessageBubble key={m.id} message={m} />
+                    <MessageBubble
+                      key={m.id}
+                      message={m}
+                      onOpenFlux={(msg) => setSelectedFluxMessage(msg)}
+                    />
                   ))}
                   <div ref={endRef} />
                 </div>
@@ -1301,26 +1538,12 @@ export default function Dock() {
 
                 {permission && <PermissionCard request={permission} onAnswer={answerPermission} />}
 
-                {showModels && (
-                  <ModelsPanel
-                    data={localModels}
-                    busyModel={modelAction}
-                    onRefresh={refreshModels}
-                    onToggleLoaded={toggleLoaded}
-                    onUnloadAll={unloadAllLoaded}
-                    connections={connections}
-                    connecting={connecting}
-                    connectNote={connectNote}
-                    onToggleConnection={toggleConnection}
-                    onClose={() => setShowModels(false)}
-                  />
-                )}
-
                 <Composer
                   draft={draft}
                   onDraft={setDraft}
                   mode={mode}
                   onMode={setMode}
+                  onOpenModesGallery={() => setShowModesGallery(true)}
                   model={model}
                   modelGroups={modelGroups}
                   localModels={localModels?.models ?? []}
@@ -1351,6 +1574,40 @@ export default function Dock() {
           <ArtifactPreviewModal
             artifact={previewArtifact}
             onClose={() => setPreviewArtifact(null)}
+          />
+        )}
+
+        {selectedFluxMessage && (
+          <ExecutionFluxModal
+            message={selectedFluxMessage}
+            onClose={() => setSelectedFluxMessage(null)}
+          />
+        )}
+
+        {showModesGallery && (
+          <ModesGalleryModal
+            isOpen={showModesGallery}
+            activeMode={mode}
+            onSelectMode={setMode}
+            onClose={() => setShowModesGallery(false)}
+          />
+        )}
+
+        {showModels && (
+          <ModelsGalleryModal
+            isOpen={showModels}
+            data={localModels}
+            currentModel={model}
+            busyModel={modelAction}
+            onRefresh={refreshModels}
+            onSelectModel={(choice) => {
+              setModel(choice);
+              setShowModels(false);
+            }}
+            onToggleLoaded={toggleLoaded}
+            onUnloadAll={unloadAllLoaded}
+            onOpenCustomizeMcp={handleOpenMcp}
+            onClose={() => setShowModels(false)}
           />
         )}
       </div>
@@ -1407,7 +1664,14 @@ function EmilianoLogo({ connected = true, size = 28 }: { connected?: boolean; si
 }
 
 function Header(props: {
+  isMaximized?: boolean;
+  onToggleMaximize?: () => void;
+  isAlwaysOnTop?: boolean;
+  onToggleAlwaysOnTop?: () => void;
   connected: boolean;
+  plaatoosConnection?: ServiceConnection;
+  onOpenMcp: () => void;
+  onSwitchVenue?: (service: string, business_id: string) => void;
   browserStatus: { connected: boolean; extension_info: any };
   historyOpen: boolean;
   windowsOpen: boolean;
@@ -1422,51 +1686,95 @@ function Header(props: {
   onNewChat: () => void;
   onOpenBrowserSetup: () => void;
 }) {
+  const [showVenueMenu, setShowVenueMenu] = useState(false);
   const iconButton =
     'text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg p-1.5 transition-colors disabled:opacity-40';
+
+  const defaultVenues: ServiceVenue[] = [
+    {
+      business_id: '69ca4850715529f18d18727a',
+      name: 'Taki Taki Katowice',
+      slug: 'taki-taki-katowice',
+      icon: '🍸',
+      active: props.plaatoosConnection?.business_id === '69ca4850715529f18d18727a' || !props.plaatoosConnection?.business_id,
+    },
+    {
+      business_id: '69ca4852715529f18d1872a6',
+      name: 'La Estación del Verano',
+      slug: 'la-estacion-del-verano',
+      icon: '☀️',
+      active: props.plaatoosConnection?.business_id === '69ca4852715529f18d1872a6',
+    },
+  ];
+  const activeVenues = props.plaatoosConnection?.venues?.length ? props.plaatoosConnection.venues : defaultVenues;
+
+  const handleMinimize = async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      await win.minimize();
+    } catch (err) {
+      console.warn('[Dock] minimize error, falling back to hide:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        await win.hide();
+      } catch (e) {
+        console.error('[Dock] hide fallback failed:', e);
+      }
+    }
+  };
+
+  const handleMaximize = async () => {
+    if (!isTauri()) return;
+    try {
+      const win = getCurrentWebviewWindow();
+      const isMax = await win.isMaximized().catch(() => false);
+      if (isMax) {
+        await win.unmaximize();
+        return;
+      }
+      await win.toggleMaximize();
+    } catch (err) {
+      console.warn('[Dock] native maximize failed, toggling dock width:', err);
+      try {
+        const win = getCurrentWebviewWindow();
+        const curSize = await win.outerSize();
+        const scale = window.devicePixelRatio || 1;
+        if (curSize.width > 550 * scale) {
+          await win.setSize(new PhysicalSize(Math.round(480 * scale), curSize.height));
+        } else {
+          await win.setSize(new PhysicalSize(Math.round(880 * scale), curSize.height));
+        }
+      } catch (e) {
+        console.error('[Dock] size toggle failed:', e);
+      }
+    }
+  };
+
   return (
     // data-tauri-drag-region: the window is frameless, so the header moves it
     <div
       data-tauri-drag-region
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('button, input, select, textarea, [role="button"]')) {
+          props.onToggleMaximize?.();
+        }
+      }}
       className="flex items-center justify-between pb-3 border-b border-slate-800/80 cursor-move"
     >
-      {/* Left controls: Claude-style sidebar toggle, split layout & history */}
-      <div data-tauri-drag-region className="flex items-center space-x-1.5">
+      {/* Left controls: SOTA single sidebar toggle & brand */}
+      <div data-tauri-drag-region className="flex items-center space-x-2">
         <button
-          title="Toggle Left Sidebar"
+          title={props.sidebarOpen ? "Hide left sidebar (Ctrl+B)" : "Show left sidebar (Ctrl+B)"}
           onClick={props.onToggleSidebar}
-          className={`${iconButton} ${props.sidebarOpen ? 'text-cyan-300 bg-slate-800/80' : ''}`}
+          className={`${iconButton} ${props.sidebarOpen ? 'text-cyan-300 bg-slate-800/80 shadow-xs' : ''}`}
         >
           <PanelLeft className="w-4 h-4" />
         </button>
 
-        <button
-          title="Toggle Split / HUD Columns"
-          onClick={props.onCycleSize}
-          className={`${iconButton}`}
-        >
-          <Columns className="w-4 h-4" />
-        </button>
-
-        <div className="flex items-center space-x-0.5 text-slate-500">
-          <button
-            title="Conversations & History"
-            onClick={props.onToggleHistory}
-            className="p-1 hover:text-slate-300 rounded hover:bg-slate-800/50"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <button
-            title="Forward"
-            className="p-1 text-slate-600 cursor-not-allowed rounded"
-            disabled
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
         {/* Brand Logo & Name */}
-        <div data-tauri-drag-region className="flex items-center space-x-2 pl-2">
+        <div data-tauri-drag-region className="flex items-center space-x-2 pl-1">
           <EmilianoLogo connected={props.connected} size={24} />
           <div data-tauri-drag-region className="flex items-center space-x-1.5">
             <span
@@ -1483,65 +1791,136 @@ function Header(props: {
       </div>
 
       {/* Right controls */}
-      <div className="flex items-center space-x-1.5">
-        {/* Chrome Extension Live Connection Indicator: Unmistakably clear when disconnected */}
+      <div className="flex items-center space-x-1.5 shrink-0">
+        {/* PlaatoOS MCP Connection & Venue Pill / Switcher */}
+        {props.plaatoosConnection?.connected ? (
+          <div className="relative shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowVenueMenu((prev) => !prev);
+              }}
+              title={`PlaatoOS MCP Connected: ${props.plaatoosConnection.tenant || 'Active Venue'}. Click to switch venue or view tools.`}
+              className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-cyan-950/80 border border-cyan-600/60 text-[10px] text-cyan-200 font-mono hover:bg-cyan-900/80 transition-colors cursor-pointer shrink-0 max-w-[185px]"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_5px_#22d3ee] shrink-0" />
+              <Blocks className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span className="font-semibold truncate">{props.plaatoosConnection.tenant || 'PlaatoOS'}</span>
+              <ChevronDown className={`w-2.5 h-2.5 text-cyan-400 shrink-0 transition-transform ${showVenueMenu ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Venue Switcher Popover Dropdown */}
+            {showVenueMenu && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-60 bg-slate-900/95 backdrop-blur-md border border-cyan-500/40 rounded-xl shadow-2xl p-1.5 z-50 text-slate-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-2 py-1 text-[10px] uppercase font-bold tracking-wider text-slate-400 border-b border-slate-800 mb-1">
+                  <span>Switch Venue Tenant</span>
+                  <span className="text-[9px] text-cyan-400 font-mono">PlaatoOS</span>
+                </div>
+                <div className="space-y-0.5">
+                  {activeVenues.map((venue) => {
+                    const isActive = venue.active || venue.business_id === props.plaatoosConnection?.business_id;
+                    return (
+                      <button
+                        key={venue.business_id}
+                        onClick={() => {
+                          props.onSwitchVenue?.('plaatoos', venue.business_id);
+                          setShowVenueMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-cyan-950/80 text-cyan-200 font-semibold border border-cyan-700/60'
+                            : 'hover:bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 truncate">
+                          <span className="text-sm shrink-0">{venue.icon || (venue.name.includes('Verano') ? '☀️' : '🍸')}</span>
+                          <div className="truncate">
+                            <div className="truncate">{venue.name}</div>
+                            <div className="text-[9px] text-slate-400 font-mono">
+                              {venue.name.includes('Verano') ? 'Sandbox / Demo' : 'Production'}
+                            </div>
+                          </div>
+                        </div>
+                        {isActive && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0 ml-1.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-slate-800 mt-1 pt-1">
+                  <button
+                    onClick={() => {
+                      setShowVenueMenu(false);
+                      props.onOpenMcp();
+                    }}
+                    className="w-full flex items-center justify-center space-x-1 px-2 py-1 text-[10px] text-slate-400 hover:text-cyan-300 transition-colors"
+                  >
+                    <SlidersHorizontal className="w-3 h-3" />
+                    <span>Manage MCP Protocols & Tools</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={props.onOpenMcp}
+            title="PlaatoOS MCP Disconnected. Click to connect PlaatoOS via OAuth."
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-400 font-mono hover:bg-slate-700 hover:text-slate-200 transition-colors cursor-pointer shrink-0"
+          >
+            <Blocks className="w-3 h-3 text-slate-400 shrink-0" />
+            {props.currentWidth >= 520 && <span>Connect PlaatoOS</span>}
+          </button>
+        )}
+
+        {/* Browser Extension Live Connection Indicator */}
         {props.browserStatus?.connected ? (
           <button
             onClick={props.onOpenBrowserSetup}
-            title={`Chrome Companion Connected${
-              props.browserStatus.extension_info?.version ? ` (v${props.browserStatus.extension_info.version})` : ''
-            }. Background DOM automation active. Click to view companion.`}
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/50 text-[10px] text-emerald-300 font-mono hover:bg-emerald-900/60 transition-colors cursor-pointer"
+            title={`Browser Companion Connected (${props.browserStatus.extension_info?.browser || 'Chrome'}${
+              props.browserStatus.extension_info?.version ? ` v${props.browserStatus.extension_info.version}` : ''
+            }). Background DOM automation active. Click to view companion.`}
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/50 text-[10px] text-emerald-300 font-mono hover:bg-emerald-900/60 transition-colors cursor-pointer shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_#34d399]" />
             <Globe className="w-3 h-3 text-emerald-400 shrink-0" />
-            <span className="font-medium">{props.currentWidth >= 620 ? 'Chrome Ext' : 'Ext'}</span>
+            {props.currentWidth >= 520 && (
+              <span className="font-medium">
+                {props.currentWidth >= 620 ? (props.browserStatus.extension_info?.browser?.toLowerCase() === 'firefox' ? 'Firefox Ext' : 'Chrome Ext') : 'Ext'}
+              </span>
+            )}
           </button>
         ) : (
           <button
             onClick={props.onOpenBrowserSetup}
-            title="Chrome Companion Extension is DISCONNECTED! Click to open companion setup."
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-rose-950/90 border border-rose-500/80 text-[10px] text-rose-300 font-mono font-bold animate-pulse hover:bg-rose-900 transition-all cursor-pointer shadow-[0_0_8px_rgba(244,63,94,0.35)]"
+            title="Browser Companion Extension is DISCONNECTED! Click to open Chrome/Firefox companion setup."
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-rose-950/90 border border-rose-500/80 text-[10px] text-rose-300 font-mono font-bold animate-pulse hover:bg-rose-900 transition-all cursor-pointer shadow-[0_0_8px_rgba(244,63,94,0.35)] shrink-0"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-[0_0_6px_#f43f5e]" />
             <Globe className="w-3 h-3 text-rose-400 shrink-0" />
-            <span>{props.currentWidth >= 500 ? 'Chrome Offline' : 'Offline'}</span>
+            {props.currentWidth >= 520 && <span>{props.currentWidth >= 620 ? 'Browser Offline' : 'Offline'}</span>}
             <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
           </button>
         )}
-        {/* HUD Width Preset Badge */}
-        <button
-          title={`HUD Width: ${props.currentWidth}px. Click to cycle (420px | 640px | 940px)`}
-          onClick={props.onCycleSize}
-          className={`${iconButton} text-[10px] font-mono flex items-center space-x-1 px-1.5 py-1`}
-        >
-          {props.currentWidth >= 550 ? (
-            <Minimize2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          ) : (
-            <Maximize2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-          )}
-          <span className="text-[10px] text-slate-300">
-            {props.currentWidth < 350 ? '420' : props.currentWidth < 550 ? '640' : '940'}
-          </span>
-        </button>
-
-        {/* Window Pinning */}
+        {/* Target Window Attachment */}
         <button
           title={
             props.pinnedTitle
-              ? `Pinned to: ${props.pinnedTitle}`
-              : 'Pin to target desktop window (e.g. Chrome, Excel)'
+              ? `Attached to window: ${props.pinnedTitle} (Click to change or detach)`
+              : 'Attach to target window (e.g. Chrome, Excel)'
           }
           onClick={props.onToggleWindows}
-          className={`${iconButton} ${
+          className={`${iconButton} shrink-0 ${
             props.pinnedTitle
-              ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60'
+              ? 'text-cyan-400 bg-cyan-950/80 border border-cyan-700/60 shadow-xs'
               : props.windowsOpen
                 ? 'bg-slate-700 text-white'
                 : ''
           }`}
         >
-          {props.pinnedTitle ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+          <Crosshair className="w-4 h-4" />
         </button>
 
         {/* New Chat */}
@@ -1549,21 +1928,188 @@ function Header(props: {
           title="New chat"
           onClick={props.onNewChat}
           disabled={props.busy}
-          className={iconButton}
+          className={`${iconButton} shrink-0`}
         >
           <Plus className="w-4 h-4" />
         </button>
 
         {isTauri() && (
-          <button
-            title="Quit Emiliano"
-            onClick={() => getCurrentWindow().close()}
-            className={iconButton}
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div data-tauri-drag-region="false" className="flex items-center space-x-0.5 ml-1 border-l border-slate-800/80 pl-1.5 shrink-0">
+            <button
+              title={props.isAlwaysOnTop ? "Always on top is ON (Click to unpin from top so other apps can overlap)" : "Always on top is OFF (Click to pin Emiliano on top of other windows)"}
+              onClick={props.onToggleAlwaysOnTop}
+              className={`rounded-md p-1.5 transition-colors shrink-0 ${
+                props.isAlwaysOnTop ? 'text-cyan-300 hover:text-white hover:bg-slate-800/80 bg-cyan-950/50 border border-cyan-800/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/80'
+              }`}
+            >
+              {props.isAlwaysOnTop ? (
+                <Pin className="w-3.5 h-3.5 text-cyan-300" />
+              ) : (
+                <PinOff className="w-3.5 h-3.5 text-slate-400" />
+              )}
+            </button>
+            <button
+              title="Minimize to taskbar"
+              onClick={handleMinimize}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors shrink-0"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              title={props.isMaximized ? "Restore down" : "Maximize window"}
+              onClick={props.onToggleMaximize}
+              className="text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-md p-1.5 transition-colors shrink-0"
+            >
+              {props.isMaximized ? (
+                <Minimize2 className="w-3.5 h-3.5 text-cyan-300" />
+              ) : (
+                <Square className="w-3 h-3" />
+              )}
+            </button>
+            <button
+              title="Close Emiliano"
+              onClick={async () => {
+                try {
+                  await getCurrentWebviewWindow().close();
+                } catch {
+                  getCurrentWindow().close();
+                }
+              }}
+              className="text-slate-400 hover:text-white hover:bg-rose-600/80 rounded-md p-1.5 transition-colors shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StagedProposalsCard() {
+  const [staged, setStaged] = useState<StagedProposal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  const fetchStaged = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await stagedApi.list('pending');
+      setStaged(res.staged_actions || []);
+    } catch {
+      setStaged([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStaged();
+    const interval = setInterval(fetchStaged, 8000);
+    return () => clearInterval(interval);
+  }, [fetchStaged]);
+
+  const handleApprove = async (id: string) => {
+    try {
+      await stagedApi.approve(id);
+      setActionMsg('Proposal approved & scheduled for execution.');
+      fetchStaged();
+      setTimeout(() => setActionMsg(null), 3500);
+    } catch (e) {
+      setActionMsg(`Approval error: ${e}`);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    try {
+      await stagedApi.reject(id);
+      setActionMsg('Proposal discarded.');
+      fetchStaged();
+      setTimeout(() => setActionMsg(null), 3500);
+    } catch (e) {
+      setActionMsg(`Rejection error: ${e}`);
+    }
+  };
+
+  return (
+    <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>ChangeSets & Proposals</span>
+        </div>
+        <div className="flex items-center space-x-1">
+          <span
+            className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+              staged.length > 0
+                ? 'bg-amber-950/80 text-amber-300 border-amber-600/50'
+                : 'bg-emerald-950/80 text-emerald-300 border-emerald-600/40'
+            }`}
+          >
+            {staged.length > 0 ? `${staged.length} Pending Sign-off` : 'Zero Pending Drafts'}
+          </span>
+          <button
+            onClick={fetchStaged}
+            title="Refresh staged actions"
+            className="text-slate-400 hover:text-cyan-400 transition-colors p-0.5"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {actionMsg && (
+        <div className="px-2 py-1 rounded bg-cyan-950/80 border border-cyan-700/60 text-[10px] text-cyan-200 font-mono">
+          {actionMsg}
+        </div>
+      )}
+
+      {staged.length === 0 ? (
+        <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
+          <div className="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-medium">
+            <CheckCircle2 className="w-3 h-3 shrink-0" />
+            <span>ChangeSet Guardrail Active</span>
+          </div>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            All sensitive mutations (cash adjustments, mass pricing changes, event publishes) are staged here in draft mode and require manager approval before touching production.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {staged.map((action) => (
+            <div
+              key={action.action_id}
+              className="p-2 rounded-lg bg-slate-950 border border-slate-700/80 space-y-1.5"
+            >
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="font-semibold text-white font-mono">{action.tool || action.routine_name || 'Mutation Proposal'}</span>
+                <span className="px-1.5 py-0.2 rounded bg-amber-950/60 border border-amber-700/50 text-[9px] text-amber-300 font-mono">
+                  Draft
+                </span>
+              </div>
+              {action.preview && (
+                <div className="text-[10px] text-slate-300 font-mono bg-slate-900/80 p-1.5 rounded border border-slate-800 truncate">
+                  {action.preview}
+                </div>
+              )}
+              <div className="flex items-center justify-end space-x-1.5 pt-1 border-t border-slate-800">
+                <button
+                  onClick={() => handleReject(action.action_id)}
+                  className="px-2 py-0.5 rounded bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 text-rose-300 text-[10px] font-medium transition-colors cursor-pointer"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => handleApprove(action.action_id)}
+                  className="px-2 py-0.5 rounded bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-600/60 text-emerald-200 text-[10px] font-semibold transition-colors cursor-pointer shadow-xs"
+                >
+                  Approve & Apply
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1594,6 +2140,8 @@ function FixedSidebar(props: {
   onRefreshSkills: () => void;
   onRefreshChats: () => void;
   onToggleConnection: (c: ServiceConnection) => void;
+  onConnectService?: (c: ServiceConnection) => void;
+  onSwitchVenue?: (service: string, business_id: string) => void;
   onActionClick: (prompt: string) => void;
   onClose: () => void;
   isOverlay?: boolean;
@@ -1608,6 +2156,8 @@ function FixedSidebar(props: {
   loadingBrowser: boolean;
   onRefreshBrowserStatus: () => void;
   onDeleteAllChats?: () => void;
+  onOpenModesGallery?: () => void;
+  onOpenModels?: () => void;
 }) {
   const [sidebarMode, setSidebarMode] = useState<'home' | 'cowork'>('home');
   const [coworkSubTab, setCoworkSubTab] = useState<'surface' | 'skills' | 'mcp' | 'data'>('surface');
@@ -1616,6 +2166,35 @@ function FixedSidebar(props: {
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [viewingSkill, setViewingSkill] = useState<{ id: string; title: string; content: string } | null>(null);
   const [approvingSkillId, setApprovingSkillId] = useState<string | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const [selectedBrowserTab, setSelectedBrowserTab] = useState<'chrome' | 'firefox'>('chrome');
+  const [revealingFolder, setRevealingFolder] = useState(false);
+  const [copiedExtensionPath, setCopiedExtensionPath] = useState(false);
+
+  const isSelectedBrowserConnected = useMemo(() => {
+    if (!props.browserStatus.connected) return false;
+    const connectedList = (props.browserStatus as any).connected_browsers || [];
+    if (connectedList.length > 0) {
+      return connectedList.some((b: any) => (b.browser || '').toLowerCase() === selectedBrowserTab);
+    }
+    const current = (props.browserStatus.extension_info?.browser || 'chrome').toLowerCase();
+    return current === selectedBrowserTab || props.browserStatus.connected;
+  }, [props.browserStatus, selectedBrowserTab]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    }
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showProfileMenu]);
+  const [showMcpGuide, setShowMcpGuide] = useState(false);
+  const [copiedSnippet, setCopiedSnippet] = useState(false);
 
   const handleApproveSkill = async (id: string) => {
     setApprovingSkillId(id);
@@ -1656,9 +2235,12 @@ function FixedSidebar(props: {
   };
 
   useEffect(() => {
-    if (props.activeTab === 'skills' || props.activeTab === 'connects') {
+    if (props.activeTab === 'skills') {
       setSidebarMode('cowork');
-      setCoworkSubTab('surface');
+      setCoworkSubTab('skills');
+    } else if (props.activeTab === 'connects') {
+      setSidebarMode('cowork');
+      setCoworkSubTab('mcp');
     } else if (props.activeTab === 'chats' || props.activeTab === 'projects' || props.activeTab === 'artifacts') {
       setSidebarMode('home');
     }
@@ -1685,7 +2267,7 @@ function FixedSidebar(props: {
           : "w-72 shrink-0 h-full border-r border-slate-800/80 pr-3 flex flex-col overflow-hidden select-none"
       }
     >
-      {/* 1. Top Segmented Switcher: [ Home | <> Cowork ] exactly like Claude Desktop */}
+      {/* 1. Top Segmented Switcher: [ Home | Customize ] */}
       <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800/80 mb-2.5 shrink-0">
         <button
           onClick={() => {
@@ -1712,8 +2294,8 @@ function FixedSidebar(props: {
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <Code2 className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Cowork</span>
+          <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Customize</span>
         </button>
       </div>
 
@@ -1939,6 +2521,15 @@ function FixedSidebar(props: {
 
                         <div className="min-w-0 flex-1 truncate">{chat.title || 'Untitled chat'}</div>
 
+                        {chat.message_count > 0 && (
+                          <span
+                            title={`${chat.message_count} messages in this conversation`}
+                            className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-400 shrink-0 ml-1.5 group-hover:bg-slate-700/80"
+                          >
+                            {chat.message_count}
+                          </span>
+                        )}
+
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -2017,42 +2608,109 @@ function FixedSidebar(props: {
             {/* SUBTAB 1: SURFACE (Execution Canvas) */}
             {coworkSubTab === 'surface' && (
               <>
-                {/* Background Browser Companion Card */}
-                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2 shadow-sm">
+                {/* Background Browser Companion Card (Chrome & Firefox) */}
+                <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-100">
                       <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span>Chrome Companion</span>
+                      <span>Browser Companion</span>
                     </div>
                     <span
                       className={`text-[9px] px-1.5 py-0.5 rounded font-medium border flex items-center space-x-1 ${
-                        props.browserStatus.connected
+                        isSelectedBrowserConnected
                           ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/40'
                           : 'bg-rose-950/80 text-rose-400 border-rose-800/40'
                       }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${props.browserStatus.connected ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
-                      <span>{props.browserStatus.connected ? 'Active (Background)' : 'Offline'}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSelectedBrowserConnected ? 'bg-emerald-400' : 'bg-rose-500 animate-pulse'}`} />
+                      <span>{isSelectedBrowserConnected ? `Active (${selectedBrowserTab === 'chrome' ? 'Chrome' : 'Firefox'})` : 'Offline'}</span>
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
-                    {props.browserStatus.connected
-                      ? `Silent DOM injection, background tab navigation, and visual receipts with zero mouse movement (v${props.browserStatus.extension_info?.version || '1.0.0'}).`
-                      : 'Load the Emiliano Companion Extension in Google Chrome (chrome://extensions) to enable background browser automation.'}
-                  </p>
+                  {/* Browser Selector Pills */}
+                  <div className="flex items-center space-x-1 bg-slate-950/70 p-0.5 rounded-lg border border-slate-800/60">
+                    <button
+                      onClick={() => setSelectedBrowserTab('chrome')}
+                      className={`flex-1 py-1 px-2 rounded-md text-[10.5px] font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                        selectedBrowserTab === 'chrome'
+                          ? 'bg-cyan-950/90 text-cyan-300 border border-cyan-800/50 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>Google Chrome</span>
+                      {props.browserStatus.connected && (props.browserStatus.extension_info?.browser || 'chrome') === 'chrome' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setSelectedBrowserTab('firefox')}
+                      className={`flex-1 py-1 px-2 rounded-md text-[10.5px] font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                        selectedBrowserTab === 'firefox'
+                          ? 'bg-amber-950/90 text-amber-300 border border-amber-800/50 shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>Mozilla Firefox</span>
+                      {props.browserStatus.connected && (props.browserStatus.extension_info?.browser || '').toLowerCase() === 'firefox' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#10b981]" />
+                      )}
+                    </button>
+                  </div>
 
-                  <div className="pt-1 border-t border-slate-800/60 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500 font-mono">
-                      {props.browserStatus.connected ? 'Tier 1: Chrome Extension' : 'Status: Disconnected'}
-                    </span>
+                  {/* Dynamic Instructions & Details */}
+                  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/70 space-y-1 text-[11px]">
+                    <div className="text-slate-300 font-medium flex items-center justify-between">
+                      <span>{selectedBrowserTab === 'chrome' ? 'Chrome Unpacked Setup' : 'Firefox Temporary Add-on'}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {selectedBrowserTab === 'chrome' ? 'chrome://extensions' : 'about:debugging'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      {selectedBrowserTab === 'chrome'
+                        ? '1. Open chrome://extensions & enable Developer mode. 2. Click "Load unpacked" and select the dist/chrome folder.'
+                        : '1. Open about:debugging#/runtime/this-firefox. 2. Click "Load Temporary Add-on..." and select dist/firefox/manifest.json.'}
+                    </p>
+                  </div>
+
+                  {/* Action Bar: Reveal Binaries in Explorer + Copy Path + Ping */}
+                  <div className="pt-1.5 border-t border-slate-800/60 flex items-center space-x-1.5 text-[10px]">
+                    <button
+                      onClick={async () => {
+                        setRevealingFolder(true);
+                        await coworkApi.revealExtensionFolder(selectedBrowserTab);
+                        setTimeout(() => setRevealingFolder(false), 1200);
+                      }}
+                      className="flex-1 py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title={`Open ${selectedBrowserTab === 'chrome' ? 'Chrome' : 'Firefox'} extension directory in Windows Explorer`}
+                    >
+                      <FolderOpen className="w-3 h-3 text-cyan-400" />
+                      <span>{revealingFolder ? 'Opening…' : 'Reveal Binaries'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const targetPath = selectedBrowserTab === 'chrome'
+                          ? 'dist/chrome'
+                          : 'dist/firefox/manifest.json';
+                        navigator.clipboard.writeText(targetPath);
+                        setCopiedExtensionPath(true);
+                        setTimeout(() => setCopiedExtensionPath(false), 2000);
+                      }}
+                      className="py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title="Copy path to clipboard"
+                    >
+                      {copiedExtensionPath ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-slate-400" />}
+                      <span>{copiedExtensionPath ? 'Copied' : 'Copy Path'}</span>
+                    </button>
+
                     <button
                       onClick={props.onRefreshBrowserStatus}
                       disabled={props.loadingBrowser}
-                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 flex items-center space-x-1 text-[10px] transition-colors"
+                      className="py-1 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700/60 font-medium transition-colors flex items-center justify-center space-x-1 shadow-xs"
+                      title="Check engine connection"
                     >
-                      <RefreshCw className={`w-2.5 h-2.5 ${props.loadingBrowser ? 'animate-spin' : ''}`} />
-                      <span>{props.loadingBrowser ? 'Checking…' : 'Ping'}</span>
+                      <RefreshCw className={`w-3 h-3 ${props.loadingBrowser ? 'animate-spin' : ''}`} />
+                      <span>Ping</span>
                     </button>
                   </div>
                 </div>
@@ -2309,47 +2967,257 @@ function FixedSidebar(props: {
             {/* SUBTAB 3: MCP PROTOCOLS */}
             {coworkSubTab === 'mcp' && (
               <>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-1">
-                  <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
-                    <Blocks className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Model Context Protocol</span>
+                <div className="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
+                      <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>Model Context Protocol</span>
+                      <span
+                        className="cursor-help p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-cyan-300 transition-colors"
+                        title="Connect any PlaatoOS venue to give Emiliano secure, real-time read/write access to your business telemetry, bookings, finances, and inventory."
+                      >
+                        <HelpCircle className="w-3 h-3 text-slate-400" />
+                      </span>
+                    </div>
+                    {/* Safety Assurance Badge with Tooltip */}
+                    <span
+                      className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/70 border border-emerald-600/40 text-[9px] font-mono text-emerald-300 cursor-help"
+                      title="All sensitive mutations (cash adjustments, mass pricing changes, event publishes) are created in draft mode and require manager approval."
+                    >
+                      <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                      <span>ChangeSet Guarded</span>
+                    </span>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
                     Anthropic open standard client connections providing standardized tools and resources.
                   </p>
+
+                  {/* Expandable Onboarding Guide Toggle */}
+                  <button
+                    onClick={() => setShowMcpGuide((prev) => !prev)}
+                    className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-950/80 hover:bg-slate-800/80 border border-slate-800 text-[10px] text-cyan-300 hover:text-cyan-200 font-medium transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-1.5">
+                      <BookOpen className="w-3 h-3 text-cyan-400" />
+                      <span>How to connect other businesses</span>
+                    </div>
+                    {showMcpGuide ? <ChevronUp className="w-3 h-3 text-slate-400" /> : <ChevronDown className="w-3 h-3 text-slate-400" />}
+                  </button>
+
+                  {/* Expandable 3-Step Guide Body */}
+                  {showMcpGuide && (
+                    <div className="p-2.5 rounded-lg bg-slate-950 border border-cyan-900/60 space-y-2.5 text-[11px] select-text">
+                      <div className="space-y-2">
+                        {/* Step 1 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            1
+                          </span>
+                          <div>
+                            <div className="font-semibold text-slate-200 text-[11px]">Sign in with PlaatoOS Account</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Any venue manager or staff account with business permissions can log in via browser OAuth 2.1.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 2 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            2
+                          </span>
+                          <div>
+                            <div className="font-semibold text-slate-200 text-[11px]">Select Your Venue / Tenant</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Choose which business to bind (e.g. Taki Taki Katowice, Vibra, Virgen Latina). The active token securely encrypts in your local OS vault.
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Step 3 */}
+                        <div className="flex items-start space-x-2">
+                          <span className="w-4 h-4 rounded-full bg-cyan-950 border border-cyan-700/60 text-cyan-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                            3
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-slate-200 text-[11px]">Connect External Clients (Claude / Cursor)</div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                              Use streamable HTTP or add to <code className="text-cyan-300">claude_desktop_config.json</code>:
+                            </div>
+                            <div className="mt-1.5 p-2 rounded bg-slate-900 border border-slate-800 font-mono text-[9px] text-slate-300 relative group">
+                              <pre className="overflow-x-auto whitespace-pre">{`"mcpServers": {
+  "plaatoos": {
+    "url": "https://api-takient.onrender.com/mcp",
+    "headers": {
+      "Authorization": "Bearer pak_your_token"
+    }
+  }
+}`}</pre>
+                              <button
+                                onClick={() => {
+                                  const snippet = `{\n  "mcpServers": {\n    "plaatoos": {\n      "url": "https://api-takient.onrender.com/mcp",\n      "headers": {\n        "Authorization": "Bearer pak_your_token"\n      }\n    }\n  }\n}`;
+                                  navigator.clipboard.writeText(snippet);
+                                  setCopiedSnippet(true);
+                                  setTimeout(() => setCopiedSnippet(false), 2000);
+                                }}
+                                className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[9px] text-slate-300 hover:text-white transition-colors flex items-center space-x-1 cursor-pointer"
+                              >
+                                {copiedSnippet ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                <span>{copiedSnippet ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ChangeSet Safety Note Footer */}
+                      <div className="pt-1.5 border-t border-slate-800/80 flex items-center space-x-1 text-[9px] text-emerald-400/90 font-mono">
+                        <ShieldCheck className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span>ChangeSet Guard: Sensitive actions (cash, pricing, events) auto-draft for human signoff.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold px-1">
                     Connected Servers ({props.connections.length})
                   </div>
                   {props.connections.map((c) => (
                     <div
                       key={c.service}
-                      className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between shadow-xs"
+                      className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2.5 shadow-sm"
                     >
-                      <div className="min-w-0 pr-1">
-                        <div className="text-xs text-slate-200 font-medium truncate">{c.title}</div>
-                        <div className="text-[10px] font-mono flex items-center space-x-1 mt-0.5">
-                          <span className={`w-1.5 h-1.5 rounded-full ${c.connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
-                          <span className={c.connected ? 'text-emerald-400' : 'text-slate-500'}>
-                            {c.connected ? 'Connected' : 'Offline'}
-                          </span>
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0 pr-2">
+                          <div className="flex items-center space-x-1.5">
+                            <Blocks className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                            <span className="text-xs text-slate-100 font-semibold truncate">{c.title}</span>
+                          </div>
+                          <div className="text-[10px] font-mono flex items-center space-x-1.5 mt-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${c.connected ? 'bg-emerald-400 shadow-[0_0_5px_#34d399]' : 'bg-slate-500'}`} />
+                            <span className={c.connected ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
+                              {c.connected ? 'Connected (Active)' : 'Offline'}
+                            </span>
+                            {c.auth && (
+                              <span className="text-slate-500">· {c.auth.toUpperCase()}</span>
+                            )}
+                          </div>
                         </div>
+
+                        {!c.connected && (
+                          <button
+                            onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                            disabled={props.connecting === c.service}
+                            className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer shadow-xs shrink-0"
+                          >
+                            {props.connecting === c.service ? '…' : 'Connect'}
+                          </button>
+                        )}
                       </div>
-                      <button
-                        onClick={() => props.onToggleConnection(c)}
-                        disabled={props.connecting === c.service}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                          c.connected
-                            ? 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-700/60'
-                            : 'bg-cyan-600 hover:bg-cyan-500 text-white'
-                        }`}
-                      >
-                        {props.connecting === c.service ? '…' : c.connected ? 'Disconnect' : 'Connect'}
-                      </button>
+
+                      {c.connected ? (
+                        <>
+                          <div className="px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-[11px]">
+                            <div className="flex items-center space-x-1.5 min-w-0 pr-1">
+                              <span className="text-slate-400 text-[10px] font-semibold uppercase tracking-wider">Tenant:</span>
+                              <span className="font-semibold text-emerald-300 truncate">
+                                {c.tenant || 'Connected Business'}
+                              </span>
+                            </div>
+                            {c.business_id && (
+                              <span className="text-[9px] font-mono text-slate-500 shrink-0" title={`Business ID: ${c.business_id}`}>
+                                {c.business_id.slice(0, 8)}…
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Multi-Tenant Available Venues Switcher */}
+                          {c.venues && c.venues.length > 0 && (
+                            <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                              <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 px-0.5">
+                                <span className="uppercase tracking-wider">Available Venues ({c.venues.length})</span>
+                                <span className="text-[9px] text-cyan-400 font-mono">1-Click Fast Switch</span>
+                              </div>
+                              <div className="space-y-1">
+                                {c.venues.map((venue) => {
+                                  const isActive = venue.active || venue.business_id === c.business_id;
+                                  return (
+                                    <button
+                                      key={venue.business_id}
+                                      onClick={() => props.onSwitchVenue?.(c.service, venue.business_id)}
+                                      disabled={isActive || props.connecting === c.service}
+                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer border ${
+                                        isActive
+                                          ? 'bg-cyan-950/80 border-cyan-600/70 text-cyan-200 font-semibold shadow-xs'
+                                          : 'bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/80 text-slate-300 hover:border-slate-700'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2 min-w-0">
+                                        <span className="text-sm shrink-0">{venue.icon || (venue.name.includes('Verano') ? '☀️' : '🍸')}</span>
+                                        <div className="min-w-0">
+                                          <div className="text-xs font-medium truncate">{venue.name}</div>
+                                          <div className="text-[9px] text-slate-400 font-mono">
+                                            {venue.name.includes('Verano') ? 'Sandbox / Demo Environment' : 'Production Operating System'}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center space-x-1 shrink-0 ml-2">
+                                        {isActive ? (
+                                          <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-950/90 border border-emerald-600/50 text-[9px] font-mono text-emerald-300">
+                                            <Check className="w-2.5 h-2.5" />
+                                            <span>Active</span>
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-[9px] text-cyan-300 hover:bg-cyan-900/80 font-mono">
+                                            Switch
+                                          </span>
+                                        )}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center space-x-2 pt-0.5">
+                            <button
+                              onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                              disabled={props.connecting === c.service}
+                              title="Switch active tenant venue (Vibra, Virgen Latina, Taki Taki Katowice) via browser OAuth flow"
+                              className="flex-1 py-1 px-2.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-300 text-[11px] font-semibold transition-colors flex items-center justify-center space-x-1 cursor-pointer shadow-xs"
+                            >
+                              <RefreshCw className={`w-3 h-3 text-cyan-400 ${props.connecting === c.service ? 'animate-spin' : ''}`} />
+                              <span>Switch Venue</span>
+                            </button>
+                            <button
+                              onClick={() => props.onToggleConnection(c)}
+                              disabled={props.connecting === c.service}
+                              title="Disconnect and revoke current token"
+                              className="py-1 px-2.5 rounded-lg bg-slate-800/80 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-slate-700/60 hover:border-rose-800/60 text-[11px] font-medium transition-colors cursor-pointer"
+                            >
+                              Disconnect
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => (props.onConnectService ? props.onConnectService(c) : props.onToggleConnection(c))}
+                          disabled={props.connecting === c.service}
+                          title="Open browser OAuth to authenticate and select your PlaatoOS venue"
+                          className="w-full py-1.5 px-3 rounded-lg text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition-colors cursor-pointer shadow-md flex items-center justify-center space-x-1.5"
+                        >
+                          <Blocks className="w-3.5 h-3.5" />
+                          <span>{props.connecting === c.service ? 'Connecting…' : `Connect with ${c.title} (OAuth)`}</span>
+                        </button>
+                      )}
                     </div>
                   ))}
+
+                  {/* ChangeSet Guardrails & Staged Approvals Section */}
+                  <StagedProposalsCard />
                 </div>
               </>
             )}
@@ -2357,6 +3225,38 @@ function FixedSidebar(props: {
             {/* SUBTAB 4: DATA & CRM */}
             {coworkSubTab === 'data' && (
               <>
+                <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
+                      <Briefcase className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Job Application & CV Tracker</span>
+                    </div>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-800/40 font-mono">
+                      Active CRM
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-mono text-[10px] truncate">
+                    job_application_tracker.html
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Visual pipeline tracking which CV variant was used, fit scores, and application states.
+                  </p>
+                  <button
+                    onClick={() => {
+                      const art = props.artifacts?.find((a: ArtifactItem) => a.id === 'art-job-tracker-crm');
+                      if (art && props.onPreviewArtifact) {
+                        props.onPreviewArtifact(art);
+                      } else {
+                        window.open('http://localhost:5174/ai-job-search/tools/job_application_tracker.html', '_blank');
+                      }
+                    }}
+                    className="w-full mt-1.5 py-1 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-semibold transition flex items-center justify-center space-x-1"
+                  >
+                    <span>Open CRM Dashboard</span>
+                    <span>→</span>
+                  </button>
+                </div>
+
                 <div className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-200">
@@ -2415,23 +3315,125 @@ function FixedSidebar(props: {
       )}
 
       {/* 5. Bottom Profile Footer: Avatar [A] Artur · Emiliano Pro ⌄ */}
-      <div className="pt-2 mt-auto border-t border-slate-800/80 px-1 py-1.5 flex items-center justify-between bg-slate-950/40 shrink-0">
-        <div className="flex items-center space-x-2 cursor-pointer hover:opacity-90">
-          <div className="w-6 h-6 rounded-full bg-amber-600 flex items-center justify-center text-xs font-bold text-white shadow-xs">
+      <div className="relative pt-2 mt-auto border-t border-slate-800/80 px-1 py-1.5 flex items-center justify-between bg-slate-950/40 shrink-0" ref={profileRef}>
+        <div
+          onClick={() => setShowProfileMenu((prev) => !prev)}
+          className={`flex items-center space-x-2 cursor-pointer p-1 rounded-lg transition-colors ${
+            showProfileMenu ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/60 text-slate-200'
+          }`}
+          title="Click to view Artur · Emiliano Pro subscription, organization, and settings"
+        >
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-xs font-bold text-white shadow-xs">
             A
           </div>
-          <div className="flex items-center space-x-1 text-xs font-medium text-slate-200">
-            <span>Artur · Emiliano Pro</span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
+          <div className="flex items-center space-x-1.5 text-xs font-medium">
+            <span>Artur</span>
+            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">PRO</span>
+            <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
           </div>
         </div>
+
         <button
           onClick={props.onClose}
           title="Collapse sidebar"
-          className="p-1 text-slate-400 hover:text-white transition-colors"
+          className="p-1 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-800"
         >
           <PanelLeftClose className="w-3.5 h-3.5" />
         </button>
+
+        {/* Profile & Subscription Popover Menu */}
+        {showProfileMenu && (
+          <div className="absolute left-1 bottom-full mb-2 w-72 bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl p-3 z-50 flex flex-col space-y-2.5 backdrop-blur-md animate-in fade-in duration-100 select-none">
+            {/* Header: User & Plan */}
+            <div className="flex items-center space-x-3 pb-2.5 border-b border-slate-800">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-sm font-bold text-white shadow-md">
+                A
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-bold text-xs text-white truncate">Artur</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">EMILIANO PRO</span>
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">artlu@oracliom.com</div>
+              </div>
+            </div>
+
+            {/* Business Tenant Info */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 text-[11px]">
+              <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+                <span>Active Business Tenant</span>
+                <span className="text-emerald-400 font-semibold">Connected</span>
+              </div>
+              <div className="font-semibold text-slate-200 flex items-center space-x-1.5">
+                <span>🍸</span>
+                <span className="truncate">Taki Taki Katowice</span>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">
+                Role: Venue Administrator & Owner
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex flex-col space-y-1 pt-1">
+              {props.onOpenModesGallery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    props.onOpenModesGallery?.();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+                >
+                  <span className="flex items-center space-x-2">
+                    <Store className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Browse All 14 Specialist Modes</span>
+                  </span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-cyan-800/40">14</span>
+                </button>
+              )}
+
+              {props.onOpenModels && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    props.onOpenModels?.();
+                  }}
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+                >
+                  <span className="flex items-center space-x-2">
+                    <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Local Models & Memory</span>
+                  </span>
+                  <span className="text-[9px] text-slate-400">VRAM Fit</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfileMenu(false);
+                  props.onTabChange('connects');
+                }}
+                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs hover:bg-slate-800 text-slate-300 hover:text-white flex items-center justify-between transition-colors"
+              >
+                <span className="flex items-center space-x-2">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Workspace Settings & MCPs</span>
+                </span>
+              </button>
+            </div>
+
+            {/* Footer Status */}
+            <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Engine v0.6.0 Pro</span>
+              </span>
+              <span className="text-slate-500">Autonomous Desktop</span>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>
@@ -3097,53 +4099,361 @@ function HistoryPanel(props: {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function ThinkingProcessCard({ reasoning, pending, duration_s }: { reasoning: string; pending?: boolean; duration_s?: number }) {
+  const [isOpen, setIsOpen] = useState(Boolean(pending));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [userScrolled, setUserScrolled] = useState(false);
+
+  // Auto-collapse when generation finishes; auto-open when generating
+  useEffect(() => {
+    if (!pending) {
+      setIsOpen(false);
+    } else {
+      setIsOpen(true);
+    }
+  }, [pending]);
+
+  // Rolling teleprompter effect: auto-scroll to bottom as new reasoning chunks arrive
+  useEffect(() => {
+    if (pending && !userScrolled && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [reasoning, pending, userScrolled]);
+
+  const handleScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 24;
+    setUserScrolled(!atBottom);
+  };
+
+  return (
+    <div className="mb-2.5 rounded-xl border border-cyan-500/20 bg-slate-900/40 backdrop-blur-md transition-all shadow-sm overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full text-left cursor-pointer select-none text-[11px] font-medium flex items-center justify-between text-cyan-300/90 hover:text-cyan-200 px-3 py-2 transition-colors"
+      >
+        <div className="flex items-center space-x-2">
+          <Sparkles className={`w-3.5 h-3.5 ${pending ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+          <span>
+            {pending ? 'Thinking process in progress…' : `Thought process (completed${duration_s ? ` in ${duration_s}s` : ''})`}
+          </span>
+        </div>
+        <div className="flex items-center space-x-2">
+          {pending ? (
+            <span className="flex items-center space-x-1.5 text-[10px] text-cyan-300 font-mono bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+              <span>Rolling</span>
+            </span>
+          ) : duration_s ? (
+            <span className="text-[10px] text-cyan-400/90 font-mono bg-cyan-950/60 px-1.5 py-0.5 rounded border border-cyan-800/40">
+              {duration_s}s
+            </span>
+          ) : null}
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`} />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="relative border-t border-slate-700/40 bg-slate-950/30 px-3 py-2">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className={`whitespace-pre-wrap text-[11px] font-mono leading-relaxed overflow-y-auto text-slate-300/90 selection:bg-cyan-500/30 transition-all ${
+              pending
+                ? 'max-h-24 [mask-image:linear-gradient(to_bottom,transparent_0%,black_20%,black_100%)]'
+                : 'max-h-56'
+            }`}
+          >
+            {reasoning}
+            {pending && (
+              <span className="inline-block w-1.5 h-3 bg-cyan-400 animate-pulse ml-1 align-middle" />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallCard({ tool }: { tool: ToolCallRecord }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const isMcp = tool.tool.includes('__') || Boolean(tool.mcp_server);
+  const serverName = tool.mcp_server || (tool.tool.includes('__') ? tool.tool.split('__')[0] : 'core');
+  const actionName = tool.tool_name || (tool.tool.includes('__') ? tool.tool.split('__')[1] : tool.tool);
+  const isSuccess = tool.status !== 'error';
+
+  const copyArgs = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(JSON.stringify(tool.args || {}, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="my-1.5 rounded-lg border border-slate-700/70 bg-slate-900/90 overflow-hidden text-xs transition-all shadow-sm">
+      {/* Header / Summary Bar */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between px-2.5 py-1.5 cursor-pointer hover:bg-slate-800/60 select-none"
+      >
+        <div className="flex items-center space-x-2 min-w-0">
+          {isMcp ? (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-950/80 border border-purple-700/60 text-purple-300">
+              <Blocks className="w-3 h-3 text-purple-400" />
+              MCP: {serverName}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/80 border border-amber-700/60 text-amber-300">
+              <Wrench className="w-3 h-3 text-amber-400" />
+              Tool
+            </span>
+          )}
+          <span className="font-mono text-[11px] text-slate-200 truncate font-semibold">
+            {actionName}
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2 shrink-0 text-[10px] font-mono">
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded ${
+            isSuccess
+              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/50'
+              : 'bg-rose-950/80 text-rose-300 border border-rose-800/50'
+          }`}>
+            {isSuccess ? <Check className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
+            {tool.duration_s ? `${tool.duration_s}s` : 'done'}
+          </span>
+          <button className="text-slate-400 hover:text-white p-0.5">
+            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsible Accordion Drawer */}
+      {expanded && (
+        <div className="border-t border-slate-800/90 p-2.5 space-y-2 bg-slate-950/50 font-mono text-[11px]">
+          {/* Input Arguments */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span className="font-semibold text-slate-300">Parameters / Input:</span>
+              <button
+                onClick={copyArgs}
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+              >
+                {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre className="p-2 rounded bg-slate-900/90 border border-slate-800 text-slate-300 overflow-x-auto text-[10px] leading-relaxed max-h-40 overflow-y-auto">
+              {JSON.stringify(tool.args || {}, null, 2)}
+            </pre>
+          </div>
+
+          {/* Tool Output Result */}
+          {tool.result && (
+            <div>
+              <div className="text-[10px] text-slate-400 mb-1 font-semibold text-slate-300">
+                Server Output Receipt:
+              </div>
+              <pre className="p-2 rounded bg-slate-900/90 border border-slate-800 text-emerald-300/90 overflow-x-auto text-[10px] leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+                {tool.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveResponseTimer({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState<number>(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsed((Date.now() - startTime) / 1000);
+    }, 100);
+    return () => clearInterval(timer);
+  }, [startTime]);
+
+  return (
+    <span className="font-mono text-cyan-400 font-medium">
+      ({elapsed.toFixed(1)}s)
+    </span>
+  );
+}
+
+function MessageBubble({ message, onOpenFlux }: { message: ChatMessage; onOpenFlux?: (msg: ChatMessage) => void }) {
+  const [renderStartTime] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (message.content) {
+      navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   if (message.role === 'user') {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] bg-cyan-600/90 text-white text-xs rounded-2xl rounded-br-sm px-3 py-2 whitespace-pre-wrap">
+      <div className="flex justify-end group">
+        <div className="relative max-w-[85%] bg-cyan-600/90 text-white text-xs rounded-2xl rounded-br-sm px-3 py-2 whitespace-pre-wrap select-text">
           {message.content}
+          <button
+            onClick={handleCopy}
+            title={copied ? "Copied!" : "Copy prompt"}
+            className="absolute top-1 -left-7 opacity-0 group-hover:opacity-100 p-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white transition-opacity cursor-pointer border border-slate-700/60 shadow-xs"
+          >
+            {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+          </button>
         </div>
       </div>
     );
   }
   const waiting = message.pending && !message.content;
   return (
-    <div className="flex flex-col items-start w-full">
-      {message.route && <span className="text-[10px] text-slate-500 mb-0.5 ml-1">via {message.route}</span>}
-      <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2">
-        {message.reasoning && (
-          <details
-            open={Boolean(message.pending)}
-            className="group mb-2.5 rounded-xl bg-slate-900/90 border border-slate-700/80 p-2.5 text-slate-300 transition-all shadow-inner"
+    <div className="flex flex-col items-start w-full group">
+      <div className="flex items-center justify-between w-full text-[10px] text-slate-500 mb-0.5 ml-1 pr-2">
+        <div className="flex items-center space-x-2">
+          {message.route && <span>via {message.route}</span>}
+          {message.metrics?.formatted_duration && (
+            <span className="flex items-center gap-1 text-cyan-400 font-mono font-medium">
+              <Zap className="w-2.5 h-2.5 text-amber-400" />
+              {message.metrics.formatted_duration}
+            </span>
+          )}
+        </div>
+        {message.content && !waiting && (
+          <button
+            onClick={handleCopy}
+            title={copied ? "Copied to clipboard!" : "Copy message"}
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer select-none"
           >
-            <summary className="cursor-pointer select-none text-[11px] font-semibold uppercase tracking-wider flex items-center justify-between text-cyan-300">
-              <div className="flex items-center space-x-2">
-                <Sparkles className={`w-3.5 h-3.5 ${message.pending ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
-                <span>{message.pending ? 'Thinking process in progress…' : 'Thought process (completed)'}</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                {message.pending && (
-                  <span className="flex items-center space-x-1.5 text-[10px] text-cyan-400 font-mono bg-cyan-950/80 px-2 py-0.5 rounded-full border border-cyan-700/50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                    <span>Streaming</span>
-                  </span>
-                )}
-                <ChevronDown className="w-3.5 h-3.5 transition-transform duration-200 group-open:rotate-180 text-slate-400" />
-              </div>
-            </summary>
-            <div className="mt-2 whitespace-pre-wrap text-[11px] font-mono leading-relaxed max-h-56 overflow-y-auto text-slate-300 bg-slate-950/90 p-2.5 rounded-lg border border-slate-800/90 selection:bg-cyan-500/30">
-              {message.reasoning}
-            </div>
-          </details>
+            {copied ? (
+              <>
+                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                <span className="text-emerald-400">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-2.5 h-2.5" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
         )}
+      </div>
+      <div className="w-full max-w-[96%] bg-slate-800/90 text-slate-100 text-xs rounded-2xl rounded-bl-sm px-3 py-2 select-text">
+        {message.reasoning && (
+          <ThinkingProcessCard
+            reasoning={message.reasoning}
+            pending={Boolean(message.pending)}
+            duration_s={message.metrics?.thinking_duration_s}
+          />
+        )}
+
+        {/* Render Executed Tool & MCP Calls */}
+        {message.tool_calls && message.tool_calls.length > 0 && (
+          <div className="my-2 space-y-1">
+            <div className="text-[10px] font-semibold text-slate-400 flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <Blocks className="w-3 h-3 text-purple-400" />
+                <span>Executed Tools & MCPs ({message.tool_calls.length}):</span>
+              </div>
+              {message.metrics?.tool_duration_s ? (
+                <span className="font-mono text-[10px] text-emerald-400/90 font-normal">
+                  Total tool time: {message.metrics.tool_duration_s}s
+                </span>
+              ) : null}
+            </div>
+            {message.tool_calls.map((t, idx) => (
+              <ToolCallCard key={idx} tool={t} />
+            ))}
+          </div>
+        )}
+
         {waiting && !message.reasoning ? (
           <div className="flex items-center space-x-2 py-1.5 text-slate-400">
             <Sparkles className="w-4 h-4 text-cyan-400 animate-spin" />
             <span className="text-xs animate-pulse">Pondering and formulating solution…</span>
+            <LiveResponseTimer startTime={renderStartTime} />
           </div>
         ) : (
           <ParsedMessageContent content={message.content} />
+        )}
+
+        {/* State-of-the-Art Response Performance & Execution Telemetry */}
+        {message.metrics && !message.pending && (
+          <div className="mt-2 pt-1.5 border-t border-slate-700/50 flex flex-wrap items-center gap-1.5 text-[10px] font-mono text-slate-400 select-none">
+            <span
+              className="inline-flex items-center gap-1 bg-cyan-950/60 border border-cyan-800/50 text-cyan-300 rounded px-1.5 py-0.5 font-medium"
+              title={`Total Response Turnaround: ${message.metrics.total_duration_s}s`}
+            >
+              <Zap className="w-2.5 h-2.5 text-amber-400" />
+              {message.metrics.formatted_duration}
+            </span>
+
+            {/* Per-process step latencies */}
+            {message.metrics.thinking_duration_s && message.metrics.thinking_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-cyan-400/90 bg-slate-900/80 border border-cyan-800/40 rounded px-1.5 py-0.5"
+                title={`Reasoning & Planning Phase: ${message.metrics.thinking_duration_s}s`}
+              >
+                🧠 Think {message.metrics.thinking_duration_s}s
+              </span>
+            )}
+
+            {message.metrics.tool_duration_s && message.metrics.tool_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-emerald-400 bg-slate-900/80 border border-emerald-800/40 rounded px-1.5 py-0.5 font-medium"
+                title={`Tool & MCP Execution Phase: ${message.metrics.tool_duration_s}s`}
+              >
+                ⚡ Tools {message.metrics.tool_duration_s}s
+              </span>
+            )}
+
+            {message.metrics.generation_duration_s && message.metrics.generation_duration_s > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-slate-300 bg-slate-900/80 border border-slate-700/40 rounded px-1.5 py-0.5"
+                title={`Synthesis & Generation Phase: ${message.metrics.generation_duration_s}s`}
+              >
+                💬 Gen {message.metrics.generation_duration_s}s
+              </span>
+            )}
+
+            {message.metrics.tokens_per_second && (
+              <span className="text-slate-400 ml-0.5" title="Generation Throughput">
+                · {message.metrics.tokens_per_second} t/s
+              </span>
+            )}
+
+            {message.metrics.completion_tokens && (
+              <span className="text-slate-500" title="Output Tokens">
+                · {message.metrics.completion_tokens} tok
+              </span>
+            )}
+
+            {message.metrics.ttft_ms && (
+              <span className="text-slate-500 hidden sm:inline" title="Time to First Token (TTFT)">
+                · TTFT {message.metrics.ttft_ms}ms
+              </span>
+            )}
+
+            {/* Non-Linear Execution Flux Diagram Button */}
+            <button
+              type="button"
+              onClick={() => onOpenFlux?.(message)}
+              className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/70 hover:bg-cyan-900 hover:border-cyan-400 hover:text-cyan-100 transition-all cursor-pointer shadow-xs active:scale-95"
+              title="View non-linear execution flow diagram, MCP tool branching, and generation trace"
+            >
+              <Workflow className="w-3 h-3 text-cyan-400" />
+              <span>Flux Diagram</span>
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -3185,511 +4495,6 @@ function PermissionCard({ request, onAnswer }: { request: PermissionRequest; onA
   );
 }
 
-interface FamilyVariant {
-  tag: string;
-  sizeGb: number;
-  label: string;
-}
-
-interface ModelFamily {
-  id: string;
-  name: string;
-  variants: FamilyVariant[];
-}
-
-const POPULAR_FAMILIES: ModelFamily[] = [
-  {
-    id: 'qwen',
-    name: 'Qwen 2.5 Coder',
-    variants: [
-      { tag: 'qwen2.5-coder:1.5b', sizeGb: 1.0, label: '1.5B' },
-      { tag: 'qwen2.5-coder:3b', sizeGb: 2.0, label: '3B' },
-      { tag: 'qwen2.5-coder:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'qwen2.5-coder:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'llama',
-    name: 'Llama 3.2',
-    variants: [
-      { tag: 'llama3.2:1b', sizeGb: 1.3, label: '1B' },
-      { tag: 'llama3.2:3b', sizeGb: 2.0, label: '3B' },
-    ],
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek R1',
-    variants: [
-      { tag: 'deepseek-r1:1.5b', sizeGb: 1.1, label: '1.5B' },
-      { tag: 'deepseek-r1:7b', sizeGb: 4.7, label: '7B' },
-      { tag: 'deepseek-r1:8b', sizeGb: 5.2, label: '8B' },
-      { tag: 'deepseek-r1:14b', sizeGb: 9.0, label: '14B' },
-    ],
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral',
-    variants: [
-      { tag: 'mistral:7b', sizeGb: 4.1, label: '7B' },
-    ],
-  },
-  {
-    id: 'phi',
-    name: 'Phi-4',
-    variants: [
-      { tag: 'phi4-mini', sizeGb: 2.5, label: 'Mini' },
-      { tag: 'phi4', sizeGb: 9.1, label: '14B' },
-    ],
-  },
-];
-
-function rateVariantFit(sizeGb: number, hw?: ModelRecommendations['hardware']): { icon: string; text: string } {
-  if (!hw) return { icon: '❓', text: 'Hardware unknown' };
-  const vramGb = (hw.vramBytes || 0) / (1024 * 1024 * 1024);
-  const ramGb = (hw.ramBytes || 0) / (1024 * 1024 * 1024);
-  if (vramGb > 0 && sizeGb * 1.15 <= vramGb) {
-    return { icon: '✅', text: `Fits in GPU memory (${vramGb.toFixed(1)} GB VRAM)` };
-  }
-  if (ramGb > 0 && sizeGb * 1.15 <= ramGb) {
-    return { icon: '⚠️', text: `Spills into system RAM (${ramGb.toFixed(1)} GB RAM)` };
-  }
-  return { icon: '❌', text: 'Too large for this machine' };
-}
-
-/** Local models rated for this machine, with Load/Unload, search, and 1-click downloads. */
-function ModelsPanel(props: {
-  data: ModelRecommendations | null;
-  busyModel: string | null;
-  onRefresh: () => void;
-  onToggleLoaded: (m: LocalModel) => void;
-  onUnloadAll?: () => void;
-  connections: ServiceConnection[];
-  connecting: string | null;
-  connectNote: string | null;
-  onToggleConnection: (c: ServiceConnection) => void;
-  onClose: () => void;
-}) {
-  const hw = props.data?.hardware;
-  const [search, setSearch] = useState('');
-  const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
-  const [downloads, setDownloads] = useState<Record<string, DownloadStatus>>({});
-
-  const handleDelete = async (modelName: string) => {
-    setIsDeleting(modelName);
-    try {
-      await modelsApi.delete(modelName);
-      setConfirmDelete(null);
-      props.onRefresh();
-    } catch (e) {
-      console.error('Failed to delete model:', e);
-    } finally {
-      setIsDeleting(null);
-    }
-  };
-
-  const handlePull = async (modelName: string) => {
-    const trimmed = modelName.trim();
-    if (!trimmed) return;
-    try {
-      setDownloads((prev) => ({
-        ...prev,
-        [trimmed]: { status: 'starting', progress: 0, step: 'Starting pull...' },
-      }));
-      await modelsApi.pull(trimmed);
-      const res = await modelsApi.pullStatus();
-      setDownloads(res.downloads);
-    } catch (e) {
-      console.error('Failed to start pull:', e);
-      setDownloads((prev) => ({
-        ...prev,
-        [trimmed]: { status: 'error', progress: 0, error: String(e) },
-      }));
-    }
-  };
-
-  useEffect(() => {
-    const hasActive = Object.values(downloads).some(
-      (d) => d.status === 'starting' || d.status === 'downloading' || d.status === 'finalizing'
-    );
-    if (!hasActive) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await modelsApi.pullStatus();
-        setDownloads(res.downloads);
-        if (Object.values(res.downloads).some((d) => d.status === 'completed')) {
-          props.onRefresh();
-        }
-      } catch (e) {
-        console.error('Error polling pull status:', e);
-      }
-    }, 1200);
-
-    return () => clearInterval(interval);
-  }, [downloads, props.onRefresh]);
-
-  const filteredModels = useMemo(() => {
-    if (!props.data?.models) return [];
-    const q = search.trim().toLowerCase();
-    if (!q) return props.data.models;
-    return props.data.models.filter((m) => m.name.toLowerCase().includes(q));
-  }, [props.data?.models, search]);
-
-  const isExactInstalled = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (props.data?.models ?? []).some((m) => m.name.toLowerCase() === q);
-  }, [props.data?.models, search]);
-
-  return (
-    <div className="absolute inset-x-3 top-14 bottom-28 z-10 bg-slate-950 border border-slate-700 rounded-xl flex flex-col overflow-hidden shadow-2xl">
-      <div className="px-3 py-2 text-[11px] font-semibold text-slate-400 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center space-x-1.5">
-          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Local models & library</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button onClick={props.onRefresh} title="Refresh" className="text-slate-400 hover:text-white">
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={props.onClose} className="text-slate-400 hover:text-white">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Model Search & Pull Bar */}
-      <div className="p-2 border-b border-slate-800 bg-slate-900/50">
-        <div className="relative flex items-center">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search models or type name to download (e.g. llama3.2, mistral)..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && search.trim() && !isExactInstalled) {
-                handlePull(search.trim());
-              }
-            }}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 rounded-lg pl-8 pr-16 py-1.5 text-xs text-slate-200 placeholder-slate-500 outline-none"
-          />
-          {search.trim() && !isExactInstalled && (
-            <button
-              onClick={() => handlePull(search.trim())}
-              disabled={downloads[search.trim()]?.status === 'downloading' || downloads[search.trim()]?.status === 'starting'}
-              title={`Download ${search.trim()} from Ollama`}
-              className="absolute right-1 px-2 py-0.5 rounded bg-cyan-700 hover:bg-cyan-600 text-[10px] text-white flex items-center space-x-1 disabled:opacity-50"
-            >
-              <Download className="w-3 h-3" />
-              <span>Pull</span>
-            </button>
-          )}
-        </div>
-
-        {/* Model Family & Parameter Variant Pills */}
-        <div className="mt-2 pt-1.5 border-t border-slate-800/60">
-          <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-            <span className="font-semibold text-slate-400">Popular Families:</span>
-            {(search || selectedFamilyId) && (
-              <button
-                onClick={() => {
-                  setSearch('');
-                  setSelectedFamilyId(null);
-                }}
-                className="text-slate-500 hover:text-slate-300 text-[9px]"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {POPULAR_FAMILIES.map((fam) => {
-              const isFamilyActive = selectedFamilyId === fam.id;
-              return (
-                <button
-                  key={fam.id}
-                  onClick={() => setSelectedFamilyId(isFamilyActive ? null : fam.id)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    isFamilyActive
-                      ? 'bg-cyan-900 border border-cyan-500 text-cyan-200'
-                      : 'bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {fam.name}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Active Family Variants */}
-          {selectedFamilyId && (() => {
-            const fam = POPULAR_FAMILIES.find((f) => f.id === selectedFamilyId);
-            if (!fam) return null;
-            return (
-              <div className="mt-1.5 pt-1.5 border-t border-slate-800/40 flex flex-wrap items-center gap-1.5">
-                <span className="text-[9px] text-slate-500 uppercase tracking-wide font-semibold mr-0.5">Parameters:</span>
-                {fam.variants.map((v) => {
-                  const isInstalled = (props.data?.models ?? []).some(
-                    (m) => m.name.toLowerCase() === v.tag.toLowerCase() || m.name.toLowerCase().startsWith(v.tag.toLowerCase() + ':')
-                  );
-                  const isDownloading = downloads[v.tag]?.status === 'downloading' || downloads[v.tag]?.status === 'starting';
-                  const fit = rateVariantFit(v.sizeGb, hw);
-                  const isSelected = search.toLowerCase() === v.tag.toLowerCase();
-
-                  return (
-                    <button
-                      key={v.tag}
-                      onClick={() => {
-                        setSearch(v.tag);
-                      }}
-                      title={`${v.tag} (~${v.sizeGb} GB) • ${fit.text}${isInstalled ? ' (Installed)' : ''}`}
-                      className={`px-1.5 py-0.5 rounded text-[10px] border transition-all flex items-center space-x-1 ${
-                        isSelected
-                          ? 'bg-cyan-950 border-cyan-400 text-cyan-200'
-                          : isInstalled
-                          ? 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      <span>{fit.icon}</span>
-                      <span className="font-medium">{v.label}</span>
-                      {isInstalled ? (
-                        <span className="text-[9px] text-emerald-400 font-bold ml-0.5">✓</span>
-                      ) : isDownloading ? (
-                        <span className="text-[9px] text-cyan-400 font-mono ml-0.5">{downloads[v.tag]?.progress}%</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* Active Downloads Progress Bar */}
-        {Object.entries(downloads).map(([name, d]) => {
-          if (d.status === 'idle') return null;
-          return (
-            <div key={name} className="px-3 py-2 bg-cyan-950/40 border-b border-cyan-800/40 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-cyan-200 truncate">{name}</span>
-                <span className="text-[10px] text-cyan-400 font-mono">
-                  {d.status === 'completed' ? '✓ Ready' : d.status === 'error' ? '❌ Error' : `${d.progress}%`}
-                </span>
-              </div>
-              {d.step && <div className="text-[10px] text-slate-400 truncate mt-0.5">{d.step}</div>}
-              {(d.status === 'downloading' || d.status === 'starting') && (
-                <div className="w-full bg-slate-800 rounded-full h-1 mt-1.5 overflow-hidden">
-                  <div className="bg-cyan-500 h-1 transition-all duration-300" style={{ width: `${Math.max(5, d.progress)}%` }} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {props.connections.length > 0 && (
-          <div className="border-b border-slate-800">
-            <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-slate-400">Services (tools for the models)</div>
-            {props.connections.map((c) => (
-              <div key={c.service} className="px-3 py-2 flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <div className="text-xs text-slate-200 font-medium">{c.title}</div>
-                  <div className="text-[10px] text-slate-500">
-                    {c.connected
-                      ? `Connected${c.auth === 'token' ? ' with an agent token' : ''}`
-                      : 'Sign in to let the models use its tools'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => props.onToggleConnection(c)}
-                  disabled={props.connecting !== null}
-                  title={c.connected ? 'Sign out and remove the service' : 'Opens the sign-in in your browser'}
-                  className={`shrink-0 px-2 py-0.5 rounded text-[10px] disabled:opacity-40 ${
-                    c.connected ? 'bg-slate-800 hover:bg-slate-700 text-amber-300' : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
-                  }`}
-                >
-                  {props.connecting === c.service ? 'Waiting…' : c.connected ? 'Disconnect' : 'Connect'}
-                </button>
-              </div>
-            ))}
-            {props.connectNote && <div className="px-3 pb-2 text-[10px] text-cyan-300">{props.connectNote}</div>}
-          </div>
-        )}
-
-        {!props.data ? (
-          <div className="p-4 text-xs text-slate-500 text-center">Checking your hardware and models…</div>
-        ) : (
-          <>
-            {(() => {
-              const totalVram = hw?.vramBytes ?? 0;
-              const usedVram = hw?.vramUsedBytes ?? 0;
-              const pct = totalVram > 0 ? Math.min(100, Math.round((usedVram / totalVram) * 100)) : 0;
-              const barColor = pct > 85 ? 'bg-rose-500' : pct > 65 ? 'bg-amber-500' : 'bg-emerald-500';
-              const textColor = pct > 85 ? 'text-rose-400' : pct > 65 ? 'text-amber-400' : 'text-emerald-400';
-              return (
-                <div className="px-3 py-2 text-[10px] text-slate-400 border-b border-slate-800/60 flex flex-col space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      {hw?.gpuName ? `${hw.gpuName}` : 'No NVIDIA GPU found'} · {formatGb(hw?.ramBytes ?? 0)} RAM
-                    </div>
-                    {props.data.models.some((m) => m.loaded) && (
-                      <button
-                        onClick={() => props.onUnloadAll?.()}
-                        disabled={props.busyModel !== null}
-                        title="Unload all loaded models to free VRAM immediately"
-                        className="px-1.5 py-0.5 rounded text-[9px] bg-rose-950/80 hover:bg-rose-900 text-rose-300 disabled:opacity-40"
-                      >
-                        Unload all
-                      </button>
-                    )}
-                  </div>
-                  {totalVram > 0 && (
-                    <div className="flex items-center space-x-2 pt-0.5">
-                      <span className="text-[9px] text-slate-500 font-semibold uppercase tracking-wider">VRAM:</span>
-                      <div className="flex-1 bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
-                        <div className={`h-1.5 rounded-full transition-all duration-300 ${barColor}`} style={{ width: `${Math.max(2, pct)}%` }} />
-                      </div>
-                      <span className={`text-[10px] font-mono font-medium ${textColor}`}>
-                        {formatGb(usedVram)} / {formatGb(totalVram)} ({pct}%)
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Prompt to download search query if not installed */}
-            {search.trim() && !isExactInstalled && (
-              <div className="m-2 p-2.5 bg-cyan-950/40 border border-cyan-800/50 rounded-lg flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <div className="text-xs text-cyan-200 font-medium truncate">Download "{search.trim()}"</div>
-                  <div className="text-[10px] text-slate-400">Pull from Ollama library</div>
-                </div>
-                <button
-                  onClick={() => handlePull(search.trim())}
-                  disabled={downloads[search.trim()]?.status === 'downloading' || downloads[search.trim()]?.status === 'starting'}
-                  className="shrink-0 px-2.5 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium flex items-center space-x-1 disabled:opacity-40"
-                >
-                  <Download className="w-3 h-3" />
-                  <span>{downloads[search.trim()]?.status === 'downloading' ? `${downloads[search.trim()].progress}%` : 'Download'}</span>
-                </button>
-              </div>
-            )}
-
-            {filteredModels.length === 0 && (
-              <div className="p-3 text-xs text-slate-500 text-center">
-                {search ? `No installed models match "${search}".` : 'No local models installed.'}
-              </div>
-            )}
-
-            <div className="divide-y divide-slate-800/60">
-              {filteredModels.map((m) => (
-                <div key={m.name} className="p-2.5 flex items-center justify-between">
-                  <div className="min-w-0 pr-2">
-                    <div className="text-xs text-slate-200 truncate font-medium">
-                      {FIT_LABELS[m.fit].icon} {m.name}
-                      {m.recommended && (
-                        <span className="ml-1.5 text-[9px] text-cyan-300 bg-cyan-950 rounded px-1">recommended</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      {formatGb(m.sizeBytes)} · {FIT_LABELS[m.fit].text} ·{' '}
-                      {m.tools === null ? 'tool support unknown' : m.tools ? 'uses file tools' : 'no tool support'}
-                      {m.loaded && <span className="text-emerald-400 font-semibold"> · in memory ({formatGb(m.vramBytes)} on GPU)</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      onClick={() => props.onToggleLoaded(m)}
-                      disabled={props.busyModel !== null || (!m.loaded && m.fit === 'too_big')}
-                      title={m.loaded ? 'Unload model from memory to free VRAM' : 'Load into memory now so replies start at once'}
-                      className={`px-2.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                        m.loaded
-                          ? 'bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-200'
-                          : 'bg-cyan-900/60 hover:bg-cyan-800 text-cyan-200'
-                      }`}
-                    >
-                      {props.busyModel === m.name ? '…' : m.loaded ? 'Unload' : 'Load'}
-                    </button>
-                    {confirmDelete === m.name ? (
-                      <div className="flex items-center space-x-1 bg-rose-950/90 border border-rose-800/80 rounded px-1.5 py-0.5 text-[10px]">
-                        <span className="text-rose-200 font-medium">Delete?</span>
-                        <button
-                          onClick={() => handleDelete(m.name)}
-                          disabled={isDeleting === m.name}
-                          className="text-rose-400 hover:text-white font-bold px-1"
-                        >
-                          {isDeleting === m.name ? '…' : 'Yes'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(null)}
-                          disabled={isDeleting === m.name}
-                          className="text-slate-400 hover:text-white px-1"
-                        >
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDelete(m.name)}
-                        disabled={m.loaded || props.busyModel !== null || isDeleting !== null}
-                        title={m.loaded ? 'Unload model before deleting' : `Delete ${m.name} to free disk space`}
-                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 disabled:opacity-30 disabled:hover:text-slate-500 disabled:hover:bg-transparent transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {props.data.suggestions.length > 0 && (
-              <>
-                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold text-slate-400">Suggested downloads for this PC</div>
-                <div className="divide-y divide-slate-800/60">
-                  {props.data.suggestions.map((s) => (
-                    <div key={s.name} className="px-3 py-2 flex items-center justify-between">
-                      <div className="min-w-0 pr-2">
-                        <div className="text-xs text-slate-200 truncate">
-                          {FIT_LABELS[s.fit].icon} {s.name} <span className="text-[10px] text-slate-500">~{s.sizeGb} GB</span>
-                        </div>
-                        <div className="text-[10px] text-slate-500 truncate">{s.note}</div>
-                      </div>
-                      <div className="flex items-center space-x-1 shrink-0">
-                        <button
-                          onClick={() => handlePull(s.name)}
-                          disabled={downloads[s.name]?.status === 'downloading' || downloads[s.name]?.status === 'starting'}
-                          title={`Download ${s.name} into Ollama now`}
-                          className="flex items-center space-x-1 px-2 py-0.5 rounded bg-cyan-900/70 hover:bg-cyan-800 text-[10px] text-cyan-200 font-medium disabled:opacity-40"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>{downloads[s.name]?.status === 'downloading' ? `${downloads[s.name].progress}%` : 'Download'}</span>
-                        </button>
-                        <button
-                          onClick={() => navigator.clipboard?.writeText(s.pull).catch(() => undefined)}
-                          title={`Copy "${s.pull}" to clipboard`}
-                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /** Pins replies to one model; "Default model" lets the mode dropdown decide. Value is "provider|model". */
 function ModelPicker(props: {
@@ -3697,6 +4502,7 @@ function ModelPicker(props: {
   groups: ModelProvider[];
   localModels: LocalModel[];
   onChange: (model: ModelChoice) => void;
+  onOpenModelsManager?: () => void;
 }) {
   // Local models get their hardware rating, e.g. "✅ qwen3.5:2b (recommended)"
   const label = (provider: string, name: string) => {
@@ -3710,6 +4516,10 @@ function ModelPicker(props: {
       <select
         value={current}
         onChange={(e) => {
+          if (e.target.value === '__manage__') {
+            props.onOpenModelsManager?.();
+            return;
+          }
           const [provider, ...rest] = e.target.value.split('|');
           props.onChange({ provider, model: rest.join('|') });
         }}
@@ -3717,6 +4527,7 @@ function ModelPicker(props: {
         className="appearance-none bg-slate-800 hover:bg-slate-700 rounded-lg pl-2 pr-6 py-1 focus:outline-none cursor-pointer max-w-[160px] truncate"
       >
         <option value="">Default model</option>
+        <option value="__manage__">⚡ Manage Local Models...</option>
         {props.groups.map((g) => (
           <optgroup key={g.name} label={g.displayName}>
             {g.availableModels.map((m) => (
@@ -3730,11 +4541,153 @@ function ModelPicker(props: {
   );
 }
 
+/** Domain Specialist Mode selector dropdown & popover. */
+function ModePicker(props: {
+  value: Mode;
+  onChange: (mode: Mode) => void;
+  onOpenGallery?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [open]);
+
+  const activeMode = SPECIALIST_MODES.find((m) => m.id === props.value) || SPECIALIST_MODES[0];
+
+  const renderIcon = (icon: string, className: string) => {
+    switch (icon) {
+      case 'zap': return <Zap className={className} />;
+      case 'trending-up': return <TrendingUp className={className} />;
+      case 'wine': return <Wine className={className} />;
+      case 'calendar': return <Calendar className={className} />;
+      case 'boxes': return <Boxes className={className} />;
+      case 'users': return <Users className={className} />;
+      case 'megaphone': return <Megaphone className={className} />;
+      case 'target': return <Target className={className} />;
+      case 'star': return <Star className={className} />;
+      case 'heart': return <Heart className={className} />;
+      case 'shield': return <Shield className={className} />;
+      case 'code': return <Code2 className={className} />;
+      case 'palette': return <Palette className={className} />;
+      case 'briefcase': return <Briefcase className={className} />;
+      case 'bot': return <Bot className={className} />;
+      default: return <Sparkles className={className} />;
+    }
+  };
+
+  const quickModes = SPECIALIST_MODES.filter((m) => m.featured || m.id === props.value).slice(0, 4);
+
+  return (
+    <div className="relative inline-flex items-center" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        title={`Current Specialist Mode: ${activeMode.name} (${activeMode.badge}). Click to switch mode.`}
+        className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all shadow-xs select-none ${
+          open
+            ? 'bg-slate-700 border-slate-500 text-white ring-1 ring-slate-400/30'
+            : 'bg-slate-800/90 hover:bg-slate-700/90 border-slate-700/70 text-slate-200'
+        }`}
+      >
+        <span className="flex items-center space-x-1.5">
+          {renderIcon(activeMode.icon, `w-3.5 h-3.5 ${activeMode.accentClass.split(' ')[0]}`)}
+          <span className="font-medium tracking-tight">{activeMode.shortLabel}</span>
+        </span>
+        <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 bottom-full mb-1.5 w-80 max-h-[300px] overflow-hidden bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 p-2 flex flex-col space-y-1.5 backdrop-blur-md">
+          <div className="px-2 py-1 border-b border-slate-800/80 shrink-0">
+            <div className="text-[11px] font-semibold text-slate-200 flex items-center justify-between">
+              <span>Domain Specialist Modes</span>
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">Specialist</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+              Auto-configures domain tools, skills, and system persona prompts.
+            </p>
+          </div>
+
+          <div className="flex flex-col space-y-1 pt-0.5 max-h-[165px] overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-slate-700">
+            {quickModes.map((m) => {
+              const isSelected = props.value === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    props.onChange(m.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full text-left p-1.5 rounded-lg transition-all flex items-start space-x-2 ${
+                    isSelected
+                      ? 'bg-slate-800 border border-slate-600/80 shadow-inner'
+                      : 'hover:bg-slate-800/60 border border-transparent'
+                  }`}
+                >
+                  <div className={`p-1 rounded-lg border mt-0.5 shrink-0 ${m.accentClass}`}>
+                    {renderIcon(m.icon, 'w-3.5 h-3.5')}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[11px] font-semibold truncate ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                        {m.name}
+                      </span>
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800/90 text-slate-300 border border-slate-700/60 font-medium shrink-0 ml-1">
+                        {m.badge}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 leading-snug">
+                      {m.description}
+                    </p>
+                  </div>
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 self-center ml-1" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* See More Modes & Search All Action Button */}
+          <div className="pt-1.5 border-t border-slate-800/90">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                props.onOpenGallery?.();
+              }}
+              className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-cyan-950/80 to-slate-800 hover:from-cyan-900 hover:to-slate-700 border border-cyan-800/60 hover:border-cyan-600/80 text-cyan-300 hover:text-white text-[11px] font-semibold flex items-center justify-between transition-all shadow-xs cursor-pointer group"
+            >
+              <span className="flex items-center space-x-1.5">
+                <Search className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span>See more modes & search all ({SPECIALIST_MODES.length})...</span>
+              </span>
+              <ChevronRight className="w-3.5 h-3.5 text-cyan-400 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Composer(props: {
   draft: string;
   onDraft: (value: string) => void;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  onOpenModesGallery?: () => void;
   model: ModelChoice;
   modelGroups: ModelProvider[];
   localModels: LocalModel[];
@@ -3810,9 +4763,32 @@ function Composer(props: {
     };
   }, []);
 
+  const activeModeDef = SPECIALIST_MODES.find((m) => m.id === props.mode);
+
   return (
     <div className={props.centered ? "w-full" : "mt-3"}>
       <div className="bg-slate-900/95 border border-slate-700/80 rounded-2xl p-2.5 focus-within:border-cyan-500/80 shadow-xl transition-all">
+        {props.mode !== 'auto' && activeModeDef && (
+          <div className="flex items-center justify-between pb-1.5 px-2 mb-1 border-b border-slate-800/80">
+            <div className="flex items-center space-x-1.5 text-[10px]">
+              <span className="text-slate-400">Mode:</span>
+              <span className={`px-2 py-0.5 rounded font-medium border ${activeModeDef.accentClass}`}>
+                {activeModeDef.name}
+              </span>
+              <span className="text-slate-500 font-mono text-[9px] hidden sm:inline">
+                ({activeModeDef.badge})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => props.onMode('auto')}
+              className="text-[10px] text-slate-500 hover:text-slate-300 hover:underline transition-colors"
+            >
+              Reset to General
+            </button>
+          </div>
+        )}
+
         <textarea
           ref={inputRef}
           value={props.draft}
@@ -3834,9 +4810,9 @@ function Composer(props: {
           className="w-full bg-transparent px-2.5 pt-1.5 text-xs text-slate-100 placeholder-slate-400 focus:outline-none resize-none select-text"
         />
 
-        {/* Bottom Toolbar: [ + | Chat | Cowork ] ... [ Model | Mic | Send ] */}
+        {/* Bottom Toolbar: [ + | ModePicker ] ... [ Model | Mic | Send ] */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 mt-1 px-1">
-          {/* Left tools: + and segmented [ Chat | Cowork ] pill */}
+          {/* Left tools: + and ModePicker */}
           <div className="flex items-center space-x-1.5">
             {props.onToggleWindows && (
               <button
@@ -3849,31 +4825,11 @@ function Composer(props: {
               </button>
             )}
 
-            {/* Segmented Pill: [ Chat | Cowork ] exactly like Claude Desktop screenshot */}
-            <div className="flex bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/60 text-[11px]">
-              <button
-                type="button"
-                onClick={() => props.onMode('auto')}
-                className={`px-2.5 py-0.5 rounded-md font-medium transition-all ${
-                  props.mode === 'auto' || props.mode === 'direct'
-                    ? 'bg-slate-700 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => props.onMode('antigravity')}
-                className={`px-2.5 py-0.5 rounded-md font-medium transition-all ${
-                  props.mode !== 'auto' && props.mode !== 'direct'
-                    ? 'bg-cyan-950 text-cyan-300 border border-cyan-700/60 font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Cowork
-              </button>
-            </div>
+            <ModePicker
+              value={props.mode}
+              onChange={props.onMode}
+              onOpenGallery={props.onOpenModesGallery}
+            />
           </div>
 
           {/* Right tools: ModelPicker, Mic, Send */}
@@ -3883,6 +4839,7 @@ function Composer(props: {
               groups={props.modelGroups}
               localModels={props.localModels}
               onChange={props.onModel}
+              onOpenModelsManager={props.onToggleModels}
             />
 
             <button

@@ -55,6 +55,32 @@ if [ -x "$LOCAL_HOOK" ]; then
 fi
 EOF
 
+install_hook prepare-commit-msg <<'EOF'
+#!/usr/bin/env bash
+# commit-standards-hook
+COMMIT_FILE="$1"
+COMMIT_SOURCE="$2"
+
+# Only auto-inject for regular commits (not merge, squash, or amend)
+if [ -z "$COMMIT_SOURCE" ] || [ "$COMMIT_SOURCE" = "message" ]; then
+  EXCLUDED='(^|/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|poetry\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$|\.md$'
+  STAGED_COUNT=$(git diff --cached --name-only | { grep -Ev "$EXCLUDED" || true; } | grep -c . || true)
+  if [ "$STAGED_COUNT" -ge 2 ]; then
+    if [ -f "scripts/visual-diff.py" ]; then
+      DIAGRAM=$(python3 scripts/visual-diff.py --ascii 2>/dev/null || python scripts/visual-diff.py --ascii 2>/dev/null || true)
+      if [ -n "$DIAGRAM" ] && ! grep -q "Visual Delta" "$COMMIT_FILE"; then
+        printf "\n\n%s\n" "$DIAGRAM" >> "$COMMIT_FILE"
+      fi
+    fi
+  fi
+fi
+
+LOCAL_HOOK="$(dirname "$0")/prepare-commit-msg.local"
+if [ -x "$LOCAL_HOOK" ]; then
+  exec "$LOCAL_HOOK" "$@"
+fi
+EOF
+
 install_hook pre-commit <<'EOF'
 #!/usr/bin/env bash
 # commit-standards-hook
@@ -63,6 +89,15 @@ set -e
 # Initial commit has no HEAD; diff against the empty tree instead.
 AGAINST=HEAD
 git rev-parse --verify HEAD >/dev/null 2>&1 || AGAINST=$(git hash-object -t tree /dev/null)
+
+# 0. Strict Confidential Data & .env Blinding Check
+FORBIDDEN_FILES=$(git diff --cached --name-only | grep -Ei '(^|/)(\.env(\..+)?|\.pem|\.key|\.pfx|\.p12|credentials\.json|service_account\.json|id_rsa.*|id_ed25519.*)$' || true)
+if [ -n "$FORBIDDEN_FILES" ]; then
+  echo "❌ [SECURITY VIOLATION] Staged changes contain forbidden confidential file(s):"
+  echo "$FORBIDDEN_FILES"
+  echo "Confidential files must NEVER be tracked in git. Unstage them with: git reset HEAD <file>"
+  exit 1
+fi
 
 # 1. Prevent trailing whitespace noise from being staged
 if ! git diff-index --check --cached "$AGAINST" --; then
@@ -91,7 +126,7 @@ if [ "$STAGED_FILES" -gt "$MAX_FILES" ]; then
 fi
 
 # 3. Block mixing configuration/infrastructure with application source
-CONFIG_RE='(tsconfig|\.eslintrc|vite\.config|webpack|Dockerfile|\.env|CMakeLists\.txt)'
+CONFIG_RE='(tsconfig|\.eslintrc|vite\.config|webpack|Dockerfile|CMakeLists\.txt)'
 SRC_RE='^(src/|lib/|packages/|apps?/)'
 HAS_CONFIG=$(git diff --cached --name-only | grep -E "$CONFIG_RE" || true)
 HAS_SRC=$(git diff --cached --name-only | grep -Ev "$CONFIG_RE" | grep -E "$SRC_RE" || true)

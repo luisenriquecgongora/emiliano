@@ -124,7 +124,8 @@ class McpStdioClient(_McpClient):
         msg = slot["msg"] or {}
         if "error" in msg:
             err = msg["error"] or {}
-            raise McpError(f"{self.name}: {method} failed: {err.get('message', err)}")
+            err_msg = err.get("message", err) if isinstance(err, dict) else str(err)
+            raise McpError(f"{self.name}: {method} failed: {err_msg}")
         return msg.get("result") or {}
 
     def _notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
@@ -331,7 +332,8 @@ class McpHttpClient(_McpClient):
             raise McpError(f"{self.name}: {method} returned HTTP {res.status_code} with no JSON-RPC answer")
         if "error" in msg:
             err = msg["error"] or {}
-            raise McpError(f"{self.name}: {method} failed: {err.get('message', err)}")
+            err_msg = err.get("message", err) if isinstance(err, dict) else str(err)
+            raise McpError(f"{self.name}: {method} failed: {err_msg}")
         return msg.get("result") or {}
 
     def start(self, timeout: float = 30.0) -> None:

@@ -1,0 +1,36 @@
+name: PR Visual Summary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  visual-delta:
+    name: Visual Architecture Delta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate Visual Delta
+        run: |
+          cat << 'EOF' > pr_visual.md
+          ### ⚡ Visual Architecture Delta (Fast Inspection)
+
+          EOF
+          python scripts/visual-diff.py --range "origin/${{ github.base_ref }}...HEAD" >> pr_visual.md
+
+      - name: Post / Update Sticky PR Comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: visual-architecture-delta
+          path: pr_visual.md
