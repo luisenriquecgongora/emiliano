@@ -2,7 +2,6 @@
 
 ## [0.6.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.5.0...v0.6.0) (2026-11-19)
 
-
 ### Features
 
 * **desktop:** add interactive Always-On-Top lock toggle with Win32 multi-window DWM Z-order synchronization
@@ -10,12 +9,12 @@
 * **telemetry:** add granular per-process step latencies (Reasoning/Thinking, MCP Tool Execution, Generation, TTFT)
 * **mcp:** enhance PlaatoOS query routing and domain boosters for multi-turn business summaries and song request analytics
 
-
 ### Bug Fixes
 
 * **desktop:** synchronize non-topmost window styles on startup and unpin to prevent foreground persistence over Windows Search
 * **direct:** purge conversational refusal echoes and placeholder strings from agent message history
 
+## [0.5.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.4.0...v0.5.0) (2026-11-18)
 
 ### Features
 
@@ -26,11 +25,60 @@
 * **outreach:** integrate PlaatoOS autonomous outreach engine with live HUD telemetry and verified DOM delivery receipts
 * **crm:** cross landmark 500+ verified hospitality venues contacted with direct self-registration links
 
-
 ### Bug Fixes
 
 * **engine:** eliminate recursive deadlock in `/api/browser/status` bridge resolution
 * **desktop:** prevent window control clipping in compact dock widths with non-shrinkable headers
+
+## [0.4.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.3.0...v0.4.0) (2026-11-18)
+
+### Features
+
+* **cli:** add model pull and delete slash commands ([dc895d7](https://github.com/luisenriquecgongora/emiliano/commit/dc895d7a4f9565b52666035938f30fab48fec9f5))
+* **core:** add frontier reasoning router and realtime api ([d98a6f8](https://github.com/luisenriquecgongora/emiliano/commit/d98a6f813893e180cf8ae57db8e56accd7b50b05))
+* **core:** add generic extension manager for workspace workflows ([4bab277](https://github.com/luisenriquecgongora/emiliano/commit/4bab277743fcc3e6724383aa7e34585ef6fa6588))
+* **core:** add privacy vault and safety guardrails ([9b30a82](https://github.com/luisenriquecgongora/emiliano/commit/9b30a82b438156c63889db68168918fc236af2f5))
+* **core:** add reliability pipeline and rate limiting ([f3a7dc2](https://github.com/luisenriquecgongora/emiliano/commit/f3a7dc26657582340f25b01a8d2613ea1ebfc76e))
+* **core:** implement hermes skill synthesizer and gateway ([fec3624](https://github.com/luisenriquecgongora/emiliano/commit/fec362436fd3872554fb371c6361e1d7b2ecaac0))
+* **cowork:** add browser bridge and scratch automation ([6211893](https://github.com/luisenriquecgongora/emiliano/commit/621189352acc6d1774e995e027089225db6d1e1d))
+* **cowork:** add chrome companion browser extension ([e7a07e7](https://github.com/luisenriquecgongora/emiliano/commit/e7a07e79cc49ea6aa9cc9b22e9eb2eeb54bbce32))
+* **cowork:** add clipboard Unicode typing fallback and robust foreground window focus ([ca9ab62](https://github.com/luisenriquecgongora/emiliano/commit/ca9ab62aef5af76766fa8c8d10c7afbc5f70e2d9))
+* **cowork:** enhance uia perception and voice actions ([5f6fc09](https://github.com/luisenriquecgongora/emiliano/commit/5f6fc091cbe3cf30efe5ad7ac30ac02e59b593a0))
+* **cowork:** expand eval suite to 22 tasks with client research and prospecting ([9a0955b](https://github.com/luisenriquecgongora/emiliano/commit/9a0955b000cb3660785b4001ecc8fc772f40bf4f))
+* **cowork:** harden perception, skills and sandbox flags ([f4207f3](https://github.com/luisenriquecgongora/emiliano/commit/f4207f354a19fc586dc704d5997d53b80b5c7780))
+* **cowork:** improve agent grounding, tool calling, and action execution ([c159e33](https://github.com/luisenriquecgongora/emiliano/commit/c159e336e6cb99350ea2c87147790a7ea7bc3ce6))
+* **cowork:** support background cdp and foreground os modes ([791d970](https://github.com/luisenriquecgongora/emiliano/commit/791d970ea0d792126492a8241cf780a7927e1680))
+* **cowork:** support non-activating background chrome ([343f904](https://github.com/luisenriquecgongora/emiliano/commit/343f90427ea1fc8633623fdeccf579ad6ab24ae1))
+* **desktop:** add active project scope banner in dock ([9f128c0](https://github.com/luisenriquecgongora/emiliano/commit/9f128c02a8324f3fe5e8a6feb88ac6d8153b1c05))
+* **desktop:** add html artifact preview modal and viewport toggle ([28ce570](https://github.com/luisenriquecgongora/emiliano/commit/28ce5702bddfbddca170abf9dee9c092d5d2ddd9))
+* **desktop:** add live VRAM utilization gauge to models panel ([9bbe0f1](https://github.com/luisenriquecgongora/emiliano/commit/9bbe0f1064da7bfb90bcbf41b5f7d3a1dd1bbc3b))
+* **desktop:** add model family catalog and deletion controls ([1a30534](https://github.com/luisenriquecgongora/emiliano/commit/1a305341bff988c9da64cebf9372db544b3965dd))
+* **desktop:** add voice dictation recording to composer dock ([7b3b3c6](https://github.com/luisenriquecgongora/emiliano/commit/7b3b3c6966eb307a1da0ddb9d143bc9ee4257f5e))
+* **desktop:** enhance rich markdown rendering and dock layout ([54e917b](https://github.com/luisenriquecgongora/emiliano/commit/54e917ba4c879e08f66b1c4e1f44175e72805413))
+* **direct:** add model lifecycle and hardware handling ([687702d](https://github.com/luisenriquecgongora/emiliano/commit/687702d84c141c4d0ed366337923ac97600cc0a3))
+* **engine:** add Chrome DevTools Protocol automation and profile discovery ([0908376](https://github.com/luisenriquecgongora/emiliano/commit/0908376d09ac09c95fe7dad6fdb1737ece0b95e2))
+* **engine:** add execution pipeline abstraction and dispatcher integration ([c2ecd94](https://github.com/luisenriquecgongora/emiliano/commit/c2ecd942b0d45bddabaad08bc06c2b996da2ddd9))
+* **engine:** add routines scheduler daemon and models ([3748e87](https://github.com/luisenriquecgongora/emiliano/commit/3748e874c3f81b0c49ada32880b966473277c2bd))
+* **engine:** add shared blackboard state management and event stream ([6a7ced3](https://github.com/luisenriquecgongora/emiliano/commit/6a7ced3b25e186c0c0710da8af6db3034316932a))
+* **engine:** enhance core execution and prewarm routing ([0d823c8](https://github.com/luisenriquecgongora/emiliano/commit/0d823c8e59e6d8cb5b814e5eb8412d708ae5c7ca))
+* **evals:** add cowork workflow eval suite and extension routing verification ([7f015b2](https://github.com/luisenriquecgongora/emiliano/commit/7f015b25d2e988e9a0eb6007202bd13ccc1a66da))
+* **history:** add /clear endpoint, slash commands, and context flushing tests ([7e3669d](https://github.com/luisenriquecgongora/emiliano/commit/7e3669d951df16c150f6a0ab7de670f5d1a2a52e))
+* **history:** add casual greeting conversational gating ([3ba7fb4](https://github.com/luisenriquecgongora/emiliano/commit/3ba7fb40a75b7218231de012c4e83356e50253e8))
+* **history:** dynamically link pipeline dashboard artifact ([5e67a16](https://github.com/luisenriquecgongora/emiliano/commit/5e67a16723bc3d33bbbcf5a7550724bde56a0bd0))
+* **history:** enrich outreach default artifact documentation ([dec98c2](https://github.com/luisenriquecgongora/emiliano/commit/dec98c2bb3a4534d5d415d481b99a5f0d17ea7e1))
+* **server:** add audio voice transcription and status endpoints ([eced53e](https://github.com/luisenriquecgongora/emiliano/commit/eced53e3bf6838bac18075ae917682665a3b9a1b))
+* **server:** add html artifact extraction and websocket token auth ([9213977](https://github.com/luisenriquecgongora/emiliano/commit/9213977d731435cbbaf20be9df2455c7de090e2b))
+* **server:** add ipc bearer token verification and gateway auth ([b8b01d2](https://github.com/luisenriquecgongora/emiliano/commit/b8b01d258f9cba4bf83c313ad9b3bfde482637a2))
+* **server:** enforce origin checking before health endpoint bypass ([d0ffd8b](https://github.com/luisenriquecgongora/emiliano/commit/d0ffd8b22b713a70a291890890c192a01c857398))
+* **server:** expose routine, browser, and history apis ([33efbe8](https://github.com/luisenriquecgongora/emiliano/commit/33efbe86e55326d6205c766221a59df9f393483b))
+
+### Bug Fixes
+
+* **core:** normalize separators in traversal guard ([66b69a5](https://github.com/luisenriquecgongora/emiliano/commit/66b69a5f18982c63c55afa69c9d60fc021a4862f))
+* **desktop:** auto hide overlay to prevent screen click blocking ([882a379](https://github.com/luisenriquecgongora/emiliano/commit/882a379e33805c6a36d4fdee95bea84e22f66342))
+* **desktop:** prevent auto-reload loop when opening new chat in HUD ([a938431](https://github.com/luisenriquecgongora/emiliano/commit/a938431f719cbf73839626e5a50f93f4e69c5f93))
+* **desktop:** reset busy state and clear pending messages on websocket disconnect ([afc3aa8](https://github.com/luisenriquecgongora/emiliano/commit/afc3aa88de4a8ad81c64cf81fa6392a4e679ee36))
+* **engine:** prevent threaded litellm import deadlock ([95ee686](https://github.com/luisenriquecgongora/emiliano/commit/95ee686c50baefdf6442cac1b991b61929d488fb))
 
 ## [0.3.0](https://github.com/luisenriquecgongora/emiliano/compare/v0.2.0...v0.3.0) (2026-11-13)
 
