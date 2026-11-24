@@ -256,6 +256,17 @@ class HistoryStore:
                         file_path=str(user_cv_file),
                     ))
 
+                tracker_file = job_search_path / "tools" / "job_application_tracker.html"
+                if tracker_file.exists() and not db.get(Artifact, "art-job-tracker-crm"):
+                    db.add(Artifact(
+                        id="art-job-tracker-crm",
+                        project_id="ai-job-search",
+                        title="Job Applications & CV Variant Tracker CRM",
+                        kind="html",
+                        content=tracker_file.read_text(encoding="utf-8"),
+                        file_path=str(tracker_file),
+                    ))
+
                 if not db.get(Artifact, "art-outreach-analysis"):
                     analysis_file = Path(r"C:\Users\artlu\.gemini\antigravity-cli\brain\8fbaa064-7416-4540-8a08-956d9cba103b\state_of_the_art_outreach_analysis.md")
                     content = analysis_file.read_text(encoding="utf-8") if analysis_file.exists() else "# Autonomous B2B Outreach Engine Analysis\n\nPolyForm Shield 1.0.0 compliance and multi-channel architecture."
